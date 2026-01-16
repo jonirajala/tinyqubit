@@ -14,12 +14,6 @@ Existing quantum SDKs have problems:
 
 TinyQubit: tiny, no dependencies, deterministic, explainable.
 
-## Install
-
-```bash
-pip install -e .
-```
-
 ## Usage
 
 ```python
