@@ -9,6 +9,7 @@ from tinyqubit.target import Target
 from tinyqubit.tracker import QubitTracker
 from tinyqubit.passes.route import route
 from tinyqubit.passes.optimize import optimize
+from tinyqubit.passes.decompose import decompose
 
 from conftest import line_topology, all_to_all_topology
 
@@ -348,3 +349,372 @@ def test_route_then_optimize(line_5):
 
     # At minimum, should not increase
     assert after <= before
+
+
+# =============================================================================
+# Decomposition Tests
+# =============================================================================
+
+def test_decompose_swap_to_cx():
+    """SWAP decomposes to 3 CX gates."""
+    c = Circuit(2).swap(0, 1)
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 3
+    assert all(op.gate == Gate.CX for op in dec.ops)
+
+
+def test_decompose_h_to_rotations():
+    """H decomposes to RZ RX RZ."""
+    c = Circuit(1).h(0)
+    basis = frozenset({Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 3
+    assert dec.ops[0].gate == Gate.RZ
+    assert dec.ops[1].gate == Gate.RX
+    assert dec.ops[2].gate == Gate.RZ
+
+
+def test_decompose_s_to_rz():
+    """S decomposes to RZ(π/2)."""
+    c = Circuit(1).s(0)
+    basis = frozenset({Gate.RZ})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 1
+    assert dec.ops[0].gate == Gate.RZ
+    assert abs(dec.ops[0].params[0] - pi/2) < 1e-10
+
+
+def test_decompose_t_to_rz():
+    """T decomposes to RZ(π/4)."""
+    c = Circuit(1).t(0)
+    basis = frozenset({Gate.RZ})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 1
+    assert dec.ops[0].gate == Gate.RZ
+    assert abs(dec.ops[0].params[0] - pi/4) < 1e-10
+
+
+def test_decompose_cz_to_h_cx():
+    """CZ decomposes to H CX H."""
+    c = Circuit(2).cz(0, 1)
+    basis = frozenset({Gate.H, Gate.CX})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 3
+    assert dec.ops[0].gate == Gate.H
+    assert dec.ops[1].gate == Gate.CX
+    assert dec.ops[2].gate == Gate.H
+
+
+def test_decompose_keeps_basis_gates():
+    """Gates already in basis are not decomposed."""
+    c = Circuit(2).cx(0, 1).rz(0, 0.5)
+    basis = frozenset({Gate.CX, Gate.RZ})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 2
+    assert dec.ops[0].gate == Gate.CX
+    assert dec.ops[1].gate == Gate.RZ
+
+
+def test_decompose_chained():
+    """CZ decomposes to H CX H, then H decomposes further if not in basis."""
+    c = Circuit(2).cz(0, 1)
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})  # No H in basis
+    dec = decompose(c, basis)
+
+    # CZ → H CX H → (RZ RX RZ) CX (RZ RX RZ)
+    assert len(dec.ops) == 7
+    assert dec.ops[3].gate == Gate.CX  # CX in middle
+
+
+def test_decompose_preserves_semantics():
+    """Decomposition preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(2).h(0).cx(0, 1)  # Bell state
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+
+    assert states_equal(simulate(c), simulate(dec))
+
+
+def test_decompose_ry_to_rotations():
+    """RY decomposes to RX RZ RX."""
+    c = Circuit(1).ry(0, 1.0)
+    basis = frozenset({Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 3
+    assert dec.ops[0].gate == Gate.RX
+    assert dec.ops[1].gate == Gate.RZ
+    assert dec.ops[2].gate == Gate.RX
+    assert abs(dec.ops[1].params[0] - 1.0) < 1e-10  # Angle preserved
+
+
+def test_decompose_ry_preserves_semantics():
+    """RY decomposition preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(1).ry(0, pi/3)
+    basis = frozenset({Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+
+    assert states_equal(simulate(c), simulate(dec))
+
+
+# =============================================================================
+# Full Pipeline Tests
+# =============================================================================
+
+def test_transpile_full_pipeline():
+    """Full transpile pipeline: route → decompose → optimize."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=3,
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_3"
+    )
+
+    # Circuit needing routing (CX on non-adjacent qubits) and decomposition (H)
+    c = Circuit(3).h(0).cx(0, 2)
+    result = transpile(c, target)
+
+    # All gates should be in basis
+    for op in result.ops:
+        assert op.gate in target.basis_gates
+
+
+def test_transpile_preserves_semantics():
+    """Full transpile preserves circuit semantics."""
+    from tinyqubit.compile import transpile
+    from tinyqubit.simulator import simulate, states_equal
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_2"
+    )
+
+    c = Circuit(2).h(0).cx(0, 1)  # Bell state
+    result = transpile(c, target)
+
+    assert states_equal(simulate(c), simulate(result))
+
+
+def test_transpile_with_routing_semantics():
+    """Transpile with routing preserves semantics (accounting for permutation)."""
+    from tinyqubit.compile import transpile
+    from tinyqubit.simulator import simulate, states_equal
+    import numpy as np
+
+    target = Target(
+        n_qubits=3,
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_3"
+    )
+
+    c = Circuit(3).h(0).cx(0, 2)  # Non-adjacent qubits
+    result = transpile(c, target)
+
+    # Get permutation from tracker (attached during routing)
+    perm = result._tracker.logical_to_physical
+
+    # Simulate and compare with permutation
+    original = simulate(c)
+    transpiled = simulate(result)
+
+    # Permute original to match physical ordering
+    original_reshaped = original.reshape([2] * 3)
+    permuted = np.transpose(original_reshaped, perm).reshape(-1)
+
+    assert states_equal(permuted, transpiled)
+
+
+def test_transpile_various_gates():
+    """Transpile handles S, T, Y, Z gates."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_2"
+    )
+
+    c = Circuit(2).s(0).t(1).y(0).z(1)
+    result = transpile(c, target)
+
+    # All gates should be in basis
+    for op in result.ops:
+        assert op.gate in target.basis_gates
+
+
+def test_transpile_swap_becomes_3cx():
+    """SWAP gate decomposes to 3 CX gates."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_2"
+    )
+
+    c = Circuit(2).swap(0, 1)
+    result = transpile(c, target)
+
+    cx_count = sum(1 for op in result.ops if op.gate == Gate.CX)
+    assert cx_count == 3
+
+
+def test_transpile_empty_circuit():
+    """Transpile handles empty circuit."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_2"
+    )
+
+    c = Circuit(2)
+    result = transpile(c, target)
+
+    assert len(result.ops) == 0
+
+
+def test_transpile_single_gate():
+    """Transpile handles single gate."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=1,
+        edges=frozenset(),
+        basis_gates=frozenset({Gate.RZ, Gate.RX}),
+        name="single"
+    )
+
+    c = Circuit(1).h(0)
+    result = transpile(c, target)
+
+    # H → RZ RX RZ
+    assert len(result.ops) == 3
+    for op in result.ops:
+        assert op.gate in target.basis_gates
+
+
+def test_transpile_optimization_reduces_gates():
+    """Optimizer removes redundant gates after decomposition."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=1,
+        edges=frozenset(),
+        basis_gates=frozenset({Gate.RZ, Gate.RX}),
+        name="single"
+    )
+
+    # H H = I, should cancel
+    c = Circuit(1).h(0).h(0)
+    result = transpile(c, target)
+
+    # After decomposition: (RZ RX RZ)(RZ RX RZ)
+    # RZ RZ in middle should merge, potentially more cancellation
+    # At minimum, should be less than 6 gates
+    assert len(result.ops) < 6
+
+
+def test_transpile_multiple_2q_gates():
+    """Transpile handles multiple 2Q gates needing routing."""
+    from tinyqubit.compile import transpile
+    from tinyqubit.simulator import simulate, states_equal
+    import numpy as np
+
+    target = Target(
+        n_qubits=4,
+        edges=line_topology(4),  # 0-1-2-3
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_4"
+    )
+
+    # Multiple non-adjacent CX gates
+    c = Circuit(4).h(0).cx(0, 3).cx(1, 3)
+    result = transpile(c, target)
+
+    # All gates in basis
+    for op in result.ops:
+        assert op.gate in target.basis_gates
+
+
+def test_transpile_all_to_all_no_routing():
+    """All-to-all connectivity skips routing."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=3,
+        edges=all_to_all_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="all_to_all_3"
+    )
+
+    c = Circuit(3).h(0).cx(0, 2)  # Would need routing on line
+    result = transpile(c, target)
+
+    # Should have no extra CX from SWAP decomposition
+    # H → 3 gates, CX → 1 gate = 4 total
+    assert len(result.ops) == 4
+
+
+def test_transpile_cz_basis():
+    """Transpile to CZ-based basis (Rigetti-style)."""
+    from tinyqubit.compile import transpile
+    from tinyqubit.simulator import simulate, states_equal
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CZ, Gate.RZ, Gate.RX, Gate.H}),
+        name="rigetti_style"
+    )
+
+    c = Circuit(2).cx(0, 1)
+    result = transpile(c, target)
+
+    # CX should become H CZ H or similar
+    for op in result.ops:
+        assert op.gate in target.basis_gates
+
+    # Verify semantics
+    assert states_equal(simulate(c), simulate(result))
+
+
+def test_transpile_deterministic():
+    """Same input always produces same output."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=3,
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+        name="line_3"
+    )
+
+    c = Circuit(3).h(0).cx(0, 2).rz(1, 0.5)
+
+    result1 = transpile(c, target)
+    result2 = transpile(c, target)
+
+    assert len(result1.ops) == len(result2.ops)
+    for op1, op2 in zip(result1.ops, result2.ops):
+        assert op1 == op2

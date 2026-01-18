@@ -13,12 +13,13 @@ from ..tracker import QubitTracker, PendingSwap, PendingGate
 
 def route(circuit: Circuit, target: Target) -> Circuit:
     """Route circuit to satisfy target connectivity with automatic SWAP insertion."""
+    tracker = QubitTracker(circuit.n_qubits)
+
     if target.is_all_to_all():
         result = Circuit(circuit.n_qubits)
         result.ops = circuit.ops.copy()
+        result._tracker = tracker
         return result
-
-    tracker = QubitTracker(circuit.n_qubits)
 
     for op_idx, op in enumerate(circuit.ops):
         if op.gate.n_qubits == 1 or op.gate == Gate.MEASURE:
