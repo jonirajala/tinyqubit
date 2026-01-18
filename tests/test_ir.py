@@ -16,15 +16,15 @@ from tinyqubit.ir import Gate, Operation, Circuit
 # =============================================================================
 
 def test_gate_count():
-    """We have exactly 12 primitive gates"""
-    assert len(Gate) == 12
+    """We have exactly 13 primitive gates"""
+    assert len(Gate) == 13
 
 
 def test_gate_n_qubits():
     """Single vs two-qubit gates"""
     single = [Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.T,
               Gate.RX, Gate.RY, Gate.RZ, Gate.MEASURE]
-    two = [Gate.CX, Gate.CZ]
+    two = [Gate.CX, Gate.CZ, Gate.SWAP]
 
     for g in single:
         assert g.n_qubits == 1, f"{g} should be 1-qubit"

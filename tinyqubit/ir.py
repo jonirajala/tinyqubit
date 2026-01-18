@@ -2,11 +2,9 @@
 Core IR types - the single representation used throughout.
 
 Contains:
-    - Gate: Enum of supported gates (12 primitives) 
-        -  Universal gate set {RX, RY, RZ, CX} you can approximate any unitary to arbitrary precision.
+    - Gate: Enum of supported gates (13 primitives)
     - Operation: Dataclass (gate, qubits, params)
     - Circuit: Lazy builder, just appends Operations
-    - QubitTracker: Symbolic logical→physical mapping for routing
 """
 from __future__ import annotations
 
@@ -33,6 +31,7 @@ class Gate(Enum):
     # Two-qubit
     CX = auto()
     CZ = auto()
+    SWAP = auto()
 
     # Measurement
     MEASURE = auto()
@@ -40,7 +39,7 @@ class Gate(Enum):
     @property
     def n_qubits(self) -> int:
         """Number of qubits this gate acts on."""
-        if self in (Gate.CX, Gate.CZ): return 2
+        if self in (Gate.CX, Gate.CZ, Gate.SWAP): return 2
         return 1
 
     @property
@@ -77,6 +76,7 @@ class Circuit:
     def rz(self, q: int, theta: float) -> Circuit: return self._add(Gate.RZ, (q,), (theta,))
     def cx(self, c: int, t: int) -> Circuit: return self._add(Gate.CX, (c, t))
     def cz(self, a: int, b: int) -> Circuit: return self._add(Gate.CZ, (a, b))
+    def swap(self, a: int, b: int) -> Circuit: return self._add(Gate.SWAP, (a, b))
     def measure(self, q: int) -> Circuit: return self._add(Gate.MEASURE, (q,))
 
 
