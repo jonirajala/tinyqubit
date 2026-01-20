@@ -280,6 +280,213 @@ def test_optimize_deterministic():
 
 
 # =============================================================================
+# Phase 4.5 Optimization Tests (Clifford, Inverse Pairs, Commutation, Hadamard)
+# =============================================================================
+
+def test_optimize_clifford_ss_to_z():
+    """S·S merges to Z."""
+    c = Circuit(1).s(0).s(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+
+
+def test_optimize_clifford_tt_to_s():
+    """T·T merges to S."""
+    c = Circuit(1).t(0).t(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.S
+
+
+def test_optimize_inverse_s_sdg():
+    """S·S† cancels to identity."""
+    c = Circuit(1).s(0).sdg(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 0
+
+
+def test_optimize_inverse_sdg_s():
+    """S†·S cancels to identity."""
+    c = Circuit(1).sdg(0).s(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 0
+
+
+def test_optimize_inverse_t_tdg():
+    """T·T† cancels to identity."""
+    c = Circuit(1).t(0).tdg(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 0
+
+
+def test_optimize_inverse_tdg_t():
+    """T†·T cancels to identity."""
+    c = Circuit(1).tdg(0).t(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 0
+
+
+def test_optimize_hadamard_conjugate_x():
+    """H·X·H = Z."""
+    c = Circuit(1).h(0).x(0).h(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+
+
+def test_optimize_hadamard_conjugate_z():
+    """H·Z·H = X."""
+    c = Circuit(1).h(0).z(0).h(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.X
+
+
+def test_optimize_hadamard_conjugate_different_qubits():
+    """H(0)·X(1)·H(0) doesn't simplify (different qubits)."""
+    c = Circuit(2).h(0).x(1).h(0)
+    opt = optimize(c)
+
+    # H·H on q0 cancels, X on q1 remains
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.X
+    assert opt.ops[0].qubits == (1,)
+
+
+def test_optimize_commutation_diagonal():
+    """Diagonal gates commute and cancel: Z·S·Z cancels to S."""
+    c = Circuit(1).z(0).s(0).z(0)
+    opt = optimize(c)
+
+    # Z gates cancel through S (diagonal gates commute)
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.S
+
+
+def test_optimize_commutation_cancel_z_through_cx_control():
+    """Z cancels through CX on control qubit: Z(0)·CX(0,1)·Z(0) = CX(0,1)."""
+    c = Circuit(2).z(0).cx(0, 1).z(0)
+    opt = optimize(c)
+
+    # Z gates can cancel through CX (Z=RZ(π) commutes on control, and Z is self-inverse)
+    z_ops = [op for op in opt.ops if op.gate == Gate.Z]
+    assert len(z_ops) == 0
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CX
+
+
+def test_optimize_no_cancel_z_through_cx_target():
+    """Z doesn't cancel through CX on target qubit."""
+    c = Circuit(2).z(1).cx(0, 1).z(1)
+    opt = optimize(c)
+
+    # Z doesn't commute through CX on target, so no cancellation
+    z_ops = [op for op in opt.ops if op.gate == Gate.Z]
+    assert len(z_ops) == 2
+
+
+def test_optimize_commutation_cancel_hh():
+    """H gates cancel through commuting intermediate: H(0)·X(1)·H(0)."""
+    c = Circuit(2).h(0).x(1).h(0)
+    opt = optimize(c)
+
+    # H·H on q0 can cancel (X on different qubit commutes)
+    h_ops = [op for op in opt.ops if op.gate == Gate.H]
+    assert len(h_ops) == 0
+
+
+def test_optimize_chain_clifford():
+    """Chain: T·T·T·T = Z (via T·T=S, S·S=Z)."""
+    c = Circuit(1).t(0).t(0).t(0).t(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+
+
+def test_optimize_clifford_tdgtdg_to_sdg():
+    """TDG·TDG merges to SDG."""
+    c = Circuit(1).tdg(0).tdg(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.SDG
+
+
+def test_optimize_clifford_sdgsdg_to_z():
+    """SDG·SDG merges to Z."""
+    c = Circuit(1).sdg(0).sdg(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+
+
+def test_optimize_merge_rz_through_cx_control():
+    """RZ merges through CX on control qubit."""
+    c = Circuit(2).rz(0, 0.5).cx(0, 1).rz(0, 0.3)
+    opt = optimize(c)
+
+    # RZ gates merge through CX (RZ commutes on control)
+    rz_ops = [op for op in opt.ops if op.gate == Gate.RZ]
+    assert len(rz_ops) == 1
+    assert abs(rz_ops[0].params[0] - 0.8) < 1e-10
+
+
+def test_optimize_no_merge_rz_through_cx_target():
+    """RZ doesn't merge through CX on target qubit."""
+    c = Circuit(2).rz(1, 0.5).cx(0, 1).rz(1, 0.3)
+    opt = optimize(c)
+
+    # RZ doesn't commute through CX on target, no merge
+    rz_ops = [op for op in opt.ops if op.gate == Gate.RZ]
+    assert len(rz_ops) == 2
+
+
+def test_optimize_merge_rz_through_diagonal():
+    """RZ merges through other diagonal gates."""
+    c = Circuit(1).rz(0, 0.5).s(0).rz(0, 0.3)
+    opt = optimize(c)
+
+    # RZ gates merge through S (both diagonal)
+    rz_ops = [op for op in opt.ops if op.gate == Gate.RZ]
+    assert len(rz_ops) == 1
+    assert abs(rz_ops[0].params[0] - 0.8) < 1e-10
+
+
+def test_optimize_merge_rx_through_cx_target():
+    """RX merges through CX on target qubit."""
+    c = Circuit(2).rx(1, 0.5).cx(0, 1).rx(1, 0.3)
+    opt = optimize(c)
+
+    # RX gates merge through CX (RX commutes on target)
+    rx_ops = [op for op in opt.ops if op.gate == Gate.RX]
+    assert len(rx_ops) == 1
+    assert abs(rx_ops[0].params[0] - 0.8) < 1e-10
+
+
+def test_optimize_merge_to_zero_through_commutation():
+    """RZ(a)·CX·RZ(-a) cancels to just CX."""
+    c = Circuit(2).rz(0, 1.5).cx(0, 1).rz(0, -1.5)
+    opt = optimize(c)
+
+    # RZ gates merge to 0 and are removed
+    rz_ops = [op for op in opt.ops if op.gate == Gate.RZ]
+    assert len(rz_ops) == 0
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CX
+
+
+# =============================================================================
 # Integration Tests
 # =============================================================================
 
@@ -397,6 +604,28 @@ def test_decompose_t_to_rz():
     assert len(dec.ops) == 1
     assert dec.ops[0].gate == Gate.RZ
     assert abs(dec.ops[0].params[0] - pi/4) < 1e-10
+
+
+def test_decompose_sdg_to_rz():
+    """S† decomposes to RZ(-π/2)."""
+    c = Circuit(1).sdg(0)
+    basis = frozenset({Gate.RZ})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 1
+    assert dec.ops[0].gate == Gate.RZ
+    assert abs(dec.ops[0].params[0] - (-pi/2)) < 1e-10
+
+
+def test_decompose_tdg_to_rz():
+    """T† decomposes to RZ(-π/4)."""
+    c = Circuit(1).tdg(0)
+    basis = frozenset({Gate.RZ})
+    dec = decompose(c, basis)
+
+    assert len(dec.ops) == 1
+    assert dec.ops[0].gate == Gate.RZ
+    assert abs(dec.ops[0].params[0] - (-pi/4)) < 1e-10
 
 
 def test_decompose_cz_to_h_cx():

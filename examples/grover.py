@@ -9,7 +9,9 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tinyqubit.ir import Circuit
+from tinyqubit.ir import Circuit, Gate
+from tinyqubit.target import Target
+from tinyqubit.compile import transpile
 from tinyqubit.simulator import simulate, sample
 
 # 2-qubit Grover searching for |11⟩
@@ -31,6 +33,8 @@ grover.h(0).h(1)
 # Measure
 grover.measure(0).measure(1)
 
+grover.draw()
+
 print("=== 2-Qubit Grover (searching for |11⟩) ===")
 print(f"Operations: {len(grover.ops)}")
 print()
@@ -51,3 +55,10 @@ print()
 
 print("OpenQASM:")
 print(grover.to_openqasm())
+
+# Transpile to hardware basis {RX, RZ, CX}
+print("\n=== Transpiled (basis: RX, RZ, CX) ===")
+target = Target(2, frozenset({(0, 1)}), frozenset({Gate.RX, Gate.RZ, Gate.CX}))
+transpiled = transpile(grover, target,1)
+print(f"Operations: {len(transpiled.ops)}")
+print(transpiled.to_openqasm())

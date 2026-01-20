@@ -1,10 +1,17 @@
 """
-TinyQubit - Public API
-
-Exports:
-    - Circuit: Lazy circuit builder
-    - Gate: Gate enum (X, Y, Z, H, S, T, RX, RY, RZ, CX, CZ, MEASURE)
-    - Target: Hardware target (n_qubits, edges, basis_gates)
-    - compile: Main entry point
-    - simulate: Statevector simulation
+TinyQubit - A tiny quantum circuit compiler
 """
+
+from .ir import Circuit, Gate, Operation
+from .target import Target
+from .compile import transpile
+from .simulator import simulate
+
+__all__ = [
+    "Circuit",
+    "Gate",
+    "Operation",
+    "Target",
+    "transpile",
+    "simulate",
+]

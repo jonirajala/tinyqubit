@@ -56,6 +56,16 @@ def _decompose_t(q: int) -> list[Operation]:
     return [Operation(Gate.RZ, (q,), (pi/4,))]
 
 
+def _decompose_sdg(q: int) -> list[Operation]:
+    """S† = RZ(-π/2)"""
+    return [Operation(Gate.RZ, (q,), (-pi/2,))]
+
+
+def _decompose_tdg(q: int) -> list[Operation]:
+    """T† = RZ(-π/4)"""
+    return [Operation(Gate.RZ, (q,), (-pi/4,))]
+
+
 def _decompose_x(q: int) -> list[Operation]:
     """X = RX(π)"""
     return [Operation(Gate.RX, (q,), (pi,))]
@@ -101,18 +111,32 @@ def _decompose_cx(q0: int, q1: int) -> list[Operation]:
     ]
 
 
+def _decompose_cp(c: int, t: int, theta: float) -> list[Operation]:
+    """CP(θ) = RZ(θ/2) CNOT RZ(-θ/2) CNOT RZ(θ/2)"""
+    return [
+        Operation(Gate.RZ, (c,), (theta/2,)),
+        Operation(Gate.CX, (c, t)),
+        Operation(Gate.RZ, (t,), (-theta/2,)),
+        Operation(Gate.CX, (c, t)),
+        Operation(Gate.RZ, (t,), (theta/2,)),
+    ]
+
+
 # Decomposition rules: gate -> function(qubits, params) -> list[Operation]
 DECOMPOSITIONS = {
     Gate.SWAP: lambda qs, ps: _decompose_swap(qs[0], qs[1]),
     Gate.H: lambda qs, ps: _decompose_h(qs[0]),
     Gate.S: lambda qs, ps: _decompose_s(qs[0]),
     Gate.T: lambda qs, ps: _decompose_t(qs[0]),
+    Gate.SDG: lambda qs, ps: _decompose_sdg(qs[0]),
+    Gate.TDG: lambda qs, ps: _decompose_tdg(qs[0]),
     Gate.X: lambda qs, ps: _decompose_x(qs[0]),
     Gate.Y: lambda qs, ps: _decompose_y(qs[0]),
     Gate.Z: lambda qs, ps: _decompose_z(qs[0]),
     Gate.RY: lambda qs, ps: _decompose_ry(qs[0], ps[0]),
     Gate.CZ: lambda qs, ps: _decompose_cz(qs[0], qs[1]),
     Gate.CX: lambda qs, ps: _decompose_cx(qs[0], qs[1]),
+    Gate.CP: lambda qs, ps: _decompose_cp(qs[0], qs[1], ps[0]),
 }
 
 

@@ -7,6 +7,9 @@ Contains:
 Rules are declarative and applied in deterministic order:
     - Cancellation: [X,X]→[], [H,H]→[], [CX,CX]→[], [SWAP,SWAP]→[]
     - Merge: [RZ(a),RZ(b)]→[RZ(a+b)], [RX(a),RX(b)]→[RX(a+b)], [RY(a),RY(b)]→[RY(a+b)]
+    - Clifford: [S,S]→[Z], [T,T]→[S], [S†,S†]→[Z], [T†,T†]→[S†], [S,S†]→[], [T,T†]→[]
+    - Hadamard conjugation: [H,X,H]→[Z], [H,Z,H]→[X]
+    - Commutation-aware: cancel/merge gates through commuting intermediates
 """
 
 from math import pi
@@ -18,6 +21,29 @@ CANCELLATION_GATES = {Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.CX, Gate.CZ, Gate.SWA
 
 # Gates that can be merged (rotations)
 MERGE_GATES = {Gate.RX, Gate.RY, Gate.RZ}
+
+# Clifford gate merges: (G1, G2) -> result
+CLIFFORD_MERGES = {
+    (Gate.S, Gate.S): Gate.Z,
+    (Gate.T, Gate.T): Gate.S,
+    (Gate.SDG, Gate.SDG): Gate.Z,
+    (Gate.TDG, Gate.TDG): Gate.SDG,
+}
+
+# Inverse pairs that cancel
+INVERSE_PAIRS = {
+    (Gate.S, Gate.SDG), (Gate.SDG, Gate.S),
+    (Gate.T, Gate.TDG), (Gate.TDG, Gate.T),
+}
+
+# Diagonal gates (commute with each other)
+DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ}
+
+# Hadamard conjugation: H·G·H = G'
+HADAMARD_CONJUGATES = {
+    Gate.X: Gate.Z,
+    Gate.Z: Gate.X,
+}
 
 
 def _try_cancel(ops: list[Operation], i: int) -> bool:
@@ -46,12 +72,128 @@ def _try_merge(ops: list[Operation], i: int) -> bool:
     return False
 
 
+def _try_inverse_cancel(ops: list[Operation], i: int) -> bool:
+    """Try to cancel inverse pairs like S·S† or T·T†. Returns True if cancelled."""
+    if i + 1 >= len(ops): return False
+
+    op1, op2 = ops[i], ops[i + 1]
+    if op1.qubits == op2.qubits and (op1.gate, op2.gate) in INVERSE_PAIRS:
+        del ops[i:i+2]
+        return True
+    return False
+
+
+def _try_clifford_merge(ops: list[Operation], i: int) -> bool:
+    """Try Clifford merge like S·S→Z or T·T→S. Returns True if merged."""
+    if i + 1 >= len(ops): return False
+
+    op1, op2 = ops[i], ops[i + 1]
+    if op1.qubits == op2.qubits and (op1.gate, op2.gate) in CLIFFORD_MERGES:
+        ops[i] = Operation(CLIFFORD_MERGES[(op1.gate, op2.gate)], op1.qubits)
+        del ops[i+1]
+        return True
+    return False
+
+
+def commutes(op1: Operation, op2: Operation) -> bool:
+    """Check if two operations commute."""
+    q1, q2 = set(op1.qubits), set(op2.qubits)
+
+    # Disjoint qubits always commute
+    if not (q1 & q2): return True
+
+    # Single-qubit diagonal gates (Z, S, T, SDG, TDG, RZ) commute with CX on control qubit
+    diag_1q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
+    if op1.gate in diag_1q and op2.gate == Gate.CX:
+        return op1.qubits[0] == op2.qubits[0]
+    if op2.gate in diag_1q and op1.gate == Gate.CX:
+        return op2.qubits[0] == op1.qubits[0]
+
+    # RX commutes with CX on target qubit
+    if op1.gate == Gate.RX and op2.gate == Gate.CX:
+        return op1.qubits[0] == op2.qubits[1]
+    if op2.gate == Gate.RX and op1.gate == Gate.CX:
+        return op2.qubits[0] == op1.qubits[1]
+
+    # Diagonal gates commute with each other
+    if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES:
+        return True
+
+    return False
+
+
+def _can_commute_to(ops: list[Operation], i: int, j: int) -> bool:
+    """Check if ops[i] can commute past all ops between i and j."""
+    for k in range(i + 1, j):
+        if not commutes(ops[i], ops[k]):
+            return False
+    return True
+
+
+def _try_cancel_through_commutation(ops: list[Operation], i: int, window: int = 5) -> bool:
+    """Try to cancel ops[i] with a gate within window by commuting."""
+    op1 = ops[i]
+    if op1.gate not in CANCELLATION_GATES: return False
+
+    for j in range(i + 1, min(i + window, len(ops))):
+        op2 = ops[j]
+        # Same gate, same qubits, can cancel
+        if op1.gate == op2.gate and op1.qubits == op2.qubits:
+            if _can_commute_to(ops, i, j):
+                del ops[j]
+                del ops[i]
+                return True
+    return False
+
+
+def _try_merge_through_commutation(ops: list[Operation], i: int, window: int = 5) -> bool:
+    """Try to merge ops[i] with a rotation gate within window by commuting."""
+    op1 = ops[i]
+    if op1.gate not in MERGE_GATES: return False
+
+    for j in range(i + 1, min(i + window, len(ops))):
+        op2 = ops[j]
+        # Same rotation gate, same qubits
+        if op1.gate == op2.gate and op1.qubits == op2.qubits:
+            if _can_commute_to(ops, i, j):
+                # Merge angles
+                angle = (op1.params[0] + op2.params[0] + pi) % (2 * pi) - pi
+                del ops[j]
+                if abs(angle) < 1e-10:
+                    del ops[i]  # Angle is ~0, remove entirely
+                else:
+                    ops[i] = Operation(op1.gate, op1.qubits, (angle,))
+                return True
+    return False
+
+
+def _try_hadamard_conjugate(ops: list[Operation], i: int) -> bool:
+    """Try to apply H·G·H = G' transformation. Returns True if changed."""
+    if i + 2 >= len(ops): return False
+
+    op1, op2, op3 = ops[i], ops[i + 1], ops[i + 2]
+
+    # Check pattern: H(q) · G(q) · H(q) where G in {X, Z}
+    if (op1.gate == Gate.H and op3.gate == Gate.H and
+        op1.qubits == op2.qubits == op3.qubits and
+        op2.gate in HADAMARD_CONJUGATES):
+        # Replace H·G·H with conjugate
+        ops[i] = Operation(HADAMARD_CONJUGATES[op2.gate], op1.qubits)
+        del ops[i + 1:i + 3]
+        return True
+
+    return False
+
+
 def _single_pass(ops: list[Operation]) -> bool:
     """Single optimization pass. Returns True if any changes were made."""
     changed = False
     i = 0
     while i < len(ops):
-        if _try_cancel(ops, i) or _try_merge(ops, i):
+        if (_try_cancel(ops, i) or _try_merge(ops, i) or
+            _try_inverse_cancel(ops, i) or _try_clifford_merge(ops, i) or
+            _try_hadamard_conjugate(ops, i) or
+            _try_cancel_through_commutation(ops, i) or _try_merge_through_commutation(ops, i)):
             changed = True
             i = max(0, i - 1)  # Back up to catch new adjacencies
         else:
