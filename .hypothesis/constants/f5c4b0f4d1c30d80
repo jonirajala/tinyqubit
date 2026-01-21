@@ -1,4 +1,0 @@
-# file: /Users/jonirajala/Documents/code/tinyqubit/tinyqubit/compile.py
-# hypothesis_version: 6.150.2
-
-['decompose', 'input', 'optimize', 'route']

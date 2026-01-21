@@ -1,4 +1,0 @@
-# file: /Users/jonirajala/Documents/code/tinyqubit/tinyqubit/export/__init__.py
-# hypothesis_version: 6.150.2
-
-['UnsupportedGateError', 'to_openqasm2', 'to_openqasm3', 'to_qiskit']
