@@ -1,0 +1,6 @@
+# Core
+numpy
+
+# Dev/test
+pytest
+hypothesis

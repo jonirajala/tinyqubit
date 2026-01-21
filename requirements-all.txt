@@ -1,0 +1,11 @@
+# Core
+numpy
+
+# Dev/test
+pytest
+hypothesis
+
+# Optional: hardware submission
+qiskit
+qiskit-ibm-runtime
+amazon-braket-sdk

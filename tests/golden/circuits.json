@@ -1,0 +1,73 @@
+{
+  "bell_2": {
+    "n_qubits": 2,
+    "ops": [
+      {"gate": "H", "qubits": [0]},
+      {"gate": "CX", "qubits": [0, 1]}
+    ]
+  },
+  "ghz_3": {
+    "n_qubits": 3,
+    "ops": [
+      {"gate": "H", "qubits": [0]},
+      {"gate": "CX", "qubits": [0, 1]},
+      {"gate": "CX", "qubits": [1, 2]}
+    ]
+  },
+  "ghz_5": {
+    "n_qubits": 5,
+    "ops": [
+      {"gate": "H", "qubits": [0]},
+      {"gate": "CX", "qubits": [0, 1]},
+      {"gate": "CX", "qubits": [1, 2]},
+      {"gate": "CX", "qubits": [2, 3]},
+      {"gate": "CX", "qubits": [3, 4]}
+    ]
+  },
+  "qft_4": {
+    "n_qubits": 4,
+    "ops": [
+      {"gate": "H", "qubits": [0]},
+      {"gate": "CP", "qubits": [1, 0], "params": [1.5707963267948966]},
+      {"gate": "CP", "qubits": [2, 0], "params": [0.7853981633974483]},
+      {"gate": "CP", "qubits": [3, 0], "params": [0.39269908169872414]},
+      {"gate": "H", "qubits": [1]},
+      {"gate": "CP", "qubits": [2, 1], "params": [1.5707963267948966]},
+      {"gate": "CP", "qubits": [3, 1], "params": [0.7853981633974483]},
+      {"gate": "H", "qubits": [2]},
+      {"gate": "CP", "qubits": [3, 2], "params": [1.5707963267948966]},
+      {"gate": "H", "qubits": [3]}
+    ]
+  },
+  "variational_4": {
+    "n_qubits": 4,
+    "ops": [
+      {"gate": "RY", "qubits": [0], "params": [0.1]},
+      {"gate": "RY", "qubits": [1], "params": [0.2]},
+      {"gate": "RY", "qubits": [2], "params": [0.3]},
+      {"gate": "RY", "qubits": [3], "params": [0.4]},
+      {"gate": "CX", "qubits": [0, 1]},
+      {"gate": "CX", "qubits": [2, 3]},
+      {"gate": "CX", "qubits": [1, 2]},
+      {"gate": "RZ", "qubits": [0], "params": [0.5]},
+      {"gate": "RZ", "qubits": [1], "params": [0.6]},
+      {"gate": "RZ", "qubits": [2], "params": [0.7]},
+      {"gate": "RZ", "qubits": [3], "params": [0.8]}
+    ]
+  },
+  "swap_needed_3": {
+    "n_qubits": 3,
+    "ops": [
+      {"gate": "H", "qubits": [0]},
+      {"gate": "CX", "qubits": [0, 2]}
+    ]
+  },
+  "multi_swap_5": {
+    "n_qubits": 5,
+    "ops": [
+      {"gate": "H", "qubits": [0]},
+      {"gate": "CX", "qubits": [0, 4]},
+      {"gate": "CX", "qubits": [1, 3]}
+    ]
+  }
+}

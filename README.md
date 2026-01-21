@@ -25,4 +25,45 @@ print(to_openqasm2(c))
 
 ## Gates
 
-12 primitives: `X` `Y` `Z` `H` `S` `T` `RX` `RY` `RZ` `CX` `CZ` `MEASURE`
+16 primitives: `X` `Y` `Z` `H` `S` `T` `SDG` `TDG` `RX` `RY` `RZ` `CX` `CZ` `CP` `SWAP` `MEASURE`
+
+## Dependencies
+
+| Dependency | Used for | Plan |
+|------------|----------|------|
+| `numpy` | Simulator (statevector math) | Replace with pure Python or make optional |
+
+**Dev/test:**
+- `pytest` — test framework
+- `hypothesis` — property-based tests
+
+**Optional** (for hardware submission):
+- `qiskit` — `to_qiskit()` export
+- `qiskit-ibm-runtime` — IBM hardware submission
+- `amazon-braket-sdk` — AWS Braket submission
+
+Goal: Core compiler (circuit → routed → decomposed → QASM) runs with **zero dependencies**.
+
+## Tests & Commands
+
+```bash
+# Run examples
+python examples/circuit.py       # Basic circuit + transpile
+python examples/grover.py        # Grover's algorithm
+python examples/submit_to_ibm.py # IBM hardware submission (requires qiskit-ibm-runtime)
+
+# Run all tests
+python -m pytest tests/ -v
+
+# Run specific test categories
+python -m pytest tests/test_determinism.py -v   # Golden/determinism tests
+python -m pytest tests/test_properties.py -v    # Property-based tests (hypothesis)
+python -m pytest tests/test_metrics.py -v       # Routing/optimization metrics
+python -m pytest tests/test_performance.py -v   # Import time, transpile speed
+
+# Run benchmarks (vs Qiskit)
+python benchmarks/run_all.py
+
+# Update golden test baselines (after intentional changes)
+python scripts/update_golden.py
+```
