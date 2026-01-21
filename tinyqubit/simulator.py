@@ -1,158 +1,180 @@
 """
-Minimal statevector simulator for testing.
+Statevector simulator with mid-circuit measurement, reset, conditionals, and noise.
 
+Noise simulation uses quantum trajectory method (stochastic unraveling):
+- Each noise function maps pure state → pure state by sampling Kraus outcomes
+- This is NOT a general density matrix simulator
+- For accurate ensemble statistics, run multiple shots with different seeds
 
-Contains:
-    - simulate(circuit) -> statevector
-    - states_equal(a, b) -> bool (up to global phase)
-    - sample(state, shots, seed) -> counts
-
-Doesnt yet support mid circuit measure
-
+Classical register behavior:
+- Bits initialize to 0
+- Conditionals check against these values
+- MEASURE updates the bit; MEASURE without classical_bit doesn't store result
 """
+from __future__ import annotations
 import numpy as np
 from math import sqrt, cos, sin, pi
+from typing import TYPE_CHECKING
 from .ir import Circuit, Gate
 
+if TYPE_CHECKING:
+    from .noise import NoiseModel
 
-# Gate Matrices
-
-_SQRT2_INV = 1 / sqrt(2)
-_T_PHASE = np.exp(1j * pi / 4)
-
-def _rx(theta: float) -> np.ndarray:
-    c, s = cos(theta / 2), sin(theta / 2)
-    return np.array([[c, -1j * s], [-1j * s, c]], dtype=complex)
-
-def _ry(theta: float) -> np.ndarray:
-    c, s = cos(theta / 2), sin(theta / 2)
-    return np.array([[c, -s], [s, c]], dtype=complex)
-
-def _rz(theta: float) -> np.ndarray:
-    return np.array([[np.exp(-1j * theta / 2), 0], [0, np.exp(1j * theta / 2)]], dtype=complex)
-
-# All single-qubit gates (2Q gates handled separately via direct indexing)
-GATE_1Q = {
-    Gate.X: lambda _: np.array([[0, 1], [1, 0]], dtype=complex),
-    Gate.Y: lambda _: np.array([[0, -1j], [1j, 0]], dtype=complex),
-    Gate.Z: lambda _: np.array([[1, 0], [0, -1]], dtype=complex),
-    Gate.H: lambda _: np.array([[1, 1], [1, -1]], dtype=complex) * _SQRT2_INV,
-    Gate.S: lambda _: np.array([[1, 0], [0, 1j]], dtype=complex),
-    Gate.T: lambda _: np.array([[1, 0], [0, _T_PHASE]], dtype=complex),
-    Gate.RX: lambda p: _rx(p[0]),
-    Gate.RY: lambda p: _ry(p[0]),
-    Gate.RZ: lambda p: _rz(p[0]),
+# Gate matrices
+_SQRT2_INV, _T = 1 / sqrt(2), np.exp(1j * pi / 4)
+_GATE_1Q_CACHE = {
+    Gate.X: np.array([[0, 1], [1, 0]], dtype=complex),
+    Gate.Y: np.array([[0, -1j], [1j, 0]], dtype=complex),
+    Gate.Z: np.array([[1, 0], [0, -1]], dtype=complex),
+    Gate.H: np.array([[1, 1], [1, -1]], dtype=complex) * _SQRT2_INV,
+    Gate.S: np.array([[1, 0], [0, 1j]], dtype=complex),
+    Gate.SDG: np.array([[1, 0], [0, -1j]], dtype=complex),
+    Gate.T: np.array([[1, 0], [0, _T]], dtype=complex),
+    Gate.TDG: np.array([[1, 0], [0, np.conj(_T)]], dtype=complex),
+}
+_GATE_1Q_PARAM = {
+    Gate.RX: lambda t: np.array([[cos(t/2), -1j*sin(t/2)], [-1j*sin(t/2), cos(t/2)]], dtype=complex),
+    Gate.RY: lambda t: np.array([[cos(t/2), -sin(t/2)], [sin(t/2), cos(t/2)]], dtype=complex),
+    Gate.RZ: lambda t: np.array([[np.exp(-1j*t/2), 0], [0, np.exp(1j*t/2)]], dtype=complex),
 }
 
+def _get_gate_matrix(gate: Gate, params: tuple) -> np.ndarray:
+    return _GATE_1Q_CACHE[gate] if gate in _GATE_1Q_CACHE else _GATE_1Q_PARAM[gate](params[0])
 
-# State Operations
-
-def _apply_single_qubit(state: np.ndarray, matrix: np.ndarray, qubit: int, n_qubits: int) -> np.ndarray:
-    """Apply single-qubit gate to state."""
-    # Reshape state to tensor of shape (2, 2, ..., 2)
-    state = state.reshape([2] * n_qubits)
-
-    # Apply matrix via einsum
-    # Move target qubit to last axis, apply matrix, move back
-    axes = list(range(n_qubits))
+def _apply_single_qubit(state: np.ndarray, matrix: np.ndarray, qubit: int, n: int) -> np.ndarray:
+    state = state.reshape([2] * n)
+    axes = list(range(n))
     axes[qubit], axes[-1] = axes[-1], axes[qubit]
     state = np.transpose(state, axes)
-
-    # Apply matrix to last axis
     state = np.tensordot(state, matrix, axes=([-1], [1]))
 
-    # Transpose back
-    state = np.transpose(state, axes)
+    return np.transpose(state, axes).reshape(-1)
+
+def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, params: tuple = ()) -> np.ndarray:
+    state = state.reshape([2] * n)
+    new = state.copy()
+    
+    def idx(v0, v1):
+        i = [slice(None)] * n
+        i[q0], i[q1] = v0, v1
+        return tuple(i)
+
+    if gate == Gate.CX: new[idx(1,0)], new[idx(1,1)] = state[idx(1,1)].copy(), state[idx(1,0)].copy()
+    elif gate == Gate.CZ: new[idx(1,1)] *= -1
+    elif gate == Gate.SWAP: new[idx(0,1)], new[idx(1,0)] = state[idx(1,0)].copy(), state[idx(0,1)].copy()
+    elif gate == Gate.CP: new[idx(1,1)] *= np.exp(1j * params[0])
+
+    return new.reshape(-1)
+
+def _apply_gate_noise(state: np.ndarray, op, noise_model, n: int, rng) -> np.ndarray:
+    if noise_model is None: return state
+    noise_list = noise_model.gate_noise.get(op.gate, noise_model.default_noise)
+    if not noise_list: return state
+    state = state.reshape([2] * n)
+    for noise_fn in noise_list:
+        for q in op.qubits: state = noise_fn(state, q, n, rng)
 
     return state.reshape(-1)
 
+def _apply_measure(state: np.ndarray, qubit: int, n: int, rng) -> tuple[np.ndarray, int]:
+    state = state.reshape([2] * n)
+    probs = np.sum(np.abs(state) ** 2, axis=tuple(i for i in range(n) if i != qubit))
+    outcome = 1 if rng.random() < probs[1] else 0
+    idx = [slice(None)] * n
+    idx[qubit] = 1 - outcome
+    state[tuple(idx)] = 0.0
+    norm = np.sqrt(probs[outcome])
 
-def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n_qubits: int) -> np.ndarray:
-    """Apply two-qubit gate (CX, CZ, SWAP) to state."""
-    state = state.reshape([2] * n_qubits)
-    new_state = state.copy()
+    return (state / norm if norm > 1e-10 else state).reshape(-1), outcome
 
-    if gate == Gate.CX:
-        # Flip target when control is 1: |10⟩ <-> |11⟩
-        idx_10 = [slice(None)] * n_qubits
-        idx_10[q0] = 1
-        idx_10[q1] = 0
-        idx_11 = [slice(None)] * n_qubits
-        idx_11[q0] = 1
-        idx_11[q1] = 1
-        new_state[tuple(idx_10)], new_state[tuple(idx_11)] = state[tuple(idx_11)].copy(), state[tuple(idx_10)].copy()
+def _apply_reset(state: np.ndarray, qubit: int, n: int, rng) -> np.ndarray:
+    state, outcome = _apply_measure(state, qubit, n, rng)
+    return _apply_single_qubit(state, _GATE_1Q_CACHE[Gate.X], qubit, n) if outcome == 1 else state
 
-    elif gate == Gate.CZ:
-        # Apply -1 phase to |11⟩
-        idx_11 = [slice(None)] * n_qubits
-        idx_11[q0] = 1
-        idx_11[q1] = 1
-        new_state[tuple(idx_11)] *= -1
+def _find_parallel_1q_groups(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], int]:
+    group, used, i = [], set(), start
+    while i < len(ops):
+        op = ops[i]
+        if op.gate in (Gate.MEASURE, Gate.RESET) or op.condition is not None or op.gate.n_qubits == 2: break
+        q = op.qubits[0]
+        if q in used: break
+        group.append((_get_gate_matrix(op.gate, op.params), q))
+        used.add(q)
+        i += 1
 
-    elif gate == Gate.SWAP:
-        # Swap |01⟩ <-> |10⟩
-        idx_01 = [slice(None)] * n_qubits
-        idx_01[q0] = 0
-        idx_01[q1] = 1
-        idx_10 = [slice(None)] * n_qubits
-        idx_10[q0] = 1
-        idx_10[q1] = 0
-        new_state[tuple(idx_01)], new_state[tuple(idx_10)] = state[tuple(idx_10)].copy(), state[tuple(idx_01)].copy()
+    return group, i
 
-    return new_state.reshape(-1)
+def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: int) -> np.ndarray:
+    if not gates: return state
+    if len(gates) == 1: return _apply_single_qubit(state, gates[0][0], gates[0][1], n)
+    indices = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    if n + len(gates) > len(indices): raise ValueError("Too many indices for einsum")
+    state = state.reshape([2] * n)
+    state_idx, out_idx = list(indices[:n]), list(indices[:n])
+    gate_strs, operands, next_new = [], [], n
+    for matrix, qubit in gates:
+        old, new = state_idx[qubit], indices[next_new]
+        next_new += 1
+        gate_strs.append(new + old)
+        operands.append(matrix.astype(state.dtype, copy=False))
+        out_idx[qubit] = new
 
+    return np.einsum(','.join(gate_strs) + ',' + ''.join(state_idx) + '->' + ''.join(out_idx),
+                     *operands, state, optimize=True).reshape(-1)
 
-# Public API
-
-def simulate(circuit: Circuit) -> np.ndarray:
-    """
-    Simulate circuit and return final statevector.
-
-    MEASURE operations are skipped (use sample() to get measurement results).
-    """
+def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel | None" = None,
+             batch_ops: bool = False) -> tuple[np.ndarray, dict[int, int]]:
+    """Simulate circuit. Returns (statevector, classical_bits dict)."""
     n = circuit.n_qubits
-    state = np.zeros(2**n, dtype=complex) # The amplitude of every possible basis state.
-    state[0] = 1.0 # set state into |00...0⟩, 100% probability to that state
+    rng = np.random.default_rng(seed)
+    classical = {i: 0 for i in range(circuit.n_classical)}  # Initialize all bits to 0
+    state = np.zeros(2**n, dtype=complex)
+    state[0] = 1.0
 
+    # Validate qubit indices
     for op in circuit.ops:
-        if op.gate == Gate.MEASURE: continue
-        if op.gate.n_qubits == 1: state = _apply_single_qubit(state, GATE_1Q[op.gate](op.params), op.qubits[0], n)
-        else: state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n)
-    return state
+        for q in op.qubits:
+            if not (0 <= q < n):
+                raise ValueError(f"Invalid qubit index {q} for {n}-qubit circuit in {op.gate.name}")
 
+    ops, ops_iter = circuit.ops, iter(enumerate(circuit.ops))
+    for i, op in ops_iter:
+        if op.condition is not None and classical.get(op.condition[0]) != op.condition[1]: continue
+        if op.gate == Gate.MEASURE:
+            state, outcome = _apply_measure(state, op.qubits[0], n, rng)
+            if op.classical_bit is not None:
+                if noise_model is not None and noise_model.readout_error_fn is not None:
+                    outcome = noise_model.readout_error_fn(outcome, rng)
+                classical[op.classical_bit] = outcome
+        elif op.gate == Gate.RESET:
+            state = _apply_reset(state, op.qubits[0], n, rng)
+        elif op.gate.n_qubits == 1:
+            if batch_ops and noise_model is None:
+                group, end_i = _find_parallel_1q_groups(ops, i)
+                if len(group) > 1:
+                    state = _apply_batch_1q(state, group, n)
+                    for _ in range(end_i - i - 1): next(ops_iter)
+                    continue
+            state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
+            state = _apply_gate_noise(state, op, noise_model, n, rng)
+        else:
+            state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
+            state = _apply_gate_noise(state, op, noise_model, n, rng)
+    return state, classical
 
 def states_equal(a: np.ndarray, b: np.ndarray, tol: float = 1e-10) -> bool:
-    """
-    Check if two states are equal up to global phase.
-
-    Uses fidelity: |⟨a|b⟩| = ||a|| · ||b|| iff states equal up to phase.
-    """
+    """Check if two states are equal up to global phase."""
     if a.shape != b.shape: return False
-
     norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)
-
-    if norm_a < tol and norm_b < tol: return True
-    if norm_a < tol or norm_b < tol:return False
-
-    fidelity = np.abs(np.vdot(a, b)) / (norm_a * norm_b)
-    return np.isclose(fidelity, 1.0, atol=tol)
-
+    if norm_a < tol or norm_b < tol: return norm_a < tol and norm_b < tol
+    return np.isclose(np.abs(np.vdot(a, b)) / (norm_a * norm_b), 1.0, atol=tol)
 
 def sample(state: np.ndarray, shots: int, seed: int = None) -> dict[str, int]:
-    """
-    Sample measurement outcomes from statevector.
-
-    Args:
-        state: Statevector to sample from
-        shots: Number of measurements
-        seed: Random seed for deterministic results
-
-    Returns:
-        Dictionary mapping bitstrings to counts, e.g. {'00': 512, '11': 488}
-    """
+    """Sample measurement outcomes from statevector. Returns {bitstring: count}."""
     rng = np.random.default_rng(seed)
-
-    outcomes = rng.choice(len(state), size=shots, p=np.abs(state) ** 2)
+    probs = np.abs(state) ** 2
+    probs /= probs.sum()  # Normalize to handle numerical drift
+    outcomes = rng.choice(len(state), size=shots, p=probs)
     values, counts = np.unique(outcomes, return_counts=True)
-
-    return {format(v, f'0{int(np.log2(len(state)))}b'): int(c) for v, c in zip(values, counts)}
+    n_bits = int(np.log2(len(state)))
+    return {format(v, f'0{n_bits}b'): int(c) for v, c in zip(values, counts)}

@@ -3,25 +3,18 @@ Gate decomposition to target basis.
 
 Contains:
     - decompose(): Convert non-basis gates to basis gate sequences
+    - DECOMPOSITIONS: Default rules (CX-native, for IBM-like backends)
+    - DECOMPOSITIONS_CZ_NATIVE: Alternative rules for CZ-native backends
 
-Real Quantum Computer Native Gates:
-    - IBM (superconducting):     RZ, SX (√X), X, ECR (or CX)
-    - Rigetti (superconducting): RZ, RX(±π/2, ±π), CZ
-    - IonQ (trapped ion):        GPI, GPI2, MS (all-to-all connectivity)
-    - Google Sycamore:           √iSWAP, SYC (FSim), CZ, arbitrary XY
-    - IQM (superconducting):     PRX (arbitrary XY rotation), CZ
-
-Standard decompositions:
+Standard decompositions (all correct up to global phase):
     - SWAP → CX CX CX
     - H → RZ(π/2) RX(π/2) RZ(π/2)
-    - S → RZ(π/2)
-    - T → RZ(π/4)
-    - X → RX(π)
-    - Y → RX(π) RZ(π)
-    - Z → RZ(π)
+    - S → RZ(π/2), T → RZ(π/4)
+    - X → RX(π), Y → RX(π) RZ(π), Z → RZ(π)
+    - RX → H RZ(θ) H (when H is in basis but RX isn't)
     - RY → RX(π/2) RZ(θ) RX(-π/2)
-    - CZ → H CX H
-    - CX → H CZ H
+    - CZ → H CX H (default) or CX → H CZ H (CZ-native)
+    - CP → RZ(θ/2)_c · CX · RZ(-θ/2)_t · CX · RZ(θ/2)_c
 """
 
 from math import pi
@@ -93,6 +86,15 @@ def _decompose_ry(q: int, theta: float) -> list[Operation]:
     ]
 
 
+def _decompose_rx(q: int, theta: float) -> list[Operation]:
+    """RX(θ) = H RZ(θ) H (since H rotates Z-axis to X-axis)"""
+    return [
+        Operation(Gate.H, (q,)),
+        Operation(Gate.RZ, (q,), (theta,)),
+        Operation(Gate.H, (q,)),
+    ]
+
+
 def _decompose_cz(q0: int, q1: int) -> list[Operation]:
     """CZ = H(target) CX H(target)"""
     return [
@@ -102,8 +104,8 @@ def _decompose_cz(q0: int, q1: int) -> list[Operation]:
     ]
 
 
-def _decompose_cx(q0: int, q1: int) -> list[Operation]:
-    """CX = H(target) CZ H(target)"""
+def _decompose_cx_to_cz(q0: int, q1: int) -> list[Operation]:
+    """CX = H(target) CZ H(target) -- only used for CZ-native backends."""
     return [
         Operation(Gate.H, (q1,)),
         Operation(Gate.CZ, (q0, q1)),
@@ -112,17 +114,19 @@ def _decompose_cx(q0: int, q1: int) -> list[Operation]:
 
 
 def _decompose_cp(c: int, t: int, theta: float) -> list[Operation]:
-    """CP(θ) = RZ(θ/2) CNOT RZ(-θ/2) CNOT RZ(θ/2)"""
+    """CP(θ) = RZ(θ/2)_c · CX · RZ(-θ/2)_t · CX · RZ(θ/2)_c"""
     return [
         Operation(Gate.RZ, (c,), (theta/2,)),
         Operation(Gate.CX, (c, t)),
         Operation(Gate.RZ, (t,), (-theta/2,)),
         Operation(Gate.CX, (c, t)),
-        Operation(Gate.RZ, (t,), (theta/2,)),
+        Operation(Gate.RZ, (c,), (theta/2,)),
     ]
 
 
 # Decomposition rules: gate -> function(qubits, params) -> list[Operation]
+# Note: CX is treated as primitive. CZ decomposes to CX.
+# For CZ-native backends (Rigetti, Google), use DECOMPOSITIONS_CZ_NATIVE instead.
 DECOMPOSITIONS = {
     Gate.SWAP: lambda qs, ps: _decompose_swap(qs[0], qs[1]),
     Gate.H: lambda qs, ps: _decompose_h(qs[0]),
@@ -133,25 +137,36 @@ DECOMPOSITIONS = {
     Gate.X: lambda qs, ps: _decompose_x(qs[0]),
     Gate.Y: lambda qs, ps: _decompose_y(qs[0]),
     Gate.Z: lambda qs, ps: _decompose_z(qs[0]),
+    Gate.RX: lambda qs, ps: _decompose_rx(qs[0], ps[0]),
     Gate.RY: lambda qs, ps: _decompose_ry(qs[0], ps[0]),
     Gate.CZ: lambda qs, ps: _decompose_cz(qs[0], qs[1]),
-    Gate.CX: lambda qs, ps: _decompose_cx(qs[0], qs[1]),
     Gate.CP: lambda qs, ps: _decompose_cp(qs[0], qs[1], ps[0]),
+}
+
+# Alternative decompositions for CZ-native backends (Rigetti, Google, IQM)
+DECOMPOSITIONS_CZ_NATIVE = {
+    **{k: v for k, v in DECOMPOSITIONS.items() if k != Gate.CZ},
+    Gate.CX: lambda qs, ps: _decompose_cx_to_cz(qs[0], qs[1]),
 }
 
 
 def decompose(circuit: Circuit, basis: frozenset[Gate]) -> Circuit:
     """Decompose non-basis gates to target basis."""
+    # Auto-detect CZ-native vs CX-native basis
+    rules = DECOMPOSITIONS_CZ_NATIVE if (Gate.CZ in basis and Gate.CX not in basis) else DECOMPOSITIONS
     ops = list(circuit.ops)
 
     changed = True
     while changed:
         changed, new_ops = False, []
         for op in ops:
-            if op.gate in basis or op.gate == Gate.MEASURE:
+            if op.gate in basis or op.gate in (Gate.MEASURE, Gate.RESET):
                 new_ops.append(op)
-            elif op.gate in DECOMPOSITIONS:
-                new_ops.extend(DECOMPOSITIONS[op.gate](op.qubits, op.params))
+            elif op.gate in rules:
+                # Propagate condition to all decomposed ops
+                for new_op in rules[op.gate](op.qubits, op.params):
+                    new_ops.append(Operation(new_op.gate, new_op.qubits, new_op.params,
+                                             new_op.classical_bit, op.condition))
                 changed = True
             else:
                 raise NotImplementedError(f"No decomposition rule for {op.gate.name}")

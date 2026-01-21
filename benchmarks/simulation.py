@@ -112,6 +112,72 @@ def run_benchmark():
         return qc
     tests.append(("qft_10", 10, make_qft10_tq, make_qft10_qk))
 
+    # GHZ-20 (2^20 = 1M states)
+    def make_ghz20_tq():
+        c = Circuit(20).h(0)
+        for i in range(19):
+            c.cx(i, i+1)
+        return c
+    def make_ghz20_qk():
+        qc = QuantumCircuit(20); qc.h(0)
+        for i in range(19):
+            qc.cx(i, i+1)
+        return qc
+    tests.append(("ghz_20", 20, make_ghz20_tq, make_ghz20_qk))
+
+    # GHZ-23 (2^23 = 8M states)
+    def make_ghz23_tq():
+        c = Circuit(23).h(0)
+        for i in range(22):
+            c.cx(i, i+1)
+        return c
+    def make_ghz23_qk():
+        qc = QuantumCircuit(23); qc.h(0)
+        for i in range(22):
+            qc.cx(i, i+1)
+        return qc
+    tests.append(("ghz_23", 23, make_ghz23_tq, make_ghz23_qk))
+
+    # Layers-18 (deeper circuit, 2^18 = 262K states)
+    def make_layers18_tq():
+        c = Circuit(18)
+        for _ in range(10):
+            for i in range(18):
+                c.h(i)
+            for i in range(0, 17, 2):
+                c.cx(i, i+1)
+            for i in range(1, 17, 2):
+                c.cx(i, i+1)
+        return c
+    def make_layers18_qk():
+        qc = QuantumCircuit(18)
+        for _ in range(10):
+            for i in range(18):
+                qc.h(i)
+            for i in range(0, 17, 2):
+                qc.cx(i, i+1)
+            for i in range(1, 17, 2):
+                qc.cx(i, i+1)
+        return qc
+    tests.append(("layers_18", 18, make_layers18_tq, make_layers18_qk))
+
+    # QFT-16 (more gates)
+    def make_qft16_tq():
+        c = Circuit(16)
+        for i in range(16):
+            c.h(i)
+            for j in range(i+1, 16):
+                c.cp(j, i, pi / (2 ** (j - i)))
+        return c
+    def make_qft16_qk():
+        qc = QuantumCircuit(16)
+        for i in range(16):
+            qc.h(i)
+            for j in range(i+1, 16):
+                qc.cp(pi / (2 ** (j - i)), j, i)
+        return qc
+    tests.append(("qft_16", 16, make_qft16_tq, make_qft16_qk))
+
     print("Simulation time in milliseconds (lower is better)")
     print("-" * 70)
     print(f"{'Circuit':<12} {'Qubits':>8} {'tinyqubit':>12} {'Qiskit':>12} {'Winner':>12}")

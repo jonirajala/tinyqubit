@@ -124,8 +124,8 @@ def test_transpile_preserves_semantics(circuit):
 
     compiled = transpile(circuit, target)
 
-    original_state = simulate(circuit)
-    compiled_state = simulate(compiled)
+    original_state, _ = simulate(circuit)
+    compiled_state, _ = simulate(compiled)
 
     # Account for qubit permutation from routing
     if hasattr(compiled, '_tracker') and compiled._tracker is not None:

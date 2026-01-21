@@ -505,7 +505,9 @@ def test_routing_preserves_semantics_adjacent():
     c = Circuit(2).h(0).cx(0, 1)
     routed = route(c, target)
 
-    assert states_equal(simulate(c), simulate(routed))
+    state_orig, _ = simulate(c)
+    state_routed, _ = simulate(routed)
+    assert states_equal(state_orig, state_routed)
 
 
 def test_routing_preserves_semantics_with_swaps():
@@ -529,8 +531,8 @@ def test_routing_preserves_semantics_with_swaps():
     perm = tracker.logical_to_physical
 
     # Simulate both
-    original_state = simulate(c)
-    routed_state = simulate(routed)
+    original_state, _ = simulate(c)
+    routed_state, _ = simulate(routed)
 
     # Permute original state to match physical ordering
     n = c.n_qubits
@@ -670,7 +672,9 @@ def test_decompose_preserves_semantics():
     basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
     dec = decompose(c, basis)
 
-    assert states_equal(simulate(c), simulate(dec))
+    state_orig, _ = simulate(c)
+    state_dec, _ = simulate(dec)
+    assert states_equal(state_orig, state_dec)
 
 
 def test_decompose_ry_to_rotations():
@@ -694,7 +698,9 @@ def test_decompose_ry_preserves_semantics():
     basis = frozenset({Gate.RZ, Gate.RX})
     dec = decompose(c, basis)
 
-    assert states_equal(simulate(c), simulate(dec))
+    state_orig, _ = simulate(c)
+    state_dec, _ = simulate(dec)
+    assert states_equal(state_orig, state_dec)
 
 
 # =============================================================================
@@ -736,7 +742,9 @@ def test_transpile_preserves_semantics():
     c = Circuit(2).h(0).cx(0, 1)  # Bell state
     result = transpile(c, target)
 
-    assert states_equal(simulate(c), simulate(result))
+    state_orig, _ = simulate(c)
+    state_result, _ = simulate(result)
+    assert states_equal(state_orig, state_result)
 
 
 def test_transpile_with_routing_semantics():
@@ -759,8 +767,8 @@ def test_transpile_with_routing_semantics():
     perm = result._tracker.logical_to_physical
 
     # Simulate and compare with permutation
-    original = simulate(c)
-    transpiled = simulate(result)
+    original, _ = simulate(c)
+    transpiled, _ = simulate(result)
 
     # Permute original to match physical ordering
     original_reshaped = original.reshape([2] * 3)
@@ -925,7 +933,9 @@ def test_transpile_cz_basis():
         assert op.gate in target.basis_gates
 
     # Verify semantics
-    assert states_equal(simulate(c), simulate(result))
+    state_orig, _ = simulate(c)
+    state_result, _ = simulate(result)
+    assert states_equal(state_orig, state_result)
 
 
 def test_transpile_deterministic():
@@ -947,3 +957,269 @@ def test_transpile_deterministic():
     assert len(result1.ops) == len(result2.ops)
     for op1, op2 in zip(result1.ops, result2.ops):
         assert op1 == op2
+
+
+# =============================================================================
+# Regression tests for feature interactions
+# =============================================================================
+
+def test_decompose_preserves_conditions():
+    """Decomposing conditional gates must preserve the condition."""
+    from tinyqubit.passes.decompose import decompose
+
+    c = Circuit(2)
+    c.x(0).measure(0, 0)
+    with c.c_if(0, 1):
+        c.h(1)  # H needs decomposition to RZ/RX basis
+
+    basis = frozenset({Gate.RZ, Gate.RX, Gate.CX})
+    result = decompose(c, basis)
+
+    # All decomposed H gates should have the condition
+    h_decomposed = [op for op in result.ops if op.gate in (Gate.RZ, Gate.RX) and op.qubits == (1,)]
+    assert len(h_decomposed) == 3  # H = RZ RX RZ
+    for op in h_decomposed:
+        assert op.condition == (0, 1), "Condition lost during decomposition"
+
+
+def test_optimizer_respects_measurement_barrier():
+    """Optimizer must not commute gates across measurements."""
+    from tinyqubit.passes.optimize import optimize
+
+    # X; MEASURE; X should NOT cancel (measurement is barrier)
+    c = Circuit(1)
+    c.x(0).measure(0, 0).x(0)
+    result = optimize(c)
+
+    # Both X gates should remain
+    x_count = sum(1 for op in result.ops if op.gate == Gate.X)
+    assert x_count == 2, "Optimizer incorrectly cancelled across measurement"
+
+
+def test_optimizer_respects_conditional_barrier():
+    """Optimizer must not commute gates across conditional ops."""
+    from tinyqubit.passes.optimize import optimize
+
+    c = Circuit(1)
+    c.x(0).measure(0, 0)
+    with c.c_if(0, 1):
+        c.z(0)  # Conditional Z
+    c.x(0)
+
+    result = optimize(c)
+
+    # X gates should NOT cancel (conditional Z is barrier)
+    x_count = sum(1 for op in result.ops if op.gate == Gate.X)
+    assert x_count == 2, "Optimizer incorrectly cancelled across conditional"
+
+
+def test_cz_canonicalization_enables_cancellation():
+    """CZ(a,b) and CZ(b,a) should cancel after canonicalization."""
+    from tinyqubit.passes.optimize import optimize
+
+    c = Circuit(2).cz(0, 1).cz(1, 0)
+    result = optimize(c)
+
+    # Should cancel to empty
+    assert len(result.ops) == 0, "CZ(0,1); CZ(1,0) should cancel"
+
+
+def test_swap_canonicalization_enables_cancellation():
+    """SWAP(a,b) and SWAP(b,a) should cancel after canonicalization."""
+    from tinyqubit.passes.optimize import optimize
+
+    c = Circuit(2).swap(0, 1).swap(1, 0)
+    result = optimize(c)
+
+    # Should cancel to empty
+    assert len(result.ops) == 0, "SWAP(0,1); SWAP(1,0) should cancel"
+
+
+# =============================================================================
+# Target validation and utility tests
+# =============================================================================
+
+def test_target_validates_edge_endpoints():
+    """Target rejects edges with invalid qubit indices."""
+    with pytest.raises(ValueError, match="invalid qubit index"):
+        Target(n_qubits=3, edges=frozenset({(0, 5)}), basis_gates=frozenset())
+
+
+def test_target_rejects_self_loops():
+    """Target rejects self-loop edges."""
+    with pytest.raises(ValueError, match="Self-loop"):
+        Target(n_qubits=3, edges=frozenset({(1, 1)}), basis_gates=frozenset())
+
+
+def test_target_is_all_to_all_with_duplicate_edges():
+    """is_all_to_all handles both (a,b) and (b,a) correctly."""
+    # 3 qubits needs 3 pairs: (0,1), (0,2), (1,2)
+    # Include duplicates - should still detect missing (1,2)
+    edges = frozenset({(0, 1), (1, 0), (0, 2), (2, 0)})  # Missing (1,2)
+    target = Target(n_qubits=3, edges=edges, basis_gates=frozenset())
+    assert not target.is_all_to_all(), "Should detect missing (1,2) pair"
+
+    # Now with all pairs (including duplicates)
+    edges_full = frozenset({(0, 1), (1, 0), (0, 2), (1, 2)})
+    target_full = Target(n_qubits=3, edges=edges_full, basis_gates=frozenset())
+    assert target_full.is_all_to_all()
+
+
+def test_target_distance_cached():
+    """distance() method returns correct values and caches results."""
+    target = Target(
+        n_qubits=4,
+        edges=frozenset({(0, 1), (1, 2), (2, 3)}),  # Line: 0-1-2-3
+        basis_gates=frozenset()
+    )
+    assert target.distance(0, 0) == 0  # Same qubit
+    assert target.distance(0, 1) == 1  # Adjacent
+    assert target.distance(0, 2) == 2  # Two hops
+    assert target.distance(0, 3) == 3  # Three hops
+    assert target.distance(3, 0) == 3  # Symmetric
+
+
+def test_target_distance_disconnected():
+    """distance() returns -1 for disconnected qubits."""
+    target = Target(
+        n_qubits=4,
+        edges=frozenset({(0, 1), (2, 3)}),  # Two disconnected pairs
+        basis_gates=frozenset()
+    )
+    assert target.distance(0, 1) == 1
+    assert target.distance(0, 2) == -1  # Unreachable
+    assert target.distance(1, 3) == -1  # Unreachable
+
+
+# =============================================================================
+# QubitTracker validation tests
+# =============================================================================
+
+def test_tracker_validates_swap_indices():
+    """Tracker rejects swaps with invalid qubit indices."""
+    tracker = QubitTracker(3)
+    with pytest.raises(ValueError, match="Invalid physical qubit"):
+        tracker.record_swap(0, 5)
+
+
+def test_tracker_ignores_self_swap():
+    """SWAP(a, a) is a no-op."""
+    tracker = QubitTracker(3)
+    tracker.record_swap(1, 1)
+    assert tracker.pending == []  # No swap recorded
+    assert tracker.logical_to_phys(1) == 1  # Mapping unchanged
+
+
+def test_tracker_add_logical_gate():
+    """add_logical_gate auto-translates qubit indices."""
+    tracker = QubitTracker(3)
+    tracker.record_swap(0, 1, triggered_by=-1)  # Now logical 0 is at physical 1
+    tracker.add_logical_gate(Gate.X, (0,))
+
+    # Should have pending SWAP and X on physical qubit 1
+    materialized = tracker.materialize()
+    assert len(materialized) == 2
+    assert materialized[1].phys_qubits == (1,)
+
+
+def test_tracker_flush_clears_pending():
+    """flush() returns and clears pending ops."""
+    tracker = QubitTracker(3)
+    tracker.record_swap(0, 1, triggered_by=0)
+    tracker.add_gate(Gate.X, (0,))
+
+    ops1 = tracker.flush()
+    assert len(ops1) == 2
+
+    ops2 = tracker.flush()
+    assert len(ops2) == 0  # Cleared
+
+
+def test_route_flushes_before_measure():
+    """Routing flushes pending SWAPs before MEASURE barrier."""
+    # Circuit: CX(0,2) on line 0-1-2, then MEASURE(0)
+    # SWAPs needed for CX must appear BEFORE the measure
+    c = Circuit(3).cx(0, 2).measure(0)
+
+    target = Target(
+        n_qubits=3,
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.SWAP})
+    )
+
+    routed = route(c, target)
+
+    # Find positions of SWAP and MEASURE
+    swap_indices = [i for i, op in enumerate(routed.ops) if op.gate == Gate.SWAP]
+    measure_idx = next(i for i, op in enumerate(routed.ops) if op.gate == Gate.MEASURE)
+
+    # All SWAPs must come before MEASURE
+    assert all(si < measure_idx for si in swap_indices), "SWAPs must be flushed before MEASURE"
+
+
+def test_route_flushes_before_conditional():
+    """Routing flushes pending SWAPs before conditional ops."""
+    c = Circuit(3)
+    c.cx(0, 2)  # Needs routing
+    c.measure(1, 0)
+    with c.c_if(0, 1):
+        c.x(0)  # Conditional - barrier
+
+    target = Target(
+        n_qubits=3,
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.SWAP, Gate.X})
+    )
+
+    routed = route(c, target)
+
+    # Find conditional X
+    cond_idx = next(i for i, op in enumerate(routed.ops) if op.condition is not None)
+
+    # All SWAPs before conditional
+    swap_indices = [i for i, op in enumerate(routed.ops) if op.gate == Gate.SWAP]
+    assert all(si < cond_idx for si in swap_indices)
+
+
+def test_route_validates_target_has_enough_qubits():
+    """Routing fails if target has fewer qubits than circuit."""
+    c = Circuit(5).cx(0, 4)
+
+    target = Target(
+        n_qubits=3,  # Not enough!
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX})
+    )
+
+    with pytest.raises(ValueError, match="Target has 3 qubits but circuit needs 5"):
+        route(c, target)
+
+
+def test_route_disconnected_topology_raises():
+    """Routing fails for disconnected topology when path needed."""
+    c = Circuit(4).cx(0, 3)  # Needs path between 0 and 3
+
+    # Disconnected: 0-1 and 2-3 are separate components
+    target = Target(
+        n_qubits=4,
+        edges=frozenset({(0, 1), (2, 3)}),
+        basis_gates=frozenset({Gate.CX, Gate.SWAP})
+    )
+
+    with pytest.raises(ValueError, match="No path between"):
+        route(c, target)
+
+
+def test_route_allows_larger_target():
+    """Routing works when target has more qubits than circuit (ancillas)."""
+    c = Circuit(2).cx(0, 1)
+
+    target = Target(
+        n_qubits=5,  # More than needed
+        edges=line_topology(5),
+        basis_gates=frozenset({Gate.CX})
+    )
+
+    # Should work - uses first 2 qubits of larger target
+    routed = route(c, target)
+    assert routed.n_qubits == 5

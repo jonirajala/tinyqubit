@@ -44,8 +44,15 @@ class CompileReport:
         if self.basis: lines.append(f"  Basis:  {', '.join(self.basis)}")
         if verbosity < 2: return "\n".join(lines)
 
-        lines += ["", "PASSES", "  Name            Gates  2Q  Depth", "  " + "-" * 34]
-        lines += [f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5}" for m in self.passes]
+        lines += ["", "PASSES", "  Name            Gates  2Q  Depth  Delta", "  " + "-" * 42]
+        for i, m in enumerate(self.passes):
+            if i == 0:
+                lines.append(f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5}")
+            else:
+                prev = self.passes[i-1]
+                dg, d2q, dd = m.gates - prev.gates, m.two_q - prev.two_q, m.depth - prev.depth
+                delta = f"({dg:+d},{d2q:+d},{dd:+d})" if (dg or d2q or dd) else ""
+                lines.append(f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5}  {delta}")
 
         if self.swap_details:
             lines += ["", "SWAPS"]
@@ -63,9 +70,9 @@ class CompileReport:
         return "\n".join(lines)
 
 
-def _fmt(op: Operation) -> str:
-    q = ",".join(map(str, op.qubits))
-    return f"{op.gate.name}({q},{','.join(f'{p:.2f}' for p in op.params)})" if op.params else f"{op.gate.name}({q})"
+def _fmt(op: "Operation") -> str:
+    args = [str(q) for q in op.qubits] + [f"{p:.2f}" for p in op.params]
+    return f"{op.gate.name}({','.join(args)})"
 
 
 def _depth(ops: list[Operation]) -> int:
@@ -90,7 +97,8 @@ def build_report(input_circ: Circuit, output_circ: Circuit, passes: list[PassMet
     for a, b, idx in (tracker.swap_log if tracker else []):
         if 0 <= idx < len(input_circ.ops):
             op = input_circ.ops[idx]
-            details.append(((a, b), idx, _fmt(op), f"q{op.qubits[0]},q{op.qubits[1]} not connected"))
+            reason = f"q{op.qubits[0]},q{op.qubits[1]} not connected" if len(op.qubits) >= 2 else "routing"
+            details.append(((a, b), idx, _fmt(op), reason))
         else:
             details.append(((a, b), idx, "?", "manual"))
 

@@ -4,7 +4,7 @@ Pattern-based gate optimization.
 Contains:
     - optimize(): Apply cancellation and merge rules until fixed point
 
-Rules are declarative and applied in deterministic order:
+Rules applied in deterministic order:
     - Cancellation: [X,X]→[], [H,H]→[], [CX,CX]→[], [SWAP,SWAP]→[]
     - Merge: [RZ(a),RZ(b)]→[RZ(a+b)], [RX(a),RX(b)]→[RX(a+b)], [RY(a),RY(b)]→[RY(a+b)]
     - Clifford: [S,S]→[Z], [T,T]→[S], [S†,S†]→[Z], [T†,T†]→[S†], [S,S†]→[], [T,T†]→[]
@@ -64,7 +64,7 @@ def _try_merge(ops: list[Operation], i: int) -> bool:
     op1, op2 = ops[i], ops[i + 1]
     if op1.gate == op2.gate and op1.gate in MERGE_GATES and op1.qubits == op2.qubits:
         angle = (op1.params[0] + op2.params[0] + pi) % (2 * pi) - pi  # normalize to [-π, π]
-        if abs(angle) < 1e-10: del ops[i:i+2]
+        if abs(angle) < 1e-9: del ops[i:i+2]
         else:
             ops[i] = Operation(op1.gate, op1.qubits, (angle,))
             del ops[i+1]
@@ -97,6 +97,12 @@ def _try_clifford_merge(ops: list[Operation], i: int) -> bool:
 
 def commutes(op1: Operation, op2: Operation) -> bool:
     """Check if two operations commute."""
+    # Never commute across barriers: MEASURE, RESET, conditional ops
+    if op1.gate in (Gate.MEASURE, Gate.RESET) or op2.gate in (Gate.MEASURE, Gate.RESET):
+        return False
+    if op1.condition is not None or op2.condition is not None:
+        return False
+
     q1, q2 = set(op1.qubits), set(op2.qubits)
 
     # Disjoint qubits always commute
@@ -104,20 +110,15 @@ def commutes(op1: Operation, op2: Operation) -> bool:
 
     # Single-qubit diagonal gates (Z, S, T, SDG, TDG, RZ) commute with CX on control qubit
     diag_1q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
-    if op1.gate in diag_1q and op2.gate == Gate.CX:
-        return op1.qubits[0] == op2.qubits[0]
-    if op2.gate in diag_1q and op1.gate == Gate.CX:
-        return op2.qubits[0] == op1.qubits[0]
+    if op1.gate in diag_1q and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[0]
+    if op2.gate in diag_1q and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[0]
 
     # RX commutes with CX on target qubit
-    if op1.gate == Gate.RX and op2.gate == Gate.CX:
-        return op1.qubits[0] == op2.qubits[1]
-    if op2.gate == Gate.RX and op1.gate == Gate.CX:
-        return op2.qubits[0] == op1.qubits[1]
+    if op1.gate == Gate.RX and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[1]
+    if op2.gate == Gate.RX and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[1]
 
     # Diagonal gates commute with each other
-    if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES:
-        return True
+    if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES: return True
 
     return False
 
@@ -125,8 +126,7 @@ def commutes(op1: Operation, op2: Operation) -> bool:
 def _can_commute_to(ops: list[Operation], i: int, j: int) -> bool:
     """Check if ops[i] can commute past all ops between i and j."""
     for k in range(i + 1, j):
-        if not commutes(ops[i], ops[k]):
-            return False
+        if not commutes(ops[i], ops[k]): return False
     return True
 
 
@@ -135,7 +135,7 @@ def _try_cancel_through_commutation(ops: list[Operation], i: int, window: int = 
     op1 = ops[i]
     if op1.gate not in CANCELLATION_GATES: return False
 
-    for j in range(i + 1, min(i + window, len(ops))):
+    for j in range(i + 1, min(i + window + 1, len(ops))):
         op2 = ops[j]
         # Same gate, same qubits, can cancel
         if op1.gate == op2.gate and op1.qubits == op2.qubits:
@@ -151,7 +151,7 @@ def _try_merge_through_commutation(ops: list[Operation], i: int, window: int = 5
     op1 = ops[i]
     if op1.gate not in MERGE_GATES: return False
 
-    for j in range(i + 1, min(i + window, len(ops))):
+    for j in range(i + 1, min(i + window + 1, len(ops))):
         op2 = ops[j]
         # Same rotation gate, same qubits
         if op1.gate == op2.gate and op1.qubits == op2.qubits:
@@ -159,7 +159,7 @@ def _try_merge_through_commutation(ops: list[Operation], i: int, window: int = 5
                 # Merge angles
                 angle = (op1.params[0] + op2.params[0] + pi) % (2 * pi) - pi
                 del ops[j]
-                if abs(angle) < 1e-10:
+                if abs(angle) < 1e-9:
                     del ops[i]  # Angle is ~0, remove entirely
                 else:
                     ops[i] = Operation(op1.gate, op1.qubits, (angle,))

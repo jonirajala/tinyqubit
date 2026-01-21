@@ -17,14 +17,14 @@ from tinyqubit.export import to_openqasm2
 # =============================================================================
 
 def test_gate_count():
-    """We have exactly 16 primitive gates"""
-    assert len(Gate) == 16
+    """We have exactly 17 primitive gates"""
+    assert len(Gate) == 17
 
 
 def test_gate_n_qubits():
     """Single vs two-qubit gates"""
     single = [Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.T, Gate.SDG, Gate.TDG,
-              Gate.RX, Gate.RY, Gate.RZ, Gate.MEASURE]
+              Gate.RX, Gate.RY, Gate.RZ, Gate.MEASURE, Gate.RESET]
     two = [Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP]
 
     for g in single:
@@ -153,7 +153,7 @@ def test_circuit_two_qubit_gates():
 
     assert len(c.ops) == 2
     assert c.ops[0] == Operation(Gate.CX, (0, 1))
-    assert c.ops[1] == Operation(Gate.CZ, (1, 0))
+    assert c.ops[1] == Operation(Gate.CZ, (0, 1))  # CZ is canonicalized to (min, max)
 
 
 def test_circuit_measure():
@@ -161,8 +161,9 @@ def test_circuit_measure():
     c = Circuit(2).measure(0).measure(1)
 
     assert len(c.ops) == 2
-    assert c.ops[0] == Operation(Gate.MEASURE, (0,))
-    assert c.ops[1] == Operation(Gate.MEASURE, (1,))
+    # Measure stores result in classical bit with same index by default
+    assert c.ops[0] == Operation(Gate.MEASURE, (0,), (), 0, None)
+    assert c.ops[1] == Operation(Gate.MEASURE, (1,), (), 1, None)
 
 
 def test_circuit_bell_state():
@@ -229,7 +230,7 @@ def test_qasm_two_qubit_gates():
     qasm = to_openqasm2(c)
 
     assert 'cx q[0], q[1];' in qasm
-    assert 'cz q[1], q[0];' in qasm
+    assert 'cz q[0], q[1];' in qasm  # CZ is canonicalized to (min, max)
 
 
 def test_qasm_parametric_gates():

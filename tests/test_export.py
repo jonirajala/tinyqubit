@@ -294,6 +294,57 @@ class TestQiskitAdapter:
         assert 'h q[0];' in qasm
         assert 'cx q[0],q[1];' in qasm
 
+    @pytest.mark.skipif(
+        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
+        reason="Qiskit not installed"
+    )
+    def test_measure_explicit_classical_bit(self):
+        """Measurement uses explicit classical bit."""
+        c = Circuit(2, n_classical=3)
+        c.measure(0, 2)  # Measure qubit 0 into classical bit 2
+        qc = to_qiskit(c)
+        assert qc.num_clbits == 3
+        # Check the measurement targets the right classical bit
+        measure_op = [inst for inst in qc.data if inst.operation.name == 'measure'][0]
+        assert measure_op.clbits[0]._index == 2
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
+        reason="Qiskit not installed"
+    )
+    def test_reset_gate(self):
+        """RESET gate converts correctly."""
+        c = Circuit(1).x(0).reset(0)
+        qc = to_qiskit(c)
+        op_names = [inst.operation.name for inst in qc.data]
+        assert 'reset' in op_names
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
+        reason="Qiskit not installed"
+    )
+    def test_conditional_gate(self):
+        """Conditional gates convert using if_test."""
+        c = Circuit(2)
+        c.x(0).measure(0, 0)
+        with c.c_if(0, 1):
+            c.x(1)
+        qc = to_qiskit(c)
+        # In Qiskit 1.0+, if_test creates IfElseOp blocks
+        op_names = [inst.operation.name for inst in qc.data]
+        assert 'if_else' in op_names  # Conditional wrapped in if_else block
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
+        reason="Qiskit not installed"
+    )
+    def test_n_classical_respected(self):
+        """Classical register size uses circuit.n_classical."""
+        c = Circuit(2, n_classical=5)
+        c.measure(0, 0)
+        qc = to_qiskit(c)
+        assert qc.num_clbits == 5
+
 
 class TestTranspiledCircuitExport:
     """Tests for exporting transpiled circuits."""
@@ -365,3 +416,95 @@ class TestPublicAPI:
         assert callable(get_ibm_results)
         assert callable(submit_to_braket)
         assert callable(get_braket_results)
+
+
+class TestDynamicCircuitExport:
+    """Tests for dynamic circuit features in QASM export."""
+
+    def test_measure_explicit_classical_bit_qasm2(self):
+        """QASM2 uses explicit classical bit from op.classical_bit."""
+        c = Circuit(2, n_classical=3)
+        c.measure(0, 2)  # Measure qubit 0 into classical bit 2
+        qasm = to_openqasm2(c)
+        assert 'creg c[3];' in qasm
+        assert 'measure q[0] -> c[2];' in qasm
+
+    def test_measure_explicit_classical_bit_qasm3(self):
+        """QASM3 uses explicit classical bit from op.classical_bit."""
+        c = Circuit(2, n_classical=3)
+        c.measure(0, 2)
+        qasm = to_openqasm3(c)
+        assert 'bit[3] c;' in qasm
+        assert 'c[2] = measure q[0];' in qasm
+
+    def test_conditional_qasm2(self):
+        """QASM2 exports conditionals with if statement."""
+        c = Circuit(2)
+        c.x(0).measure(0, 0)
+        with c.c_if(0, 1):
+            c.x(1)
+        qasm = to_openqasm2(c)
+        assert 'if (c[0] == 1) x q[1];' in qasm
+
+    def test_conditional_qasm3(self):
+        """QASM3 exports conditionals with braces."""
+        c = Circuit(2)
+        c.x(0).measure(0, 0)
+        with c.c_if(0, 1):
+            c.x(1)
+        qasm = to_openqasm3(c)
+        assert 'if (c[0] == 1) { x q[1]; }' in qasm
+
+    def test_conditional_triggers_classical_register(self):
+        """Classical register created when conditionals present (even without measure)."""
+        c = Circuit(2, n_classical=1)
+        # Assuming classical bit 0 was set externally or by prior circuit
+        with c.c_if(0, 1):
+            c.x(0)
+        qasm = to_openqasm2(c)
+        assert 'creg c[1];' in qasm
+
+    def test_reset_qasm2(self):
+        """QASM2 exports reset operation."""
+        c = Circuit(1).x(0).reset(0)
+        qasm = to_openqasm2(c)
+        assert 'reset q[0];' in qasm
+
+    def test_reset_qasm3(self):
+        """QASM3 exports reset operation."""
+        c = Circuit(1).x(0).reset(0)
+        qasm = to_openqasm3(c)
+        assert 'reset q[0];' in qasm
+
+    def test_multi_param_gate_formatting(self):
+        """Gates with multiple params format correctly."""
+        # CP has one param, but test the formatting handles multiple
+        c = Circuit(2).cp(0, 1, 0.5)
+        qasm = to_openqasm3(c)  # CP only works in QASM3
+        assert 'cp(0.5) q[0], q[1];' in qasm
+
+    def test_teleportation_circuit_exports(self):
+        """Full teleportation circuit with mid-circuit measurement exports correctly."""
+        c = Circuit(3, n_classical=2)
+        # Prepare Bell pair
+        c.h(1).cx(1, 2)
+        # Bell measurement
+        c.cx(0, 1).h(0)
+        c.measure(0, 0).measure(1, 1)
+        # Conditional corrections
+        with c.c_if(1, 1):
+            c.x(2)
+        with c.c_if(0, 1):
+            c.z(2)
+
+        qasm2 = to_openqasm2(c)
+        assert 'creg c[2];' in qasm2
+        assert 'measure q[0] -> c[0];' in qasm2
+        assert 'measure q[1] -> c[1];' in qasm2
+        assert 'if (c[1] == 1) x q[2];' in qasm2
+        assert 'if (c[0] == 1) z q[2];' in qasm2
+
+        qasm3 = to_openqasm3(c)
+        assert 'bit[2] c;' in qasm3
+        assert 'c[0] = measure q[0];' in qasm3
+        assert 'if (c[1] == 1) { x q[2]; }' in qasm3

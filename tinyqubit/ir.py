@@ -12,7 +12,7 @@ from enum import Enum, auto
 from dataclasses import dataclass
 
 class Gate(Enum):
-    """16 primitive quantum gates."""
+    """17 primitive quantum gates."""
     # Pauli gates
     X = auto()
     Y = auto()
@@ -36,13 +36,14 @@ class Gate(Enum):
     CP = auto()  # Controlled phase
     SWAP = auto()
 
-    # Measurement
+    # Measurement and reset
     MEASURE = auto()
+    RESET = auto()  # Reset qubit to |0>
 
-    @property                                                                                                                                                                                                        
-    def n_qubits(self) -> int: return 2 if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP) else 1                                                                                                                              
-                                                                                                                                                                                                                    
-    @property                                                                                                                                                                                                        
+    @property
+    def n_qubits(self) -> int: return 2 if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP) else 1
+
+    @property
     def n_params(self) -> int: return 1 if self in (Gate.RX, Gate.RY, Gate.RZ, Gate.CP) else 0   
 
 
@@ -51,36 +52,68 @@ class Operation:
     gate: Gate
     qubits: tuple[int, ...]
     params: tuple[float, ...] = ()
+    classical_bit: int | None = None  # For MEASURE: which classical bit to store result
+    condition: tuple[int, int] | None = None  # (classical_bit, expected_value) for conditional
+
+
+# Context manager for conditional operations
+class _ConditionalContext:
+    """Context manager for c_if conditional blocks."""
+    def __init__(self, circuit: "Circuit", classical_bit: int, value: int):
+        self._circuit = circuit
+        self._classical_bit = classical_bit
+        self._value = value
+
+    def __enter__(self):
+        self._circuit._current_condition = (self._classical_bit, self._value)
+        return self
+
+    def __exit__(self, *args):
+        self._circuit._current_condition = None
 
 
 # Circuit - lazy list of operations
 class Circuit:
     """Lazy circuit builder. Adds operations to a list."""
-    
-    def __init__(self, n_qubits: int):
-        self.n_qubits = n_qubits
-        self.ops: list[Operation] = []
 
-    def _add(self, gate: Gate, qubits: tuple, params: tuple = ()) -> Circuit:
-        self.ops.append(Operation(gate, qubits, params))
+    def __init__(self, n_qubits: int, n_classical: int | None = None):
+        self.n_qubits = n_qubits
+        self.n_classical = n_classical if n_classical is not None else n_qubits
+        self.ops: list[Operation] = []
+        self._current_condition: tuple[int, int] | None = None  # For c_if context manager
+
+    def _add(self, gate: Gate, qubits: tuple, params: tuple = (),
+             classical_bit: int | None = None) -> "Circuit":
+        self.ops.append(Operation(gate, qubits, params, classical_bit, self._current_condition))
         return self
 
-    def x(self, q: int) -> Circuit: return self._add(Gate.X, (q,))
-    def y(self, q: int) -> Circuit: return self._add(Gate.Y, (q,))
-    def z(self, q: int) -> Circuit: return self._add(Gate.Z, (q,))
-    def h(self, q: int) -> Circuit: return self._add(Gate.H, (q,))
-    def s(self, q: int) -> Circuit: return self._add(Gate.S, (q,))
-    def t(self, q: int) -> Circuit: return self._add(Gate.T, (q,))
-    def sdg(self, q: int) -> Circuit: return self._add(Gate.SDG, (q,))
-    def tdg(self, q: int) -> Circuit: return self._add(Gate.TDG, (q,))
-    def rx(self, q: int, theta: float) -> Circuit: return self._add(Gate.RX, (q,), (theta,))
-    def ry(self, q: int, theta: float) -> Circuit: return self._add(Gate.RY, (q,), (theta,))
-    def rz(self, q: int, theta: float) -> Circuit: return self._add(Gate.RZ, (q,), (theta,))
-    def cx(self, c: int, t: int) -> Circuit: return self._add(Gate.CX, (c, t))
-    def cz(self, a: int, b: int) -> Circuit: return self._add(Gate.CZ, (a, b))
-    def cp(self, c: int, t: int, theta: float) -> Circuit: return self._add(Gate.CP, (c, t), (theta,))
-    def swap(self, a: int, b: int) -> Circuit: return self._add(Gate.SWAP, (a, b))
-    def measure(self, q: int) -> Circuit: return self._add(Gate.MEASURE, (q,))
+    def x(self, q: int) -> "Circuit": return self._add(Gate.X, (q,))
+    def y(self, q: int) -> "Circuit": return self._add(Gate.Y, (q,))
+    def z(self, q: int) -> "Circuit": return self._add(Gate.Z, (q,))
+    def h(self, q: int) -> "Circuit": return self._add(Gate.H, (q,))
+    def s(self, q: int) -> "Circuit": return self._add(Gate.S, (q,))
+    def t(self, q: int) -> "Circuit": return self._add(Gate.T, (q,))
+    def sdg(self, q: int) -> "Circuit": return self._add(Gate.SDG, (q,))
+    def tdg(self, q: int) -> "Circuit": return self._add(Gate.TDG, (q,))
+    def rx(self, q: int, theta: float) -> "Circuit": return self._add(Gate.RX, (q,), (theta,))
+    def ry(self, q: int, theta: float) -> "Circuit": return self._add(Gate.RY, (q,), (theta,))
+    def rz(self, q: int, theta: float) -> "Circuit": return self._add(Gate.RZ, (q,), (theta,))
+    def cx(self, c: int, t: int) -> "Circuit": return self._add(Gate.CX, (c, t))
+    def cz(self, a: int, b: int) -> "Circuit": return self._add(Gate.CZ, (min(a,b), max(a,b)))  # Canonicalize
+    def cp(self, c: int, t: int, theta: float) -> "Circuit": return self._add(Gate.CP, (c, t), (theta,))
+    def swap(self, a: int, b: int) -> "Circuit": return self._add(Gate.SWAP, (min(a,b), max(a,b)))  # Canonicalize
+
+    def measure(self, q: int, c: int | None = None) -> "Circuit":
+        """Measure qubit q, store result in classical bit c (defaults to q)."""
+        return self._add(Gate.MEASURE, (q,), (), classical_bit=c if c is not None else q)
+
+    def reset(self, q: int) -> "Circuit":
+        """Reset qubit to |0>."""
+        return self._add(Gate.RESET, (q,))
+
+    def c_if(self, classical_bit: int, value: int = 1) -> _ConditionalContext:
+        """Context manager for conditional operations."""
+        return _ConditionalContext(self, classical_bit, value)
 
     def draw(self) -> None:                                                                                                                                                                                          
         if not self.ops:                                                                                                                                                                                             
@@ -127,9 +160,10 @@ class Circuit:
                 if "│" in conn: out.append(conn)                                                                                                                                                                     
         print("\n".join(out))                                                                                                                                                                                        
                                                                                                                                                                                                                     
-    def _gate_syms(self, op: Operation) -> dict[int, str]:                                                                                                                                                           
-        g, qs = op.gate, op.qubits                                                                                                                                                                                   
-        if g == Gate.MEASURE: return {qs[0]: "M"}                                                                                                                                                                    
+    def _gate_syms(self, op: Operation) -> dict[int, str]:
+        g, qs = op.gate, op.qubits
+        if g == Gate.MEASURE: return {qs[0]: "M"}
+        if g == Gate.RESET: return {qs[0]: "R"}
         if g.n_qubits == 1: return {qs[0]: g.name}                                                                                                                                                                   
         s0, s1 = ("●", "X") if g == Gate.CX else ("●", "●") if g == Gate.CZ else ("╳", "╳")                                                                                                                          
         col = {qs[0]: s0, qs[1]: s1}                                                                                                                                                                                 
