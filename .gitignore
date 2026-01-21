@@ -8,5 +8,6 @@ venv/
 .venv/
 *.egg
 .eggs/
+.env
 
 docs/

@@ -1,7 +1,5 @@
-"""
-Export adapters.
+"""Export adapters: OpenQASM, Qiskit."""
+from .qasm import to_openqasm2, to_openqasm3, UnsupportedGateError
+from .qiskit_adapter import to_qiskit
 
-Modules:
-    - qasm: OpenQASM 2/3 export
-    - qiskit_adapter: Qiskit QuantumCircuit conversion
-"""
+__all__ = ["to_openqasm2", "to_openqasm3", "to_qiskit", "UnsupportedGateError"]

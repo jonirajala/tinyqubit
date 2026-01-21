@@ -9,6 +9,7 @@ Tests:
 """
 import pytest
 from tinyqubit.ir import Gate, Operation, Circuit
+from tinyqubit.export import to_openqasm2
 
 
 # =============================================================================
@@ -191,7 +192,7 @@ def test_circuit_ghz_state():
 def test_qasm_header():
     """QASM header is correct"""
     c = Circuit(2)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     lines = qasm.split('\n')
     assert lines[0] == 'OPENQASM 2.0;'
@@ -202,7 +203,7 @@ def test_qasm_header():
 def test_qasm_empty_circuit():
     """Empty circuit exports valid QASM"""
     c = Circuit(3)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'OPENQASM 2.0;' in qasm
     assert 'qreg q[3];' in qasm
@@ -212,7 +213,7 @@ def test_qasm_empty_circuit():
 def test_qasm_single_qubit_gates():
     """Single qubit gates export correctly"""
     c = Circuit(1).h(0).x(0).y(0).z(0).s(0).t(0)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'h q[0];' in qasm
     assert 'x q[0];' in qasm
@@ -225,7 +226,7 @@ def test_qasm_single_qubit_gates():
 def test_qasm_two_qubit_gates():
     """Two qubit gates export correctly"""
     c = Circuit(2).cx(0, 1).cz(1, 0)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'cx q[0], q[1];' in qasm
     assert 'cz q[1], q[0];' in qasm
@@ -234,7 +235,7 @@ def test_qasm_two_qubit_gates():
 def test_qasm_parametric_gates():
     """Rotation gates include parameters"""
     c = Circuit(1).rx(0, 1.5).ry(0, 2.5).rz(0, 3.5)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'rx(1.5) q[0];' in qasm
     assert 'ry(2.5) q[0];' in qasm
@@ -244,7 +245,7 @@ def test_qasm_parametric_gates():
 def test_qasm_measurement_adds_creg():
     """Measurements trigger creg declaration"""
     c = Circuit(2).measure(0)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'creg c[2];' in qasm
     assert 'measure q[0] -> c[0];' in qasm
@@ -253,7 +254,7 @@ def test_qasm_measurement_adds_creg():
 def test_qasm_multiple_measurements():
     """Multiple measurements work"""
     c = Circuit(3).measure(0).measure(1).measure(2)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'creg c[3];' in qasm
     assert 'measure q[0] -> c[0];' in qasm
@@ -264,7 +265,7 @@ def test_qasm_multiple_measurements():
 def test_qasm_creg_before_gates():
     """creg appears before gates in output"""
     c = Circuit(2).h(0).measure(0)
-    lines = c.to_openqasm().split('\n')
+    lines = to_openqasm2(c).split('\n')
 
     creg_idx = next(i for i, l in enumerate(lines) if 'creg' in l)
     gate_idx = next(i for i, l in enumerate(lines) if l.startswith('h '))
@@ -275,7 +276,7 @@ def test_qasm_creg_before_gates():
 def test_qasm_no_creg_without_measure():
     """No creg if no measurements"""
     c = Circuit(3).h(0).cx(0, 1).cx(1, 2)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'creg' not in qasm
 
@@ -284,7 +285,7 @@ def test_qasm_full_circuit():
     """Full circuit with all gate types"""
     c = Circuit(2)
     c.h(0).x(1).cx(0, 1).rz(1, 0.5).measure(0).measure(1)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     # Check structure
     assert 'OPENQASM 2.0;' in qasm
@@ -301,7 +302,7 @@ def test_qasm_full_circuit():
 def test_qasm_different_qubit_indices():
     """Gates on different qubits export correct indices"""
     c = Circuit(4).h(0).h(1).h(2).h(3)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     assert 'h q[0];' in qasm
     assert 'h q[1];' in qasm
@@ -324,7 +325,7 @@ except ImportError:
 def test_qasm_parseable_by_qiskit():
     """Qiskit can parse our QASM output"""
     c = Circuit(2).h(0).cx(0, 1).rz(1, 0.5).measure(0).measure(1)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     # This will raise if QASM is invalid
     qc = QuantumCircuit.from_qasm_str(qasm)
@@ -337,7 +338,7 @@ def test_qasm_parseable_by_qiskit():
 def test_qasm_bell_state_qiskit():
     """Bell state QASM parses correctly"""
     c = Circuit(2).h(0).cx(0, 1)
-    qasm = c.to_openqasm()
+    qasm = to_openqasm2(c)
 
     qc = QuantumCircuit.from_qasm_str(qasm)
     assert qc.num_qubits == 2

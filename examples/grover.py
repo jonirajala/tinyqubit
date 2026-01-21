@@ -13,6 +13,7 @@ from tinyqubit.ir import Circuit, Gate
 from tinyqubit.target import Target
 from tinyqubit.compile import transpile
 from tinyqubit.simulator import simulate, sample
+from tinyqubit.export import to_openqasm2
 
 # 2-qubit Grover searching for |11⟩
 grover = Circuit(2)
@@ -54,11 +55,11 @@ print(f"Samples (1000 shots): {counts}")
 print()
 
 print("OpenQASM:")
-print(grover.to_openqasm())
+print(to_openqasm2(grover))
 
 # Transpile to hardware basis {RX, RZ, CX}
 print("\n=== Transpiled (basis: RX, RZ, CX) ===")
 target = Target(2, frozenset({(0, 1)}), frozenset({Gate.RX, Gate.RZ, Gate.CX}))
 transpiled = transpile(grover, target,1)
 print(f"Operations: {len(transpiled.ops)}")
-print(transpiled.to_openqasm())
+print(to_openqasm2(transpiled))

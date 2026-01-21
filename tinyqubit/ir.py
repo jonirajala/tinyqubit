@@ -82,20 +82,6 @@ class Circuit:
     def swap(self, a: int, b: int) -> Circuit: return self._add(Gate.SWAP, (a, b))
     def measure(self, q: int) -> Circuit: return self._add(Gate.MEASURE, (q,))
 
-
-    # TODO: Move these into exports/qasm later when its more complicated and we have more exports
-    def to_openqasm(self) -> str:                                                                                                                                                                                    
-        lines = ['OPENQASM 2.0;', 'include "qelib1.inc";', f'qreg q[{self.n_qubits}];']                                                                                                                              
-        if any(op.gate == Gate.MEASURE for op in self.ops):                                                                                                                                                          
-            lines.append(f'creg c[{self.n_qubits}];')                                                                                                                                                                
-        for op in self.ops:                                                                                                                                                                                          
-            if op.gate == Gate.MEASURE:                                                                                                                                                                              
-                lines.append(f'measure q[{op.qubits[0]}] -> c[{op.qubits[0]}];')                                                                                                                                     
-            else:                                                                                                                                                                                                    
-                p = f'({op.params[0]})' if op.params else ''                                                                                                                                                         
-                lines.append(f'{op.gate.name.lower()}{p} {", ".join(f"q[{q}]" for q in op.qubits)};')                                                                                                                
-        return '\n'.join(lines)  
-
     def draw(self) -> None:                                                                                                                                                                                          
         if not self.ops:                                                                                                                                                                                             
             print("\n".join(f"q{q}: ──" for q in range(self.n_qubits))); return                                                                                                                                      

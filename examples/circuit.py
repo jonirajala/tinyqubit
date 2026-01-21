@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tinyqubit.ir import Circuit, Gate
+from tinyqubit.export import to_openqasm2
 
 # =============================================================================
 # Example 1: Bell State
@@ -20,7 +21,7 @@ for op in bell.ops:
     print(f"  {op.gate.name} on qubits {op.qubits}")
 
 print("\nOpenQASM:")
-print(bell.to_openqasm())
+print(to_openqasm2(bell))
 
 # =============================================================================
 # Example 2: GHZ State (3-qubit entanglement)
@@ -30,7 +31,7 @@ ghz = Circuit(3).h(0).cx(0, 1).cx(1, 2)
 
 print(f"Operations: {len(ghz.ops)}")
 print("\nOpenQASM:")
-print(ghz.to_openqasm())
+print(to_openqasm2(ghz))
 
 # =============================================================================
 # Example 3: Circuit with rotations
@@ -44,7 +45,7 @@ rot.rz(0, 0.78)  # ~pi/4
 rot.cx(0, 1)
 
 print("OpenQASM:")
-print(rot.to_openqasm())
+print(to_openqasm2(rot))
 
 # =============================================================================
 # Example 4: Circuit with measurements
@@ -55,7 +56,7 @@ measured.h(0).cx(0, 1)
 measured.measure(0).measure(1)
 
 print("OpenQASM:")
-print(measured.to_openqasm())
+print(to_openqasm2(measured))
 
 # =============================================================================
 # Example 5: Method chaining

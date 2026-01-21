@@ -17,10 +17,10 @@ TinyQubit: tiny, no dependencies, deterministic, explainable.
 ## Usage
 
 ```python
-from tinyqubit.ir import Circuit
+from tinyqubit import Circuit, to_openqasm2
 
 c = Circuit(2).h(0).cx(0, 1).measure(0).measure(1)
-print(c.to_openqasm())
+print(to_openqasm2(c))
 ```
 
 ## Gates
