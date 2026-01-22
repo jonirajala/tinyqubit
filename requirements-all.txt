@@ -5,7 +5,8 @@ numpy
 pytest
 hypothesis
 
-# Optional: hardware submission
+# Optional: hardware submission & benchmarking
 qiskit
 qiskit-ibm-runtime
 amazon-braket-sdk
+pennylane

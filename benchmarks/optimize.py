@@ -1,7 +1,7 @@
 """
 Benchmark: tinyqubit vs Qiskit optimization.
 
-Compares gate counts on standard circuits from QASMBench.
+Compares gate counts on standard circuits from QASMBench plus new circuit types.
 Requires: pip install qiskit
 
 Run: python benchmarks/optimize.py
@@ -14,6 +14,14 @@ from math import pi
 
 from tinyqubit.ir import Circuit
 from tinyqubit.passes.optimize import optimize
+
+from benchmarks.circuits import (
+    bernstein_vazirani,
+    hardware_efficient_ansatz,
+    random_clifford_t,
+    qft,
+)
+from benchmarks.metrics import count_t_gates
 
 try:
     from qiskit import QuantumCircuit, transpile
@@ -101,6 +109,28 @@ def run_benchmark():
     qk.cx(0,1); qk.cx(1,2)
     tests.append(("adder_4*", tq, qk, True))
 
+    # === New circuit types from circuits.py ===
+
+    # Bernstein-Vazirani (4, 8, 12 qubits)
+    for n, secret in [(4, 0b1010), (8, 0b10101010), (12, 0b101010101010)]:
+        tq, qk, _ = bernstein_vazirani(n, secret)
+        tests.append((f"bv_{n}", tq, qk, True))
+
+    # Hardware-efficient ansatz (4, 8 qubits, 2 layers)
+    for n in [4, 8]:
+        tq, qk, _ = hardware_efficient_ansatz(n, layers=2)
+        tests.append((f"hea_{n}", tq, qk, True))
+
+    # Random Clifford+T (10, 20 qubits)
+    for n in [10, 20]:
+        tq, qk, _ = random_clifford_t(n, depth=10, seed=42)
+        tests.append((f"cliff_t_{n}", tq, qk, True))
+
+    # Larger QFT (12, 16, 20 qubits)
+    for n in [12, 16, 20]:
+        tq, qk, _ = qft(n)
+        tests.append((f"qft_{n}", tq, qk, True))
+
     # === Phase 11 targets ===
 
     # CNOT conjugation pattern
@@ -126,15 +156,17 @@ def run_benchmark():
 
     # Print results
     print("Gate counts after optimization (lower is better)")
-    print("-" * 70)
-    print(f"{'Circuit':<16} {'Original':>8} {'tinyqubit':>10} {'Qiskit-3':>10} {'Winner':>12}")
-    print("-" * 70)
+    print("-" * 85)
+    print(f"{'Circuit':<16} {'Original':>8} {'tinyqubit':>10} {'Qiskit-3':>10} {'T-count':>8} {'Winner':>12}")
+    print("-" * 85)
 
     for name, tq_c, qk_c, _ in tests:
         orig = len(tq_c.ops)
-        tq_gates = len(optimize(tq_c).ops)
+        optimized = optimize(tq_c)
+        tq_gates = len(optimized.ops)
+        t_count = count_t_gates(optimized)
 
-        if HAS_QISKIT:
+        if HAS_QISKIT and qk_c is not None:
             qk_gates = sum(transpile(qk_c, optimization_level=3).count_ops().values())
             if tq_gates < qk_gates: winner = "tinyqubit"
             elif tq_gates > qk_gates: winner = "Qiskit"
@@ -142,9 +174,9 @@ def run_benchmark():
         else:
             qk_gates, winner = "-", "-"
 
-        print(f"{name:<16} {orig:>8} {tq_gates:>10} {qk_gates:>10} {winner:>12}")
+        print(f"{name:<16} {orig:>8} {tq_gates:>10} {qk_gates:>10} {t_count:>8} {winner:>12}")
 
-    print("-" * 70)
+    print("-" * 85)
     print("* = QASMBench standard circuit (github.com/pnnl/QASMBench)")
 
 
