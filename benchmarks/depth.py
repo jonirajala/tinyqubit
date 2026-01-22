@@ -15,6 +15,7 @@ from math import pi
 from tinyqubit.ir import Circuit, Gate
 from tinyqubit.passes.fuse import fuse_1q_gates
 from tinyqubit.passes.optimize import optimize
+from tinyqubit.passes.push_diagonals import push_diagonals
 
 try:
     from qiskit import QuantumCircuit, transpile
@@ -104,7 +105,7 @@ def run_benchmark():
 
     for name, tq_c, qk_c in tests:
         orig = calc_depth(tq_c)
-        tq_depth = calc_depth(optimize(fuse_1q_gates(tq_c)))
+        tq_depth = calc_depth(optimize(fuse_1q_gates(push_diagonals(tq_c))))
 
         if HAS_QISKIT:
             qk_depth = transpile(qk_c, optimization_level=3).depth()

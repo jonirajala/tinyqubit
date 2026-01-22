@@ -1223,3 +1223,151 @@ def test_route_allows_larger_target():
     # Should work - uses first 2 qubits of larger target
     routed = route(c, target)
     assert routed.n_qubits == 5
+
+
+# =============================================================================
+# Push Diagonals Tests
+# =============================================================================
+
+from tinyqubit.passes.push_diagonals import push_diagonals
+
+
+def test_push_diagonals_rz_through_cx_control():
+    """RZ on control pushes backward through CX."""
+    c = Circuit(2).cx(0, 1).rz(0, 0.5)
+    pushed = push_diagonals(c)
+
+    # RZ should now be before CX
+    assert pushed.ops[0].gate == Gate.RZ
+    assert pushed.ops[0].qubits == (0,)
+    assert pushed.ops[1].gate == Gate.CX
+
+
+def test_push_diagonals_rz_not_through_cx_target():
+    """RZ on target does NOT push through CX."""
+    c = Circuit(2).cx(0, 1).rz(1, 0.5)
+    pushed = push_diagonals(c)
+
+    # RZ stays after CX (doesn't commute on target)
+    assert pushed.ops[0].gate == Gate.CX
+    assert pushed.ops[1].gate == Gate.RZ
+    assert pushed.ops[1].qubits == (1,)
+
+
+def test_push_diagonals_through_cz():
+    """RZ pushes through CZ on either qubit."""
+    c = Circuit(2).cz(0, 1).rz(0, 0.5).rz(1, 0.3)
+    pushed = push_diagonals(c)
+
+    # Both RZ should be before CZ
+    assert pushed.ops[0].gate == Gate.RZ
+    assert pushed.ops[1].gate == Gate.RZ
+    assert pushed.ops[2].gate == Gate.CZ
+
+
+def test_push_diagonals_through_disjoint():
+    """Diagonal pushes through gates on disjoint qubits."""
+    c = Circuit(3).h(0).cx(0, 1).rz(2, 0.5)
+    pushed = push_diagonals(c)
+
+    # RZ(2) should push all the way to the front
+    assert pushed.ops[0].gate == Gate.RZ
+    assert pushed.ops[0].qubits == (2,)
+
+
+def test_push_diagonals_stops_at_h():
+    """Diagonal stops at H gate (doesn't commute)."""
+    c = Circuit(1).h(0).rz(0, 0.5)
+    pushed = push_diagonals(c)
+
+    # RZ stays after H
+    assert pushed.ops[0].gate == Gate.H
+    assert pushed.ops[1].gate == Gate.RZ
+
+
+def test_push_diagonals_stops_at_measure():
+    """Diagonal stops at MEASURE barrier."""
+    c = Circuit(1).rz(0, 0.3)
+    c.measure(0, 0)
+    c.rz(0, 0.5)
+    pushed = push_diagonals(c)
+
+    # RZ after measure should not push past measure
+    assert pushed.ops[1].gate == Gate.MEASURE
+    assert pushed.ops[2].gate == Gate.RZ
+
+
+def test_push_diagonals_cnot_conj_pattern():
+    """CNOT conjugation pattern: Z gates on control should gather."""
+    c = Circuit(2).z(0).cx(0, 1).z(0).z(1).cx(0, 1).z(1)
+    pushed = push_diagonals(c)
+    opt = optimize(pushed)
+
+    # Z(0) gates should cancel through CX control, leaving only Z(1) gates
+    z_count_q0 = sum(1 for op in opt.ops if op.gate == Gate.Z and op.qubits == (0,))
+    assert z_count_q0 == 0  # Both Z(0) should cancel
+
+
+def test_push_diagonals_rz_merge_after_push():
+    """RZ gates merge after being pushed together."""
+    c = Circuit(2).rz(0, 0.5).cx(0, 1).rz(0, 0.3)
+    pushed = push_diagonals(c)
+    opt = optimize(pushed)
+
+    # Should have only 1 RZ on qubit 0 (merged)
+    rz_q0 = [op for op in opt.ops if op.gate == Gate.RZ and op.qubits == (0,)]
+    assert len(rz_q0) == 1
+    assert abs(rz_q0[0].params[0] - 0.8) < 1e-9
+
+
+def test_push_diagonals_preserves_semantics():
+    """Pushing preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(2).h(0).cx(0, 1).rz(0, 0.5).rz(1, 0.3)
+    pushed = push_diagonals(c)
+
+    state_orig, _ = simulate(c)
+    state_pushed, _ = simulate(pushed)
+    assert states_equal(state_orig, state_pushed)
+
+
+def test_push_diagonals_preserves_semantics_complex():
+    """Pushing preserves semantics on complex circuit."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(3)
+    c.h(0).cx(0, 1).rz(0, 0.5).cz(1, 2).rz(1, 0.3).rz(2, 0.7)
+    pushed = push_diagonals(c)
+
+    state_orig, _ = simulate(c)
+    state_pushed, _ = simulate(pushed)
+    assert states_equal(state_orig, state_pushed)
+
+
+def test_push_diagonals_empty_circuit():
+    """Push handles empty circuit."""
+    c = Circuit(2)
+    pushed = push_diagonals(c)
+    assert len(pushed.ops) == 0
+
+
+def test_push_diagonals_no_diagonals():
+    """Push handles circuit with no diagonal gates."""
+    c = Circuit(2).h(0).cx(0, 1).x(1)
+    pushed = push_diagonals(c)
+    assert len(pushed.ops) == 3
+    assert pushed.ops[0].gate == Gate.H
+    assert pushed.ops[1].gate == Gate.CX
+    assert pushed.ops[2].gate == Gate.X
+
+
+def test_push_diagonals_all_clifford_diagonals():
+    """Push handles S, T, SDG, TDG gates."""
+    c = Circuit(2).cx(0, 1).s(0).t(0).sdg(0).tdg(0)
+    pushed = push_diagonals(c)
+
+    # All 4 diagonal gates should push before CX
+    assert pushed.ops[4].gate == Gate.CX
+    for i in range(4):
+        assert pushed.ops[i].gate in {Gate.S, Gate.T, Gate.SDG, Gate.TDG}

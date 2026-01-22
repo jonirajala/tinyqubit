@@ -20,6 +20,7 @@ from .passes.route import route
 from .passes.decompose import decompose
 from .passes.fuse import fuse_1q_gates
 from .passes.optimize import optimize
+from .passes.push_diagonals import push_diagonals
 from .report import collect_metrics, build_report
 
 # Routing basis: universal set that router understands
@@ -38,7 +39,8 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
     """
     # Phase 1: Pre-routing - decompose to routing primitives, optimize
     decomposed1 = decompose(circuit, _ROUTING_BASIS)
-    fused1 = fuse_1q_gates(decomposed1)
+    pushed1 = push_diagonals(decomposed1)
+    fused1 = fuse_1q_gates(pushed1)
     opt1 = optimize(fused1)
 
     # Phase 2: Route for target connectivity
@@ -46,7 +48,8 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
 
     # Phase 3: Post-routing - decompose to target basis, optimize
     decomposed2 = decompose(routed, target.basis_gates)
-    fused2 = fuse_1q_gates(decomposed2)
+    pushed2 = push_diagonals(decomposed2)
+    fused2 = fuse_1q_gates(pushed2)
     optimized = optimize(fused2)
     optimized._tracker = routed._tracker
 

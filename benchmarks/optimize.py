@@ -12,8 +12,39 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from math import pi
 
-from tinyqubit.ir import Circuit
+from tinyqubit.ir import Circuit, Gate
 from tinyqubit.passes.optimize import optimize
+from tinyqubit.passes.decompose import decompose
+from tinyqubit.passes.fuse import fuse_1q_gates
+from tinyqubit.passes.push_diagonals import push_diagonals
+
+# Basis for full pipeline benchmark
+_OPT_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
+
+
+def optimize_only(circuit: Circuit) -> Circuit:
+    """
+    Run optimization passes without decomposition.
+
+    Pipeline: push_diagonals -> fuse_1q_gates -> optimize
+    """
+    pushed = push_diagonals(circuit)
+    fused = fuse_1q_gates(pushed)
+    optimized = optimize(fused)
+    return optimized
+
+
+def optimize_full(circuit: Circuit) -> Circuit:
+    """
+    Run full optimization pipeline including decomposition.
+
+    Pipeline: decompose -> push_diagonals -> fuse_1q_gates -> optimize
+    """
+    decomposed = decompose(circuit, _OPT_BASIS)
+    pushed = push_diagonals(decomposed)
+    fused = fuse_1q_gates(pushed)
+    optimized = optimize(fused)
+    return optimized
 
 from benchmarks.circuits import (
     bernstein_vazirani,
@@ -154,15 +185,18 @@ def run_benchmark():
             qk.cx(i, i+1)
     tests.append(("variational", tq, qk, False))
 
-    # Print results
-    print("Gate counts after optimization (lower is better)")
-    print("-" * 85)
+    # Benchmark 1: Optimization only (no decomposition)
+    # Fair comparison - both keep high-level gates
+    print("=" * 95)
+    print("BENCHMARK 1: Optimization only (no decomposition)")
+    print("Both TinyQubit and Qiskit keep high-level gates (CP, H, etc.)")
+    print("=" * 95)
     print(f"{'Circuit':<16} {'Original':>8} {'tinyqubit':>10} {'Qiskit-3':>10} {'T-count':>8} {'Winner':>12}")
-    print("-" * 85)
+    print("-" * 95)
 
     for name, tq_c, qk_c, _ in tests:
         orig = len(tq_c.ops)
-        optimized = optimize(tq_c)
+        optimized = optimize_only(tq_c)
         tq_gates = len(optimized.ops)
         t_count = count_t_gates(optimized)
 
@@ -176,8 +210,39 @@ def run_benchmark():
 
         print(f"{name:<16} {orig:>8} {tq_gates:>10} {qk_gates:>10} {t_count:>8} {winner:>12}")
 
-    print("-" * 85)
+    print("-" * 95)
+
+    # Benchmark 2: Full pipeline (with decomposition)
+    # Both decompose to primitive basis
+    print()
+    print("=" * 95)
+    print("BENCHMARK 2: Full pipeline (with decomposition to RX/RZ/CX basis)")
+    print("Both decompose high-level gates to primitives")
+    print("=" * 95)
+    print(f"{'Circuit':<16} {'Original':>8} {'tinyqubit':>10} {'Qiskit-3':>10} {'T-count':>8} {'Winner':>12}")
+    print("-" * 95)
+
+    for name, tq_c, qk_c, _ in tests:
+        orig = len(tq_c.ops)
+        optimized = optimize_full(tq_c)
+        tq_gates = len(optimized.ops)
+        t_count = count_t_gates(optimized)
+
+        if HAS_QISKIT and qk_c is not None:
+            # Use same basis as TinyQubit's _OPT_BASIS: includes H
+            qk_result = transpile(qk_c, optimization_level=3, basis_gates=['cx', 'cz', 'rz', 'rx', 'h', 'swap'])
+            qk_gates = sum(qk_result.count_ops().values())
+            if tq_gates < qk_gates: winner = "tinyqubit"
+            elif tq_gates > qk_gates: winner = "Qiskit"
+            else: winner = "tie"
+        else:
+            qk_gates, winner = "-", "-"
+
+        print(f"{name:<16} {orig:>8} {tq_gates:>10} {qk_gates:>10} {t_count:>8} {winner:>12}")
+
+    print("-" * 95)
     print("* = QASMBench standard circuit (github.com/pnnl/QASMBench)")
+    print("Basis: {CX, CZ, RZ, RX, H, SWAP} for both")
 
 
 if __name__ == "__main__":
