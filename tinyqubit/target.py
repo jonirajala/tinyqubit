@@ -24,6 +24,7 @@ class Target:
     name: str = ""
     _adj: dict[int, list[int]] = field(default_factory=dict, repr=False, compare=False)
     _dist: dict[tuple[int, int], int] = field(default_factory=dict, repr=False, compare=False)
+    _all_pairs: list[list[int]] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         # Validate edges
@@ -44,6 +45,10 @@ class Target:
     def are_connected(self, q0: int, q1: int) -> bool:
         """Check if two qubits can do a 2Q gate directly."""
         return (q0, q1) in self.edges or (q1, q0) in self.edges
+
+    def neighbors(self, qubit: int) -> list[int]:
+        """Return sorted list of qubits adjacent to given qubit."""
+        return self._adj[qubit]
 
     def distance(self, q0: int, q1: int) -> int:
         """SWAP distance between qubits (cached). Returns 0 if same, -1 if unreachable."""
@@ -82,3 +87,30 @@ class Target:
         pairs = {(min(a, b), max(a, b)) for a, b in self.edges if a != b}
         expected = self.n_qubits * (self.n_qubits - 1) // 2
         return len(pairs) >= expected
+
+    def all_pairs_distances(self) -> list[list[int]]:
+        """Compute all-pairs shortest path distances using Floyd-Warshall. Cached."""
+        if self._all_pairs is not None:
+            return self._all_pairs
+
+        n = self.n_qubits
+        INF = n + 1
+        dist = [[INF] * n for _ in range(n)]
+        for i in range(n):
+            dist[i][i] = 0
+        for a, b in self.edges:
+            dist[a][b] = dist[b][a] = 1
+
+        for k in range(n):
+            for i in range(n):
+                for j in range(n):
+                    if dist[i][k] + dist[k][j] < dist[i][j]:
+                        dist[i][j] = dist[i][k] + dist[k][j]
+
+        for i in range(n):
+            for j in range(n):
+                if dist[i][j] == INF:
+                    dist[i][j] = -1
+
+        object.__setattr__(self, '_all_pairs', dist)
+        return dist

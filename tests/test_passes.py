@@ -1371,3 +1371,64 @@ def test_push_diagonals_all_clifford_diagonals():
     assert pushed.ops[4].gate == Gate.CX
     for i in range(4):
         assert pushed.ops[i].gate in {Gate.S, Gate.T, Gate.SDG, Gate.TDG}
+
+
+# =============================================================================
+# Target all_pairs_distances Tests
+# =============================================================================
+
+def test_target_all_pairs_distances_correctness():
+    """all_pairs_distances returns correct distance matrix."""
+    target = Target(
+        n_qubits=4,
+        edges=frozenset({(0, 1), (1, 2), (2, 3)}),  # Line: 0-1-2-3
+        basis_gates=frozenset()
+    )
+
+    dist = target.all_pairs_distances()
+
+    # Check specific distances
+    assert dist[0][0] == 0
+    assert dist[0][1] == 1
+    assert dist[0][2] == 2
+    assert dist[0][3] == 3
+    assert dist[1][2] == 1
+    assert dist[1][3] == 2
+    assert dist[2][3] == 1
+
+    # Symmetry
+    for i in range(4):
+        for j in range(4):
+            assert dist[i][j] == dist[j][i]
+
+
+def test_target_all_pairs_distances_cached():
+    """all_pairs_distances caches and returns same object."""
+    target = Target(
+        n_qubits=3,
+        edges=frozenset({(0, 1), (1, 2)}),
+        basis_gates=frozenset()
+    )
+
+    dist1 = target.all_pairs_distances()
+    dist2 = target.all_pairs_distances()
+
+    assert dist1 is dist2, "all_pairs_distances should return cached result"
+
+
+def test_target_all_pairs_distances_disconnected():
+    """all_pairs_distances returns -1 for disconnected qubits."""
+    target = Target(
+        n_qubits=4,
+        edges=frozenset({(0, 1), (2, 3)}),  # Two disconnected pairs
+        basis_gates=frozenset()
+    )
+
+    dist = target.all_pairs_distances()
+
+    assert dist[0][1] == 1
+    assert dist[2][3] == 1
+    assert dist[0][2] == -1
+    assert dist[0][3] == -1
+    assert dist[1][2] == -1
+    assert dist[1][3] == -1
