@@ -1303,9 +1303,123 @@ def test_push_diagonals_cnot_conj_pattern():
     pushed = push_diagonals(c)
     opt = optimize(pushed)
 
-    # Z(0) gates should cancel through CX control, leaving only Z(1) gates
-    z_count_q0 = sum(1 for op in opt.ops if op.gate == Gate.Z and op.qubits == (0,))
-    assert z_count_q0 == 0  # Both Z(0) should cancel
+    # Full optimization: push_diagonals + CX conjugation should reduce to Z(0)
+    # Original: Z(0) CX Z(0) Z(1) CX Z(1) → push → Z(0) Z(0) CX Z(1) CX Z(1)
+    # → cancel Z(0)Z(0) → CX Z(1) CX Z(1) → CX conjugation → Z(0) Z(1) Z(1) → Z(0)
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+    assert opt.ops[0].qubits == (0,)
+
+
+# === CX Conjugation Tests ===
+
+def test_cx_conjugation_z_on_target():
+    """CX · Z(target) · CX → Z(control) Z(target)."""
+    c = Circuit(2).cx(0, 1).z(1).cx(0, 1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 2
+    gates = sorted([(op.gate, op.qubits) for op in opt.ops])
+    assert gates == [(Gate.Z, (0,)), (Gate.Z, (1,))]
+
+
+def test_cx_conjugation_x_on_control():
+    """CX · X(control) · CX → X(control) X(target)."""
+    c = Circuit(2).cx(0, 1).x(0).cx(0, 1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 2
+    gates = sorted([(op.gate, op.qubits) for op in opt.ops])
+    assert gates == [(Gate.X, (0,)), (Gate.X, (1,))]
+
+
+def test_cx_conjugation_z_on_control():
+    """CX · Z(control) · CX → Z(control)."""
+    c = Circuit(2).cx(0, 1).z(0).cx(0, 1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+    assert opt.ops[0].qubits == (0,)
+
+
+def test_cx_conjugation_x_on_target():
+    """CX · X(target) · CX → X(target)."""
+    c = Circuit(2).cx(0, 1).x(1).cx(0, 1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.X
+    assert opt.ops[0].qubits == (1,)
+
+
+def test_cx_conjugation_with_commuting_intermediate():
+    """CX conjugation works with commuting gates in between."""
+    # CX(0,1) Z(2) Z(1) CX(0,1) - Z(2) commutes with CX, should still apply conjugation
+    c = Circuit(3).cx(0, 1).z(2).z(1).cx(0, 1)
+    opt = optimize(c)
+
+    # Z(1) conjugation: CX Z(1) CX → Z(0) Z(1), Z(2) preserved
+    assert len(opt.ops) == 3
+    gates = sorted([(op.gate, op.qubits) for op in opt.ops])
+    assert gates == [(Gate.Z, (0,)), (Gate.Z, (1,)), (Gate.Z, (2,))]
+
+
+def test_cx_conjugation_chain():
+    """Multiple CX conjugations combine with other optimizations."""
+    # CX Z(1) CX Z(1) → Z(0) Z(1) Z(1) → Z(0)
+    c = Circuit(2).cx(0, 1).z(1).cx(0, 1).z(1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.Z
+    assert opt.ops[0].qubits == (0,)
+
+
+def test_cx_conjugation_preserves_semantics():
+    """CX conjugation preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(2).cx(0, 1).z(1).cx(0, 1)
+    opt = optimize(c)
+
+    state_orig, _ = simulate(c)
+    state_opt, _ = simulate(opt)
+    assert states_equal(state_orig, state_opt)
+
+
+# === 2-Qubit Template Tests ===
+
+def test_hadamard_cx_to_cz():
+    """H(t)·CX(c,t)·H(t) → CZ(c,t)."""
+    c = Circuit(2).h(1).cx(0, 1).h(1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CZ
+    assert opt.ops[0].qubits == (0, 1)
+
+
+def test_hadamard_cx_to_cz_reversed_control():
+    """H(t)·CX(c,t)·H(t) → CZ(c,t) with different control."""
+    c = Circuit(2).h(0).cx(1, 0).h(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CZ
+    assert opt.ops[0].qubits == (1, 0)  # Preserves original CX qubit order (CZ is symmetric)
+
+
+def test_hadamard_cx_to_cz_preserves_semantics():
+    """H·CX·H → CZ preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(2).h(1).cx(0, 1).h(1)
+    opt = optimize(c)
+
+    state_orig, _ = simulate(c)
+    state_opt, _ = simulate(opt)
+    assert states_equal(state_orig, state_opt)
 
 
 def test_push_diagonals_rz_merge_after_push():

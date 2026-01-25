@@ -45,7 +45,6 @@ HADAMARD_CONJUGATES = {
     Gate.Z: Gate.X,
 }
 
-
 def _try_cancel(ops: list[Operation], i: int) -> bool:
     """Try to cancel ops[i] with ops[i+1]. Returns True if cancelled."""
     if i + 1 >= len(ops): return False
@@ -96,7 +95,13 @@ def _try_clifford_merge(ops: list[Operation], i: int) -> bool:
 
 
 def commutes(op1: Operation, op2: Operation) -> bool:
-    """Check if two operations commute."""
+    """Check if two operations commute.
+
+    WARNING: This function is conservative - it only returns True for proven cases.
+    When adding new gates to the IR, you MUST update this function or the optimizer
+    will silently miss optimization opportunities (safe) or worse, if you add a case
+    that incorrectly returns True, the optimizer can produce semantically wrong circuits.
+    """
     # Never commute across barriers: MEASURE, RESET, conditional ops
     if op1.gate in (Gate.MEASURE, Gate.RESET) or op2.gate in (Gate.MEASURE, Gate.RESET):
         return False
@@ -185,6 +190,68 @@ def _try_hadamard_conjugate(ops: list[Operation], i: int) -> bool:
     return False
 
 
+def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
+    """Check if op is gate or rot_gate(π + 2πk) (equivalent up to global phase)."""
+    return op.gate == gate or (op.gate == rot_gate and op.params and
+                               abs(op.params[0] % (2 * pi) - pi) < 1e-9)
+
+
+def _try_cx_conjugation(ops: list[Operation], i: int, window: int = 10) -> bool:
+    """CX·P·CX patterns: Z(t)→Z both, X(c)→X both, Z(c)→Z(c), X(t)→X(t)."""
+    if ops[i].gate != Gate.CX:
+        return False
+    c, t = ops[i].qubits
+
+    for j in range(i + 2, min(i + window + 1, len(ops))):
+        if ops[j].gate != Gate.CX or ops[j].qubits != (c, t):
+            continue
+
+        # Find Pauli-like gate on c or t
+        pauli_idx, is_z, on_target = None, None, None
+        for k in range(i + 1, j):
+            op = ops[k]
+            if len(op.qubits) == 1 and op.qubits[0] in (c, t):
+                if _is_pauli_like(op, Gate.Z, Gate.RZ):
+                    pauli_idx, is_z, on_target = k, True, op.qubits[0] == t
+                    break
+                if _is_pauli_like(op, Gate.X, Gate.RX):
+                    pauli_idx, is_z, on_target = k, False, op.qubits[0] == t
+                    break
+
+        if pauli_idx is None:
+            continue
+        if not all(k == pauli_idx or commutes(ops[k], ops[i]) for k in range(i + 1, j)):
+            continue
+
+        # Build replacement gates (use rotation form if input was rotation)
+        use_rot = ops[pauli_idx].gate in (Gate.RZ, Gate.RX)
+        g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
+        make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
+
+        # Rules: Z(t)/X(c) → both qubits, Z(c)/X(t) → single qubit
+        if is_z == on_target:  # Z on target or X on control → propagates to both
+            new = [make(c), make(t)]
+        else:  # Z on control or X on target → unchanged, removes 2 CX
+            new = [make(t if on_target else c)]
+
+        intermediates = [ops[k] for k in range(i + 1, j) if k != pauli_idx]
+        ops[i:j + 1] = intermediates + new
+        return True
+    return False
+
+
+def _try_hadamard_cx_to_cz(ops: list[Operation], i: int) -> bool:
+    """H(t)·CX(c,t)·H(t) → CZ(c,t). CZ is symmetric so qubit order is preserved from CX."""
+    if i + 2 >= len(ops):
+        return False
+    op1, op2, op3 = ops[i], ops[i + 1], ops[i + 2]
+    if (op1.gate == Gate.H and op2.gate == Gate.CX and op3.gate == Gate.H and
+            op1.qubits[0] == op2.qubits[1] == op3.qubits[0]):
+        ops[i:i + 3] = [Operation(Gate.CZ, op2.qubits)]
+        return True
+    return False
+
+
 def _single_pass(ops: list[Operation]) -> bool:
     """Single optimization pass. Returns True if any changes were made."""
     changed = False
@@ -192,7 +259,8 @@ def _single_pass(ops: list[Operation]) -> bool:
     while i < len(ops):
         if (_try_cancel(ops, i) or _try_merge(ops, i) or
             _try_inverse_cancel(ops, i) or _try_clifford_merge(ops, i) or
-            _try_hadamard_conjugate(ops, i) or
+            _try_hadamard_conjugate(ops, i) or _try_cx_conjugation(ops, i) or
+            _try_hadamard_cx_to_cz(ops, i) or
             _try_cancel_through_commutation(ops, i) or _try_merge_through_commutation(ops, i)):
             changed = True
             i = max(0, i - 1)  # Back up to catch new adjacencies
@@ -201,11 +269,17 @@ def _single_pass(ops: list[Operation]) -> bool:
     return changed
 
 
-def optimize(circuit: Circuit) -> Circuit:
-    """Optimize circuit by applying cancellation and merge rules until fixed point."""
+def optimize(circuit: Circuit, max_iterations: int = 1000) -> Circuit:
+    """Optimize circuit by applying cancellation and merge rules until fixed point.
+
+    Args:
+        circuit: Circuit to optimize.
+        max_iterations: Safety cap to prevent infinite loops (should never be hit).
+    """
     ops = list(circuit.ops)
-    while _single_pass(ops):
-        pass
+    for _ in range(max_iterations):
+        if not _single_pass(ops):
+            break
     result = Circuit(circuit.n_qubits)
     result.ops = ops
     return result
