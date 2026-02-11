@@ -66,6 +66,19 @@ def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, pa
 
     return new.reshape(-1)
 
+def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, n: int) -> np.ndarray:
+    state = state.reshape([2] * n)
+    new = state.copy()
+    def idx(v0, v1, v2):
+        i = [slice(None)] * n
+        i[q0], i[q1], i[q2] = v0, v1, v2
+        return tuple(i)
+    if gate == Gate.CCX:
+        new[idx(1,1,0)], new[idx(1,1,1)] = state[idx(1,1,1)].copy(), state[idx(1,1,0)].copy()
+    elif gate == Gate.CCZ:
+        new[idx(1,1,1)] *= -1
+    return new.reshape(-1)
+
 def _apply_gate_noise(state: np.ndarray, op, noise_model, n: int, rng) -> np.ndarray:
     if noise_model is None: return state
     noise_list = noise_model.gate_noise.get(op.gate, noise_model.default_noise)
@@ -95,7 +108,7 @@ def _find_parallel_1q_groups(ops: list, start: int) -> tuple[list[tuple[np.ndarr
     group, used, i = [], set(), start
     while i < len(ops):
         op = ops[i]
-        if op.gate in (Gate.MEASURE, Gate.RESET) or op.condition is not None or op.gate.n_qubits == 2: break
+        if op.gate in (Gate.MEASURE, Gate.RESET) or op.condition is not None or op.gate.n_qubits >= 2: break
         q = op.qubits[0]
         if q in used: break
         group.append((_get_gate_matrix(op.gate, op.params), q))
@@ -157,8 +170,11 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
                     continue
             state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
-        else:
+        elif op.gate.n_qubits == 2:
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
+            state = _apply_gate_noise(state, op, noise_model, n, rng)
+        else:  # 3Q
+            state = _apply_three_qubit(state, op.gate, *op.qubits, n)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
     return state, classical
 

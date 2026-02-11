@@ -73,6 +73,19 @@ def count_1q_gates(circuit: Circuit) -> int:
     return sum(1 for op in circuit.ops if op.gate.n_qubits == 1 and op.gate not in {Gate.MEASURE, Gate.RESET})
 
 
+def count_3q_gates(circuit: Circuit) -> int:
+    """
+    Count all three-qubit gates (CCX, CCZ).
+
+    Args:
+        circuit: TinyQubit circuit
+
+    Returns:
+        Number of three-qubit gates
+    """
+    return sum(1 for op in circuit.ops if op.gate in {Gate.CCX, Gate.CCZ})
+
+
 def count_cx_equivalent(circuit: Circuit) -> int:
     """
     Count CX-equivalent gates (SWAP = 3 CX).

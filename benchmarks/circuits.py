@@ -326,6 +326,100 @@ def ghz(n: int) -> tuple[Circuit, "QuantumCircuit | None", "Callable | None"]:
     return tq, qk, pl_ops
 
 
+def grover_3qubit() -> tuple[Circuit, "QuantumCircuit | None", "Callable | None"]:
+    """
+    3-qubit Grover search for |111⟩ (one iteration).
+
+    Uses native CCZ gate for oracle and CCX in diffusion.
+    This benchmarks 3-qubit gate decomposition and optimization.
+
+    Returns:
+        (tinyqubit Circuit, Qiskit QuantumCircuit or None, PennyLane ops function or None)
+    """
+    tq = Circuit(3)
+    # Superposition
+    for i in range(3):
+        tq.h(i)
+    # Oracle: CCZ marks |111⟩
+    tq.ccz(0, 1, 2)
+    # Diffusion: H X CCZ X H
+    for i in range(3):
+        tq.h(i)
+    for i in range(3):
+        tq.x(i)
+    tq.ccz(0, 1, 2)
+    for i in range(3):
+        tq.x(i)
+    for i in range(3):
+        tq.h(i)
+
+    qk = None
+    if HAS_QISKIT:
+        qk = QuantumCircuit(3)
+        for i in range(3):
+            qk.h(i)
+        qk.ccz(0, 1, 2)
+        for i in range(3):
+            qk.h(i)
+        for i in range(3):
+            qk.x(i)
+        qk.ccz(0, 1, 2)
+        for i in range(3):
+            qk.x(i)
+        for i in range(3):
+            qk.h(i)
+
+    pl_ops = None
+    if HAS_PENNYLANE:
+        def pl_ops():
+            for i in range(3):
+                qml.Hadamard(wires=i)
+            qml.CCZ(wires=[0, 1, 2])
+            for i in range(3):
+                qml.Hadamard(wires=i)
+            for i in range(3):
+                qml.PauliX(wires=i)
+            qml.CCZ(wires=[0, 1, 2])
+            for i in range(3):
+                qml.PauliX(wires=i)
+            for i in range(3):
+                qml.Hadamard(wires=i)
+
+    return tq, qk, pl_ops
+
+
+def toffoli_chain(n: int) -> tuple[Circuit, "QuantumCircuit | None", "Callable | None"]:
+    """
+    Chain of Toffoli (CCX) gates: CCX(0,1,2), CCX(1,2,3), ..., CCX(n-3,n-2,n-1).
+
+    Benchmarks 3-qubit gate decomposition scaling.
+
+    Args:
+        n: Number of qubits (must be >= 3)
+
+    Returns:
+        (tinyqubit Circuit, Qiskit QuantumCircuit or None, PennyLane ops function or None)
+    """
+    assert n >= 3
+    tq = Circuit(n)
+    for i in range(n - 2):
+        tq.ccx(i, i + 1, i + 2)
+
+    qk = None
+    if HAS_QISKIT:
+        qk = QuantumCircuit(n)
+        for i in range(n - 2):
+            qk.ccx(i, i + 1, i + 2)
+
+    pl_ops = None
+    if HAS_PENNYLANE:
+        def pl_ops():
+            for i in range(n - 2):
+                qml.Toffoli(wires=[i, i + 1, i + 2])
+
+    return tq, qk, pl_ops
+
+
 def grover_diffusion(n: int) -> tuple[Circuit, "QuantumCircuit | None", "Callable | None"]:
     """
     Grover diffusion operator (without oracle).

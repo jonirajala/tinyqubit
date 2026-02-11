@@ -51,6 +51,8 @@ from benchmarks.circuits import (
     hardware_efficient_ansatz,
     random_clifford_t,
     qft,
+    grover_3qubit,
+    toffoli_chain,
 )
 from benchmarks.metrics import count_t_gates
 
@@ -161,6 +163,17 @@ def run_benchmark():
     for n in [12, 16, 20]:
         tq, qk, _ = qft(n)
         tests.append((f"qft_{n}", tq, qk, True))
+
+    # === 3-qubit gate benchmarks ===
+
+    # Grover-3 with native CCZ
+    tq, qk, _ = grover_3qubit()
+    tests.append(("grover_3", tq, qk, True))
+
+    # Toffoli chains
+    for n in [5, 8, 12]:
+        tq, qk, _ = toffoli_chain(n)
+        tests.append((f"toffoli_{n}", tq, qk, True))
 
     # === Phase 11 targets ===
 

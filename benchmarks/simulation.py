@@ -134,6 +134,25 @@ def run_benchmark():
         return circuit
     tests.append(("layers_12", 12, make_random12_tq, make_random12_qk, make_random12_pl))
 
+    # Toffoli chain (3Q gates)
+    def make_toffoli8_tq():
+        c = Circuit(8)
+        for i in range(6):
+            c.ccx(i, i+1, i+2)
+        return c
+    def make_toffoli8_qk():
+        qc = QuantumCircuit(8)
+        for i in range(6):
+            qc.ccx(i, i+1, i+2)
+        return qc
+    def make_toffoli8_pl():
+        def circuit():
+            for i in range(6):
+                qml.Toffoli(wires=[i, i+1, i+2])
+            return qml.state()
+        return circuit
+    tests.append(("toffoli_8", 8, make_toffoli8_tq, make_toffoli8_qk, make_toffoli8_pl))
+
     # QFT-10
     def make_qft10_tq():
         c = Circuit(10)

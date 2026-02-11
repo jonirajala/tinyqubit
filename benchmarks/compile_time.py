@@ -81,6 +81,19 @@ def run_benchmark():
         return qc
     tests.append(("qft_8", 8, make_qft_tq, make_qft_qk))
 
+    # Medium: Toffoli chain (3Q gates need decomposition)
+    def make_toffoli_tq():
+        c = Circuit(10)
+        for i in range(8):
+            c.ccx(i, i+1, i+2)
+        return c
+    def make_toffoli_qk():
+        qc = QuantumCircuit(10)
+        for i in range(8):
+            qc.ccx(i, i+1, i+2)
+        return qc
+    tests.append(("toffoli_10", 10, make_toffoli_tq, make_toffoli_qk))
+
     # Large: Random-like pattern
     def make_random_tq():
         c = Circuit(20)

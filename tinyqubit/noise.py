@@ -111,10 +111,14 @@ def realistic_noise(t1=100e-6, t2=50e-6, gate_time_1q=50e-9, gate_time_2q=300e-9
 
     gates_1q = [Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RX, Gate.RY, Gate.RZ]
     gates_2q = [Gate.CX, Gate.CZ, Gate.SWAP, Gate.CP]
+    gates_3q = [Gate.CCX, Gate.CCZ]
     noise = NoiseModel()
     for p, g, gates in [(depolarizing_1q, noise.add_depolarizing, gates_1q), (depolarizing_2q, noise.add_depolarizing, gates_2q),
+                        (depolarizing_2q, noise.add_depolarizing, gates_3q),
                         (gamma_1q, noise.add_amplitude_damping, gates_1q), (gamma_2q, noise.add_amplitude_damping, gates_2q),
-                        (lam_1q, noise.add_phase_damping, gates_1q), (lam_2q, noise.add_phase_damping, gates_2q)]:
+                        (gamma_2q, noise.add_amplitude_damping, gates_3q),
+                        (lam_1q, noise.add_phase_damping, gates_1q), (lam_2q, noise.add_phase_damping, gates_2q),
+                        (lam_2q, noise.add_phase_damping, gates_3q)]:
         if p > 0: g(p, gates)
     if readout_err > 0: noise.add_readout_error(readout_err, readout_err)
     return noise

@@ -125,6 +125,35 @@ def _decompose_cp(c: int, t: int, theta: float) -> list[Operation]:
     ]
 
 
+def _decompose_ccx(c1: int, c2: int, t: int) -> list[Operation]:
+    """CCX (Toffoli) = 6 CX + 2H + 4T + 3Tdg = 15 gates (Nielsen & Chuang)."""
+    return [
+        Operation(Gate.H, (t,)),
+        Operation(Gate.CX, (c2, t)),  Operation(Gate.TDG, (t,)),
+        Operation(Gate.CX, (c1, t)),  Operation(Gate.T, (t,)),
+        Operation(Gate.CX, (c2, t)),  Operation(Gate.TDG, (t,)),
+        Operation(Gate.CX, (c1, t)),
+        Operation(Gate.T, (c2,)),     Operation(Gate.T, (t,)),
+        Operation(Gate.CX, (c1, c2)), Operation(Gate.H, (t,)),
+        Operation(Gate.T, (c1,)),     Operation(Gate.TDG, (c2,)),
+        Operation(Gate.CX, (c1, c2)),
+    ]
+
+
+def _decompose_ccz(a: int, b: int, c: int) -> list[Operation]:
+    """CCZ = 6 CX + 4T + 3Tdg = 13 gates (CCX core without H sandwich)."""
+    return [
+        Operation(Gate.CX, (b, c)),   Operation(Gate.TDG, (c,)),
+        Operation(Gate.CX, (a, c)),   Operation(Gate.T, (c,)),
+        Operation(Gate.CX, (b, c)),   Operation(Gate.TDG, (c,)),
+        Operation(Gate.CX, (a, c)),
+        Operation(Gate.T, (b,)),      Operation(Gate.T, (c,)),
+        Operation(Gate.CX, (a, b)),
+        Operation(Gate.T, (a,)),      Operation(Gate.TDG, (b,)),
+        Operation(Gate.CX, (a, b)),
+    ]
+
+
 # Decomposition rules: gate -> function(qubits, params) -> list[Operation]
 # Note: CX is treated as primitive. CZ decomposes to CX.
 # For CZ-native backends (Rigetti, Google), use DECOMPOSITIONS_CZ_NATIVE instead.
@@ -142,6 +171,8 @@ DECOMPOSITIONS = {
     Gate.RY: lambda qs, ps: _decompose_ry(qs[0], ps[0]),
     Gate.CZ: lambda qs, ps: _decompose_cz(qs[0], qs[1]),
     Gate.CP: lambda qs, ps: _decompose_cp(qs[0], qs[1], ps[0]),
+    Gate.CCX: lambda qs, ps: _decompose_ccx(qs[0], qs[1], qs[2]),
+    Gate.CCZ: lambda qs, ps: _decompose_ccz(qs[0], qs[1], qs[2]),
 }
 
 # Alternative decompositions for CZ-native backends (Rigetti, Google, IQM)

@@ -17,20 +17,23 @@ from tinyqubit.export import to_openqasm2
 # =============================================================================
 
 def test_gate_count():
-    """We have exactly 17 primitive gates"""
-    assert len(Gate) == 17
+    """We have exactly 19 primitive gates"""
+    assert len(Gate) == 19
 
 
 def test_gate_n_qubits():
-    """Single vs two-qubit gates"""
+    """Single, two-qubit, and three-qubit gates"""
     single = [Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.T, Gate.SDG, Gate.TDG,
               Gate.RX, Gate.RY, Gate.RZ, Gate.MEASURE, Gate.RESET]
     two = [Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP]
+    three = [Gate.CCX, Gate.CCZ]
 
     for g in single:
         assert g.n_qubits == 1, f"{g} should be 1-qubit"
     for g in two:
         assert g.n_qubits == 2, f"{g} should be 2-qubit"
+    for g in three:
+        assert g.n_qubits == 3, f"{g} should be 3-qubit"
 
 
 def test_gate_n_params():
@@ -184,6 +187,37 @@ def test_circuit_ghz_state():
     assert c.ops[0].gate == Gate.H
     assert c.ops[1].qubits == (0, 1)
     assert c.ops[2].qubits == (1, 2)
+
+
+def test_circuit_ccx_builder():
+    """CCX builder creates correct operation."""
+    c = Circuit(3).ccx(0, 1, 2)
+    assert len(c.ops) == 1
+    assert c.ops[0].gate == Gate.CCX
+    assert c.ops[0].qubits == (0, 1, 2)
+
+
+def test_circuit_ccz_builder():
+    """CCZ builder creates correct operation."""
+    c = Circuit(3).ccz(0, 1, 2)
+    assert len(c.ops) == 1
+    assert c.ops[0].gate == Gate.CCZ
+    assert c.ops[0].qubits == (0, 1, 2)
+
+
+def test_ccz_canonicalization():
+    """CCZ qubits are sorted (symmetric gate)."""
+    c = Circuit(3).ccz(2, 0, 1)
+    assert c.ops[0].qubits == (0, 1, 2)
+
+    c2 = Circuit(3).ccz(1, 2, 0)
+    assert c2.ops[0].qubits == (0, 1, 2)
+
+
+def test_ccx_no_canonicalization():
+    """CCX qubits preserve order (controls matter)."""
+    c = Circuit(3).ccx(2, 0, 1)
+    assert c.ops[0].qubits == (2, 0, 1)
 
 
 # =============================================================================

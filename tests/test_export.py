@@ -74,6 +74,19 @@ class TestOpenQASM2:
         assert "CP" in str(excinfo.value)
         assert "qelib1.inc" in str(excinfo.value)
 
+    def test_ccx_supported(self):
+        """CCX gate exports correctly in QASM2."""
+        c = Circuit(3).ccx(0, 1, 2)
+        qasm = to_openqasm2(c)
+        assert 'ccx q[0], q[1], q[2];' in qasm
+
+    def test_ccz_raises_error(self):
+        """CCZ gate raises UnsupportedGateError in QASM2."""
+        c = Circuit(3).ccz(0, 1, 2)
+        with pytest.raises(UnsupportedGateError) as excinfo:
+            to_openqasm2(c)
+        assert "CCZ" in str(excinfo.value)
+
     def test_measurement_syntax(self):
         """Measurement uses arrow syntax in QASM2."""
         c = Circuit(2).h(0).cx(0, 1).measure(0).measure(1)
@@ -179,6 +192,18 @@ class TestOpenQASM3:
         c = Circuit(2).cp(0, 1, math.pi/4)
         qasm = to_openqasm3(c)
         assert f'cp({math.pi/4}) q[0], q[1];' in qasm
+
+    def test_ccx_supported(self):
+        """CCX gate is supported in QASM3."""
+        c = Circuit(3).ccx(0, 1, 2)
+        qasm = to_openqasm3(c)
+        assert 'ccx q[0], q[1], q[2];' in qasm
+
+    def test_ccz_supported(self):
+        """CCZ gate is supported in QASM3."""
+        c = Circuit(3).ccz(0, 1, 2)
+        qasm = to_openqasm3(c)
+        assert 'ccz q[0], q[1], q[2];' in qasm
 
     def test_measurement_syntax(self):
         """Measurement uses assignment syntax in QASM3."""

@@ -703,6 +703,62 @@ def test_decompose_ry_preserves_semantics():
     assert states_equal(state_orig, state_dec)
 
 
+def test_decompose_ccx_gate_count():
+    """CCX decomposes to 15 gates (6 CX + 2H + 4T + 3Tdg)."""
+    c = Circuit(3).ccx(0, 1, 2)
+    basis = frozenset({Gate.CX, Gate.H, Gate.T, Gate.TDG})
+    dec = decompose(c, basis)
+    assert len(dec.ops) == 15
+
+
+def test_decompose_ccz_gate_count():
+    """CCZ decomposes to 13 gates (6 CX + 4T + 3Tdg)."""
+    c = Circuit(3).ccz(0, 1, 2)
+    basis = frozenset({Gate.CX, Gate.T, Gate.TDG})
+    dec = decompose(c, basis)
+    assert len(dec.ops) == 13
+
+
+def test_decompose_ccx_preserves_semantics():
+    """CCX decomposition preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(3).h(0).h(1).ccx(0, 1, 2)
+    basis = frozenset({Gate.CX, Gate.H, Gate.T, Gate.TDG})
+    dec = decompose(c, basis)
+
+    state_orig, _ = simulate(c)
+    state_dec, _ = simulate(dec)
+    assert states_equal(state_orig, state_dec)
+
+
+def test_decompose_ccz_preserves_semantics():
+    """CCZ decomposition preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(3).h(0).h(1).h(2).ccz(0, 1, 2)
+    basis = frozenset({Gate.CX, Gate.H, Gate.T, Gate.TDG})
+    dec = decompose(c, basis)
+
+    state_orig, _ = simulate(c)
+    state_dec, _ = simulate(dec)
+    assert states_equal(state_orig, state_dec)
+
+
+def test_optimize_cancel_ccx_ccx():
+    """CCX·CCX cancels to nothing."""
+    c = Circuit(3).ccx(0, 1, 2).ccx(0, 1, 2)
+    opt = optimize(c)
+    assert len(opt.ops) == 0
+
+
+def test_optimize_cancel_ccz_ccz():
+    """CCZ·CCZ cancels to nothing."""
+    c = Circuit(3).ccz(0, 1, 2).ccz(0, 1, 2)
+    opt = optimize(c)
+    assert len(opt.ops) == 0
+
+
 # =============================================================================
 # Full Pipeline Tests
 # =============================================================================

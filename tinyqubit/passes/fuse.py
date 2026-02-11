@@ -120,8 +120,8 @@ def _fuse_ops(ops: list[Operation], n_qubits: int) -> list[Operation]:
         elif op.gate in (Gate.MEASURE, Gate.RESET):
             flush(op.qubits[0])
             result.append(op)
-        elif op.gate.n_qubits == 2:
-            flush(op.qubits[0]); flush(op.qubits[1])
+        elif op.gate.n_qubits >= 2:
+            for q in op.qubits: flush(q)
             result.append(op)
         else:
             pending[op.qubits[0]].append(op)

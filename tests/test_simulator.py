@@ -189,6 +189,67 @@ def test_cz_plus_states():
 
 
 # =============================================================================
+# Three-Qubit Gate Tests
+# =============================================================================
+
+def test_ccx_truth_table():
+    """CCX (Toffoli) truth table: flips target iff both controls are |1⟩."""
+    # |000⟩ → |000⟩
+    c = Circuit(3).ccx(0, 1, 2)
+    state, _ = simulate(c)
+    assert states_equal(state, np.array([1,0,0,0,0,0,0,0], dtype=complex))
+
+    # |100⟩ → |100⟩ (only one control)
+    c = Circuit(3).x(0).ccx(0, 1, 2)
+    state, _ = simulate(c)
+    assert states_equal(state, np.array([0,0,0,0,1,0,0,0], dtype=complex))
+
+    # |010⟩ → |010⟩ (only one control)
+    c = Circuit(3).x(1).ccx(0, 1, 2)
+    state, _ = simulate(c)
+    assert states_equal(state, np.array([0,0,1,0,0,0,0,0], dtype=complex))
+
+    # |110⟩ → |111⟩ (both controls → flip target)
+    c = Circuit(3).x(0).x(1).ccx(0, 1, 2)
+    state, _ = simulate(c)
+    assert states_equal(state, np.array([0,0,0,0,0,0,0,1], dtype=complex))
+
+
+def test_ccz_phase_flip():
+    """CCZ flips phase of |111⟩ only."""
+    c = Circuit(3).x(0).x(1).x(2).ccz(0, 1, 2)
+    state, _ = simulate(c)
+    expected = np.array([0,0,0,0,0,0,0,-1], dtype=complex)
+    assert states_equal(state, expected)
+
+
+def test_ccz_no_flip_partial():
+    """CCZ does nothing when not all qubits are |1⟩."""
+    c = Circuit(3).x(0).x(1).ccz(0, 1, 2)
+    state, _ = simulate(c)
+    expected = np.array([0,0,0,0,0,0,1,0], dtype=complex)
+    assert states_equal(state, expected)
+
+
+def test_ccx_superposition():
+    """CCX on superposition state."""
+    c = Circuit(3).h(0).h(1).ccx(0, 1, 2)
+    state, _ = simulate(c)
+    # |00⟩→|000⟩, |01⟩→|010⟩, |10⟩→|100⟩, |11⟩→|111⟩ (each with 1/2 amp)
+    expected = np.array([0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5], dtype=complex)
+    assert states_equal(state, expected)
+
+
+def test_ccx_equals_h_ccz_h():
+    """CCX = H(target) · CCZ · H(target)."""
+    c1 = Circuit(3).x(0).x(1).ccx(0, 1, 2)
+    c2 = Circuit(3).x(0).x(1).h(2).ccz(0, 1, 2).h(2)
+    state1, _ = simulate(c1)
+    state2, _ = simulate(c2)
+    assert states_equal(state1, state2)
+
+
+# =============================================================================
 # states_equal Tests
 # =============================================================================
 

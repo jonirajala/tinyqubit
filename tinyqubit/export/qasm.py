@@ -40,6 +40,8 @@ def to_openqasm2(circuit: Circuit, include_mapping: bool = True) -> str:
     for op in circuit.ops:
         if op.gate == Gate.CP:
             raise UnsupportedGateError("CP gate not in qelib1.inc. Use to_openqasm3() or decompose.")
+        if op.gate == Gate.CCZ:
+            raise UnsupportedGateError("CCZ gate not in qelib1.inc. Use to_openqasm3() or decompose.")
 
         if op.gate == Gate.MEASURE:
             cb = op.classical_bit if op.classical_bit is not None else op.qubits[0]

@@ -18,7 +18,7 @@ from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
 
 
 # Gates that cancel when applied twice (self-inverse)
-CANCELLATION_GATES = {Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.CX, Gate.CZ, Gate.SWAP}
+CANCELLATION_GATES = {Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.CX, Gate.CZ, Gate.SWAP, Gate.CCX, Gate.CCZ}
 
 # Gates that can be merged (rotations)
 MERGE_GATES = {Gate.RX, Gate.RY, Gate.RZ}

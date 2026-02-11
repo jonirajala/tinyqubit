@@ -19,6 +19,8 @@ def _add_gate(qc, g, q, p, Gate):
     elif g == Gate.CZ: return qc.cz(q[0], q[1])
     elif g == Gate.CP: return qc.cp(p[0], q[0], q[1])
     elif g == Gate.SWAP: return qc.swap(q[0], q[1])
+    elif g == Gate.CCX: return qc.ccx(q[0], q[1], q[2])
+    elif g == Gate.CCZ: return qc.ccz(q[0], q[1], q[2])
     elif g == Gate.RESET: return qc.reset(q[0])
     else: raise NotImplementedError(f"Unsupported gate for Qiskit export: {g.name}")
 

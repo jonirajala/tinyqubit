@@ -19,6 +19,7 @@ class PassMetrics:
     gates: int
     two_q: int
     depth: int
+    t_count: int = 0
     ops: list[str] | None = None
 
 
@@ -45,15 +46,15 @@ class CompileReport:
         if self.basis: lines.append(f"  Basis:  {', '.join(self.basis)}")
         if verbosity < 2: return "\n".join(lines)
 
-        lines += ["", "PASSES", "  Name            Gates  2Q  Depth  Delta", "  " + "-" * 42]
+        lines += ["", "PASSES", "  Name            Gates  2Q  Depth  T  Delta", "  " + "-" * 48]
         for i, m in enumerate(self.passes):
             if i == 0:
-                lines.append(f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5}")
+                lines.append(f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5} {m.t_count:>3}")
             else:
                 prev = self.passes[i-1]
                 dg, d2q, dd = m.gates - prev.gates, m.two_q - prev.two_q, m.depth - prev.depth
                 delta = f"({dg:+d},{d2q:+d},{dd:+d})" if (dg or d2q or dd) else ""
-                lines.append(f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5}  {delta}")
+                lines.append(f"  {m.name:<14} {m.gates:>5} {m.two_q:>4} {m.depth:>5} {m.t_count:>3}  {delta}")
 
         if self.swap_details:
             lines += ["", "SWAPS"]
@@ -79,13 +80,15 @@ def _fmt(op: "Operation") -> str:
 def collect_metrics(circuit_or_dag, name: str) -> PassMetrics:
     """Collect pass metrics from a Circuit or DAGCircuit."""
     from .dag import DAGCircuit
+    from .ir import Gate
     if isinstance(circuit_or_dag, DAGCircuit):
         dag = circuit_or_dag
     else:
         dag = DAGCircuit.from_circuit(circuit_or_dag)
     ops = dag.topological_ops()
     return PassMetrics(name, len(ops), sum(op.gate.n_qubits == 2 for op in ops),
-                       dag.depth(), [_fmt(op) for op in ops])
+                       dag.depth(), sum(op.gate in (Gate.T, Gate.TDG) for op in ops),
+                       [_fmt(op) for op in ops])
 
 
 def build_report(input_circ: "Circuit", output_circ: "Circuit", passes: list[PassMetrics],

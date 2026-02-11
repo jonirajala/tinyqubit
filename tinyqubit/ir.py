@@ -2,7 +2,7 @@
 Core IR types - the single representation used throughout.
 
 Contains:
-    - Gate: Enum of supported gates (15 primitives)
+    - Gate: Enum of supported gates (19 primitives)
     - Operation: Dataclass (gate, qubits, params)
     - Circuit: Lazy builder, just appends Operations
 """
@@ -12,7 +12,7 @@ from enum import Enum, auto
 from dataclasses import dataclass
 
 class Gate(Enum):
-    """17 primitive quantum gates."""
+    """19 primitive quantum gates."""
     # Pauli gates
     X = auto()
     Y = auto()
@@ -36,12 +36,19 @@ class Gate(Enum):
     CP = auto()  # Controlled phase
     SWAP = auto()
 
+    # Three-qubit
+    CCX = auto()   # Toffoli
+    CCZ = auto()   # Controlled-controlled-Z
+
     # Measurement and reset
     MEASURE = auto()
     RESET = auto()  # Reset qubit to |0>
 
     @property
-    def n_qubits(self) -> int: return 2 if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP) else 1
+    def n_qubits(self) -> int:
+        if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP): return 2
+        if self in (Gate.CCX, Gate.CCZ): return 3
+        return 1
 
     @property
     def n_params(self) -> int: return 1 if self in (Gate.RX, Gate.RY, Gate.RZ, Gate.CP) else 0   
@@ -102,6 +109,8 @@ class Circuit:
     def cz(self, a: int, b: int) -> "Circuit": return self._add(Gate.CZ, (min(a,b), max(a,b)))  # Canonicalize
     def cp(self, c: int, t: int, theta: float) -> "Circuit": return self._add(Gate.CP, (c, t), (theta,))
     def swap(self, a: int, b: int) -> "Circuit": return self._add(Gate.SWAP, (min(a,b), max(a,b)))  # Canonicalize
+    def ccx(self, c1: int, c2: int, t: int) -> "Circuit": return self._add(Gate.CCX, (c1, c2, t))
+    def ccz(self, a: int, b: int, c: int) -> "Circuit": return self._add(Gate.CCZ, tuple(sorted([a, b, c])))  # Symmetric → canonicalize
 
     def measure(self, q: int, c: int | None = None) -> "Circuit":
         """Measure qubit q, store result in classical bit c (defaults to q)."""
@@ -164,8 +173,18 @@ class Circuit:
         g, qs = op.gate, op.qubits
         if g == Gate.MEASURE: return {qs[0]: "M"}
         if g == Gate.RESET: return {qs[0]: "R"}
-        if g.n_qubits == 1: return {qs[0]: g.name}                                                                                                                                                                   
-        s0, s1 = ("●", "X") if g == Gate.CX else ("●", "●") if g == Gate.CZ else ("╳", "╳")                                                                                                                          
-        col = {qs[0]: s0, qs[1]: s1}                                                                                                                                                                                 
-        for q in range(min(qs) + 1, max(qs)): col[q] = "│"                                                                                                                                                           
+        if g.n_qubits == 1: return {qs[0]: g.name}
+        if g == Gate.CCX:
+            col = {qs[0]: "●", qs[1]: "●", qs[2]: "X"}
+            for q in range(min(qs) + 1, max(qs)):
+                if q not in col: col[q] = "│"
+            return col
+        if g == Gate.CCZ:
+            col = {qs[0]: "●", qs[1]: "●", qs[2]: "●"}
+            for q in range(min(qs) + 1, max(qs)):
+                if q not in col: col[q] = "│"
+            return col
+        s0, s1 = ("●", "X") if g == Gate.CX else ("●", "●") if g == Gate.CZ else ("╳", "╳")
+        col = {qs[0]: s0, qs[1]: s1}
+        for q in range(min(qs) + 1, max(qs)): col[q] = "│"
         return col             
