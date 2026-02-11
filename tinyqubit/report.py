@@ -33,6 +33,8 @@ class CompileReport:
     qubit_map: dict[int, int] = field(default_factory=dict)
     target: str = ""
     basis: list[str] = field(default_factory=list)
+    layout_method: str = "identity"
+    initial_layout: list[int] | None = None
 
     def to_text(self, verbosity: int = 2) -> str:
         lines = [
@@ -44,6 +46,11 @@ class CompileReport:
         ]
         if self.target: lines.append(f"  Target: {self.target}")
         if self.basis: lines.append(f"  Basis:  {', '.join(self.basis)}")
+        if self.layout_method != "identity":
+            lines.append(f"  Layout: {self.layout_method}")
+            if self.initial_layout:
+                mapping = ", ".join(f"q{i}->p{p}" for i, p in enumerate(self.initial_layout))
+                lines.append(f"          {mapping}")
         if verbosity < 2: return "\n".join(lines)
 
         lines += ["", "PASSES", "  Name            Gates  2Q  Depth  T  Delta", "  " + "-" * 48]
@@ -105,7 +112,16 @@ def build_report(input_circ: "Circuit", output_circ: "Circuit", passes: list[Pas
         else:
             details.append(((a, b), idx, "?", "manual"))
 
+    # Determine layout method
+    layout = getattr(tracker, 'initial_layout', None) if tracker else None
+    if layout is not None:
+        # Detect method: VF2 produces 0 SWAPs, SabreLayout doesn't
+        layout_method = "VF2" if inserted == 0 else "SabreLayout"
+    else:
+        layout_method = "identity"
+
     return CompileReport(
         input_circ.n_qubits, passes, (inserted, inserted - final, final), details,
         {i: tracker.logical_to_physical[i] for i in range(tracker.n_qubits)} if tracker else {},
-        getattr(target, 'name', ''), [g.name for g in target.basis_gates] if target.basis_gates else [])
+        getattr(target, 'name', ''), [g.name for g in target.basis_gates] if target.basis_gates else [],
+        layout_method=layout_method, initial_layout=layout)

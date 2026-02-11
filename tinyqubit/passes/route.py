@@ -24,12 +24,15 @@ def _score_swap(swap: tuple[int, int], front: list[int], extended: list[int],
     return score
 
 
-def route(inp, target: Target):
+def route(inp, target: Target, initial_layout: list[int] | None = None):
     """Route circuit using SABRE algorithm. Accepts Circuit or DAGCircuit.
 
     SABRE processes gates in dependency order, inserting SWAPs when 2Q gates
     need non-adjacent qubits. Uses lookahead scoring to pick SWAPs that help
     both current and future gates.
+
+    Args:
+        initial_layout: Optional mapping logical->physical. layout[i] = physical qubit for logical i.
     """
     from_circuit = isinstance(inp, Circuit)
     dag = DAGCircuit.from_circuit(inp) if from_circuit else inp
@@ -37,7 +40,7 @@ def route(inp, target: Target):
     if target.n_qubits < dag.n_qubits:
         raise ValueError(f"Target has {target.n_qubits} qubits but circuit needs {dag.n_qubits}")
 
-    tracker = QubitTracker(target.n_qubits)
+    tracker = QubitTracker(target.n_qubits, initial_layout=initial_layout)
     result = DAGCircuit(target.n_qubits, dag.n_classical)
 
     if target.is_all_to_all() or not dag._ops:
@@ -55,9 +58,15 @@ def route(inp, target: Target):
     dist = target.all_pairs_distances()
     n = target.n_qubits
     decay = [[0.0] * n for _ in range(n)]
-    l2p = list(range(dag.n_qubits))
-    p2l = [-1] * n
-    for i in range(dag.n_qubits): p2l[i] = i
+    if initial_layout is not None:
+        l2p = list(initial_layout)
+        p2l = [-1] * n
+        for lq, pq in enumerate(initial_layout):
+            p2l[pq] = lq
+    else:
+        l2p = list(range(dag.n_qubits))
+        p2l = [-1] * n
+        for i in range(dag.n_qubits): p2l[i] = i
 
     def mark_done(nid: int):
         executed.add(nid)

@@ -2,6 +2,7 @@
 Transpiler passes.
 
 Modules:
+    - layout: Initial qubit layout selection (VF2 + SabreLayout)
     - decompose: Basis gate decomposition
     - route: Routing with QubitTracker
     - optimize: Pattern-based gate optimization

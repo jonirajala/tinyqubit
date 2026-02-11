@@ -21,6 +21,7 @@ from .ir import Circuit, Gate
 from .dag import DAGCircuit
 from .target import Target
 from .passes.route import route
+from .passes.layout import select_layout
 from .passes.decompose import decompose
 from .passes.fuse import fuse_1q_gates
 from .passes.optimize import optimize
@@ -58,8 +59,11 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
     dag = optimize(dag)
     track(dag, "opt1")
 
+    # Phase 1.5: Select initial layout
+    layout = select_layout(dag, target)
+
     # Phase 2: Route for target connectivity
-    dag = route(dag, target)
+    dag = route(dag, target, initial_layout=layout)
     tracker = getattr(dag, '_tracker', None)
     track(dag, "route")
 

@@ -40,10 +40,26 @@ class QubitTracker:
     these barriers to preserve correct semantics.
     """
 
-    def __init__(self, n_qubits: int):
+    def __init__(self, n_qubits: int, initial_layout: list[int] | None = None):
         self.n_qubits = n_qubits
-        self.logical_to_physical = list(range(n_qubits))
-        self.physical_to_logical = list(range(n_qubits))
+        self.initial_layout = initial_layout
+        if initial_layout is not None:
+            self.logical_to_physical = list(range(n_qubits))
+            self.physical_to_logical = list(range(n_qubits))
+            # Map circuit qubits according to layout
+            n_logical = len(initial_layout)
+            used = set(initial_layout)
+            remaining = [p for p in range(n_qubits) if p not in used]
+            for lq, pq in enumerate(initial_layout):
+                self.logical_to_physical[lq] = pq
+                self.physical_to_logical[pq] = lq
+            # Fill remaining logical qubits into remaining physical slots
+            for i, lq in enumerate(range(n_logical, n_qubits)):
+                self.logical_to_physical[lq] = remaining[i]
+                self.physical_to_logical[remaining[i]] = lq
+        else:
+            self.logical_to_physical = list(range(n_qubits))
+            self.physical_to_logical = list(range(n_qubits))
         self.pending: list[PendingSwap | PendingGate] = []
         self.swap_log: list[tuple[int, int, int]] = []
         self.swap_cancel_log: list[tuple[int, int]] = []  # (cancelled_trigger1, cancelled_trigger2)
