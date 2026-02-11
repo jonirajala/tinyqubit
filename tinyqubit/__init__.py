@@ -3,6 +3,7 @@ TinyQubit - A tiny quantum circuit compiler
 """
 
 from .ir import Circuit, Gate, Operation
+from .dag import DAGCircuit, commutes
 from .target import Target
 from .compile import transpile
 from .simulator import simulate, states_equal, sample
@@ -18,6 +19,8 @@ __all__ = [
     "Circuit",
     "Gate",
     "Operation",
+    "DAGCircuit",
+    "commutes",
     # Compilation
     "Target",
     "transpile",

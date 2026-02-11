@@ -4,6 +4,7 @@ import numpy as np
 from math import pi, atan2, sqrt
 from collections import defaultdict
 from ..ir import Circuit, Operation, Gate
+from ..dag import DAGCircuit
 from ..simulator import _get_gate_matrix
 
 
@@ -95,8 +96,8 @@ def _should_fuse(ops: list[Operation]) -> bool:
     return has_non_rotation and len(ops) >= 2
 
 
-def fuse_1q_gates(circuit: Circuit) -> Circuit:
-    """Merge consecutive 1Q gates on same qubit into ≤3 rotations."""
+def _fuse_ops(ops: list[Operation], n_qubits: int) -> list[Operation]:
+    """Core fusion logic on a flat op list."""
     pending: dict[int, list[Operation]] = defaultdict(list)
     result: list[Operation] = []
 
@@ -112,7 +113,7 @@ def fuse_1q_gates(circuit: Circuit) -> Circuit:
             result.extend(_decompose_zxz(U, q))
         pending[q] = []
 
-    for op in circuit.ops:
+    for op in ops:
         if op.condition is not None:
             for q in op.qubits: flush(q)
             result.append(op)
@@ -126,10 +127,18 @@ def fuse_1q_gates(circuit: Circuit) -> Circuit:
             pending[op.qubits[0]].append(op)
 
     for q in list(pending.keys()): flush(q)
-    out = Circuit(circuit.n_qubits, circuit.n_classical)
-    out.ops = result
+    return result
 
-    return out
+
+def fuse_1q_gates(inp):
+    """Merge consecutive 1Q gates on same qubit into ≤3 rotations. Accepts Circuit or DAGCircuit."""
+    from_circuit = isinstance(inp, Circuit)
+    dag = DAGCircuit.from_circuit(inp) if from_circuit else inp
+    result_ops = _fuse_ops(list(dag.topological_ops()), dag.n_qubits)
+    out = DAGCircuit(dag.n_qubits, dag.n_classical)
+    for op in result_ops: out.add_op(op)
+    return out.to_circuit() if from_circuit else out
+
 
 def fuse_2q_blocks(circuit: Circuit) -> Circuit:
     """Fuse consecutive gates on same qubit pair into single 4x4 unitary. (Placeholder - needs KAK decomposition)"""

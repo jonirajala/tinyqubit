@@ -19,6 +19,7 @@ Standard decompositions (all correct up to global phase):
 
 from math import pi
 from ..ir import Circuit, Operation, Gate
+from ..dag import DAGCircuit
 
 
 def _decompose_swap(q0: int, q1: int) -> list[Operation]:
@@ -150,12 +151,9 @@ DECOMPOSITIONS_CZ_NATIVE = {
 }
 
 
-def decompose(circuit: Circuit, basis: frozenset[Gate]) -> Circuit:
-    """Decompose non-basis gates to target basis."""
-    # Auto-detect CZ-native vs CX-native basis
+def _decompose_ops(ops: list[Operation], basis: frozenset[Gate]) -> list[Operation]:
+    """Core decomposition logic on a flat op list."""
     rules = DECOMPOSITIONS_CZ_NATIVE if (Gate.CZ in basis and Gate.CX not in basis) else DECOMPOSITIONS
-    ops = list(circuit.ops)
-
     changed = True
     while changed:
         changed, new_ops = False, []
@@ -171,7 +169,17 @@ def decompose(circuit: Circuit, basis: frozenset[Gate]) -> Circuit:
             else:
                 raise NotImplementedError(f"No decomposition rule for {op.gate.name}")
         ops = new_ops
+    return ops
 
-    result = Circuit(circuit.n_qubits)
-    result.ops = ops
-    return result
+
+def decompose(inp, basis: frozenset[Gate]):
+    """Decompose non-basis gates. Accepts Circuit or DAGCircuit, returns same type."""
+    from_circuit = isinstance(inp, Circuit)
+    if from_circuit:
+        dag = DAGCircuit.from_circuit(inp)
+    else:
+        dag = inp
+    ops = _decompose_ops(list(dag.topological_ops()), basis)
+    result = DAGCircuit(dag.n_qubits, dag.n_classical)
+    for op in ops: result.add_op(op)
+    return result.to_circuit() if from_circuit else result

@@ -12,9 +12,13 @@ This order ensures:
 - Routing sees true 2Q structure (not high-level gates)
 - Optimization works on both sides of routing
 - SWAP patterns are cleaned up after expansion
+
+Internally uses DAGCircuit as the IR — built once from Circuit, passed through
+all passes, and converted back to Circuit at the end.
 """
 
 from .ir import Circuit, Gate
+from .dag import DAGCircuit
 from .target import Target
 from .passes.route import route
 from .passes.decompose import decompose
@@ -37,26 +41,40 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
         target: Hardware target (connectivity + basis gates)
         verbosity: 0=silent, 1=summary, 2=normal, 3=verbose
     """
+    stages = [] if verbosity > 0 else None
+
+    def track(dag: DAGCircuit, name: str) -> DAGCircuit:
+        if stages is not None: stages.append(collect_metrics(dag, name))
+        return dag
+
+    dag = DAGCircuit.from_circuit(circuit)
+    track(dag, "input")
+
     # Phase 1: Pre-routing - decompose to routing primitives, optimize
-    decomposed1 = decompose(circuit, _ROUTING_BASIS)
-    pushed1 = push_diagonals(decomposed1)
-    fused1 = fuse_1q_gates(pushed1)
-    opt1 = optimize(fused1)
+    dag = decompose(dag, _ROUTING_BASIS)
+    track(dag, "decompose1")
+    dag = push_diagonals(dag)
+    dag = fuse_1q_gates(dag)
+    dag = optimize(dag)
+    track(dag, "opt1")
 
     # Phase 2: Route for target connectivity
-    routed = route(opt1, target)
+    dag = route(dag, target)
+    tracker = getattr(dag, '_tracker', None)
+    track(dag, "route")
 
     # Phase 3: Post-routing - decompose to target basis, optimize
-    decomposed2 = decompose(routed, target.basis_gates)
-    pushed2 = push_diagonals(decomposed2)
-    fused2 = fuse_1q_gates(pushed2)
-    optimized = optimize(fused2)
-    optimized._tracker = routed._tracker
+    dag = decompose(dag, target.basis_gates)
+    track(dag, "decompose2")
+    dag = push_diagonals(dag)
+    dag = fuse_1q_gates(dag)
+    dag = optimize(dag)
+    track(dag, "output")
+
+    result = dag.to_circuit()
+    result._tracker = tracker
 
     if verbosity > 0:
-        passes = [collect_metrics(c, n) for c, n in [
-            (circuit, "input"), (decomposed1, "decompose1"), (opt1, "opt1"),
-            (routed, "route"), (decomposed2, "decompose2"), (optimized, "output")]]
-        print(build_report(circuit, optimized, passes, routed._tracker, target).to_text(verbosity))
+        print(build_report(circuit, result, stages, tracker, target).to_text(verbosity))
 
-    return optimized
+    return result

@@ -7,6 +7,7 @@ from .tracker import PendingSwap
 
 if TYPE_CHECKING:
     from .ir import Circuit, Operation
+    from .dag import DAGCircuit
     from .tracker import QubitTracker
     from .target import Target
 
@@ -75,21 +76,20 @@ def _fmt(op: "Operation") -> str:
     return f"{op.gate.name}({','.join(args)})"
 
 
-def _depth(ops: list[Operation]) -> int:
-    free: dict[int, int] = {}
-    for op in ops:
-        t = max((free.get(q, 0) for q in op.qubits), default=0) + 1
-        for q in op.qubits: free[q] = t
-    return max(free.values(), default=0)
+def collect_metrics(circuit_or_dag, name: str) -> PassMetrics:
+    """Collect pass metrics from a Circuit or DAGCircuit."""
+    from .dag import DAGCircuit
+    if isinstance(circuit_or_dag, DAGCircuit):
+        dag = circuit_or_dag
+    else:
+        dag = DAGCircuit.from_circuit(circuit_or_dag)
+    ops = dag.topological_ops()
+    return PassMetrics(name, len(ops), sum(op.gate.n_qubits == 2 for op in ops),
+                       dag.depth(), [_fmt(op) for op in ops])
 
 
-def collect_metrics(circuit: Circuit, name: str) -> PassMetrics:
-    return PassMetrics(name, len(circuit.ops), sum(op.gate.n_qubits == 2 for op in circuit.ops),
-                       _depth(circuit.ops), [_fmt(op) for op in circuit.ops])
-
-
-def build_report(input_circ: Circuit, output_circ: Circuit, passes: list[PassMetrics],
-                 tracker: QubitTracker | None, target: Target) -> CompileReport:
+def build_report(input_circ: "Circuit", output_circ: "Circuit", passes: list[PassMetrics],
+                 tracker: "QubitTracker | None", target: "Target") -> CompileReport:
     inserted = len(tracker.swap_log) if tracker else 0
     final = sum(isinstance(op, PendingSwap) for op in (tracker.materialize() if tracker else []))
 

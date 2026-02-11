@@ -1,19 +1,20 @@
 """
-Pattern-based gate optimization.
+Pattern-based gate optimization (DAG-native).
 
 Contains:
     - optimize(): Apply cancellation and merge rules until fixed point
 
 Rules applied in deterministic order:
-    - Cancellation: [X,X]→[], [H,H]→[], [CX,CX]→[], [SWAP,SWAP]→[]
-    - Merge: [RZ(a),RZ(b)]→[RZ(a+b)], [RX(a),RX(b)]→[RX(a+b)], [RY(a),RY(b)]→[RY(a+b)]
-    - Clifford: [S,S]→[Z], [T,T]→[S], [S†,S†]→[Z], [T†,T†]→[S†], [S,S†]→[], [T,T†]→[]
-    - Hadamard conjugation: [H,X,H]→[Z], [H,Z,H]→[X]
+    - Cancellation: [X,X]->[], [H,H]->[], [CX,CX]->[], [SWAP,SWAP]->[]
+    - Merge: [RZ(a),RZ(b)]->[RZ(a+b)], [RX(a),RX(b)]->[RX(a+b)], [RY(a),RY(b)]->[RY(a+b)]
+    - Clifford: [S,S]->[Z], [T,T]->[S], [S†,S†]->[Z], [T†,T†]->[S†], [S,S†]->[], [T,T†]->[]
+    - Hadamard conjugation: [H,X,H]->[Z], [H,Z,H]->[X]
     - Commutation-aware: cancel/merge gates through commuting intermediates
 """
 
 from math import pi
 from ..ir import Circuit, Operation, Gate
+from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
 
 
 # Gates that cancel when applied twice (self-inverse)
@@ -36,158 +37,142 @@ INVERSE_PAIRS = {
     (Gate.T, Gate.TDG), (Gate.TDG, Gate.T),
 }
 
-# Diagonal gates (commute with each other)
-DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ}
-
 # Hadamard conjugation: H·G·H = G'
 HADAMARD_CONJUGATES = {
     Gate.X: Gate.Z,
     Gate.Z: Gate.X,
 }
 
-def _try_cancel(ops: list[Operation], i: int) -> bool:
-    """Try to cancel ops[i] with ops[i+1]. Returns True if cancelled."""
-    if i + 1 >= len(ops): return False
 
-    op1, op2 = ops[i], ops[i + 1]
-    if op1.gate == op2.gate and op1.gate in CANCELLATION_GATES and op1.qubits == op2.qubits:
-        del ops[i:i+2]
-        return True
-    return False
+def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> int | None:
+    """Walk forward on the first qubit's wire from nid, checking commutation.
 
-
-def _try_merge(ops: list[Operation], i: int) -> bool:
-    """Try to merge ops[i] with ops[i+1] (rotations). Returns True if merged."""
-    if i + 1 >= len(ops): return False
-
-    op1, op2 = ops[i], ops[i + 1]
-    if op1.gate == op2.gate and op1.gate in MERGE_GATES and op1.qubits == op2.qubits:
-        angle = (op1.params[0] + op2.params[0] + pi) % (2 * pi) - pi  # normalize to [-π, π]
-        if abs(angle) < 1e-9: del ops[i:i+2]
-        else:
-            ops[i] = Operation(op1.gate, op1.qubits, (angle,))
-            del ops[i+1]
-        return True
-    return False
-
-
-def _try_inverse_cancel(ops: list[Operation], i: int) -> bool:
-    """Try to cancel inverse pairs like S·S† or T·T†. Returns True if cancelled."""
-    if i + 1 >= len(ops): return False
-
-    op1, op2 = ops[i], ops[i + 1]
-    if op1.qubits == op2.qubits and (op1.gate, op2.gate) in INVERSE_PAIRS:
-        del ops[i:i+2]
-        return True
-    return False
-
-
-def _try_clifford_merge(ops: list[Operation], i: int) -> bool:
-    """Try Clifford merge like S·S→Z or T·T→S. Returns True if merged."""
-    if i + 1 >= len(ops): return False
-
-    op1, op2 = ops[i], ops[i + 1]
-    if op1.qubits == op2.qubits and (op1.gate, op2.gate) in CLIFFORD_MERGES:
-        ops[i] = Operation(CLIFFORD_MERGES[(op1.gate, op2.gate)], op1.qubits)
-        del ops[i+1]
-        return True
-    return False
-
-
-def commutes(op1: Operation, op2: Operation) -> bool:
-    """Check if two operations commute.
-
-    WARNING: This function is conservative - it only returns True for proven cases.
-    When adding new gates to the IR, you MUST update this function or the optimizer
-    will silently miss optimization opportunities (safe) or worse, if you add a case
-    that incorrectly returns True, the optimizer can produce semantically wrong circuits.
+    When a node matching predicate is found, verify commutation on ALL shared
+    qubit wires between nid and the match. Returns match nid or None.
     """
-    # Never commute across barriers: MEASURE, RESET, conditional ops
-    if op1.gate in (Gate.MEASURE, Gate.RESET) or op2.gate in (Gate.MEASURE, Gate.RESET):
+    op = dag.op(nid)
+    q0 = op.qubits[0]
+
+    cur = dag.next_on_qubit(nid, q0)
+    for _ in range(max_steps):
+        if cur is None:
+            break
+        if cur not in dag._ops:
+            cur = dag.next_on_qubit(cur, q0)
+            continue
+        candidate = dag.op(cur)
+        if predicate(candidate):
+            # Verify commutation on ALL shared qubit wires
+            ok = True
+            for q in op.qubits:
+                mid = dag.next_on_qubit(nid, q)
+                while mid is not None and mid != cur:
+                    if mid in dag._ops and not commutes(op, dag.op(mid)):
+                        ok = False
+                        break
+                    mid = dag.next_on_qubit(mid, q)
+                if not ok:
+                    break
+            if ok:
+                return cur
+        # Check if we can commute past this node
+        if not commutes(op, candidate):
+            return None
+        cur = dag.next_on_qubit(cur, q0)
+    return None
+
+
+def _try_cancel(dag: DAGCircuit, nid: int) -> bool:
+    """Try to cancel nid with a matching gate on the qubit wire."""
+    op = dag.op(nid)
+    if op.gate not in CANCELLATION_GATES:
         return False
-    if op1.condition is not None or op2.condition is not None:
-        return False
 
-    q1, q2 = set(op1.qubits), set(op2.qubits)
-
-    # Disjoint qubits always commute
-    if not (q1 & q2): return True
-
-    # Single-qubit diagonal gates (Z, S, T, SDG, TDG, RZ) commute with CX on control qubit
-    diag_1q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
-    if op1.gate in diag_1q and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[0]
-    if op2.gate in diag_1q and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[0]
-
-    # RX commutes with CX on target qubit
-    if op1.gate == Gate.RX and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[1]
-    if op2.gate == Gate.RX and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[1]
-
-    # Diagonal gates commute with each other
-    if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES: return True
-
-    return False
-
-
-def _can_commute_to(ops: list[Operation], i: int, j: int) -> bool:
-    """Check if ops[i] can commute past all ops between i and j."""
-    for k in range(i + 1, j):
-        if not commutes(ops[i], ops[k]): return False
-    return True
-
-
-def _try_cancel_through_commutation(ops: list[Operation], i: int, window: int = 5) -> bool:
-    """Try to cancel ops[i] with a gate within window by commuting."""
-    op1 = ops[i]
-    if op1.gate not in CANCELLATION_GATES: return False
-
-    for j in range(i + 1, min(i + window + 1, len(ops))):
-        op2 = ops[j]
-        # Same gate, same qubits, can cancel
-        if op1.gate == op2.gate and op1.qubits == op2.qubits:
-            if _can_commute_to(ops, i, j):
-                del ops[j]
-                del ops[i]
-                return True
-    return False
-
-
-def _try_merge_through_commutation(ops: list[Operation], i: int, window: int = 5) -> bool:
-    """Try to merge ops[i] with a rotation gate within window by commuting."""
-    op1 = ops[i]
-    if op1.gate not in MERGE_GATES: return False
-
-    for j in range(i + 1, min(i + window + 1, len(ops))):
-        op2 = ops[j]
-        # Same rotation gate, same qubits
-        if op1.gate == op2.gate and op1.qubits == op2.qubits:
-            if _can_commute_to(ops, i, j):
-                # Merge angles
-                angle = (op1.params[0] + op2.params[0] + pi) % (2 * pi) - pi
-                del ops[j]
-                if abs(angle) < 1e-9:
-                    del ops[i]  # Angle is ~0, remove entirely
-                else:
-                    ops[i] = Operation(op1.gate, op1.qubits, (angle,))
-                return True
-    return False
-
-
-def _try_hadamard_conjugate(ops: list[Operation], i: int) -> bool:
-    """Try to apply H·G·H = G' transformation. Returns True if changed."""
-    if i + 2 >= len(ops): return False
-
-    op1, op2, op3 = ops[i], ops[i + 1], ops[i + 2]
-
-    # Check pattern: H(q) · G(q) · H(q) where G in {X, Z}
-    if (op1.gate == Gate.H and op3.gate == Gate.H and
-        op1.qubits == op2.qubits == op3.qubits and
-        op2.gate in HADAMARD_CONJUGATES):
-        # Replace H·G·H with conjugate
-        ops[i] = Operation(HADAMARD_CONJUGATES[op2.gate], op1.qubits)
-        del ops[i + 1:i + 3]
+    match = _find_partner(dag, nid, lambda c: c.gate == op.gate and c.qubits == op.qubits)
+    if match is not None:
+        dag.remove_node(match)
+        dag.remove_node(nid)
         return True
-
     return False
+
+
+def _try_merge(dag: DAGCircuit, nid: int) -> bool:
+    """Try to merge nid with a matching rotation on the qubit wire."""
+    op = dag.op(nid)
+    if op.gate not in MERGE_GATES:
+        return False
+
+    match = _find_partner(dag, nid, lambda c: c.gate == op.gate and c.qubits == op.qubits)
+    if match is not None:
+        op2 = dag.op(match)
+        angle = (op.params[0] + op2.params[0] + pi) % (2 * pi) - pi
+        if abs(angle) < 1e-9:
+            dag.remove_node(match)
+            dag.remove_node(nid)
+        else:
+            dag.set_op(nid, Operation(op.gate, op.qubits, (angle,)))
+            dag.remove_node(match)
+        return True
+    return False
+
+
+def _try_inverse_cancel(dag: DAGCircuit, nid: int) -> bool:
+    """Try to cancel inverse pairs like S·S† or T·T†."""
+    op = dag.op(nid)
+    inv_gates = {g2 for (g1, g2) in INVERSE_PAIRS if g1 == op.gate}
+    if not inv_gates:
+        return False
+
+    match = _find_partner(dag, nid, lambda c: c.gate in inv_gates and c.qubits == op.qubits)
+    if match is not None:
+        dag.remove_node(match)
+        dag.remove_node(nid)
+        return True
+    return False
+
+
+def _try_clifford_merge(dag: DAGCircuit, nid: int) -> bool:
+    """Try Clifford merge like S·S→Z or T·T→S."""
+    op = dag.op(nid)
+    merge_gates = {g2: result for (g1, g2), result in CLIFFORD_MERGES.items() if g1 == op.gate}
+    if not merge_gates:
+        return False
+
+    match = _find_partner(dag, nid, lambda c: c.gate in merge_gates and c.qubits == op.qubits)
+    if match is not None:
+        result_gate = merge_gates[dag.op(match).gate]
+        dag.set_op(nid, Operation(result_gate, op.qubits))
+        dag.remove_node(match)
+        return True
+    return False
+
+
+def _try_hadamard_conjugate(dag: DAGCircuit, nid: int) -> bool:
+    """Try to apply H·G·H = G' transformation."""
+    op = dag.op(nid)
+    if op.gate != Gate.H:
+        return False
+
+    q = op.qubits[0]
+    mid = dag.next_on_qubit(nid, q)
+    if mid is None or mid not in dag._ops:
+        return False
+    mid_op = dag.op(mid)
+    if mid_op.gate not in HADAMARD_CONJUGATES or mid_op.qubits != op.qubits:
+        return False
+
+    end = dag.next_on_qubit(mid, q)
+    if end is None or end not in dag._ops:
+        return False
+    end_op = dag.op(end)
+    if end_op.gate != Gate.H or end_op.qubits != op.qubits:
+        return False
+
+    # Replace H·G·H with conjugate
+    dag.set_op(nid, Operation(HADAMARD_CONJUGATES[mid_op.gate], op.qubits))
+    dag.remove_node(end)
+    dag.remove_node(mid)
+    return True
 
 
 def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
@@ -196,90 +181,141 @@ def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
                                abs(op.params[0] % (2 * pi) - pi) < 1e-9)
 
 
-def _try_cx_conjugation(ops: list[Operation], i: int, window: int = 10) -> bool:
+def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     """CX·P·CX patterns: Z(t)→Z both, X(c)→X both, Z(c)→Z(c), X(t)→X(t)."""
-    if ops[i].gate != Gate.CX:
+    op = dag.op(nid)
+    if op.gate != Gate.CX:
         return False
-    c, t = ops[i].qubits
+    c, t = op.qubits
 
-    for j in range(i + 2, min(i + window + 1, len(ops))):
-        if ops[j].gate != Gate.CX or ops[j].qubits != (c, t):
+    # Walk control qubit wire to find matching CX (don't stop at non-commuting gates)
+    cur = dag.next_on_qubit(nid, c)
+    steps = 0
+    while cur is not None and steps < 50:
+        if cur not in dag._ops:
+            cur = dag.next_on_qubit(cur, c)
+            steps += 1
             continue
+        cur_op = dag.op(cur)
+        if cur_op.gate == Gate.CX and cur_op.qubits == (c, t):
+            # Found matching CX — look for Pauli-like gate between them
+            pauli_nid, is_z, on_target = None, None, None
 
-        # Find Pauli-like gate on c or t
-        pauli_idx, is_z, on_target = None, None, None
-        for k in range(i + 1, j):
-            op = ops[k]
-            if len(op.qubits) == 1 and op.qubits[0] in (c, t):
-                if _is_pauli_like(op, Gate.Z, Gate.RZ):
-                    pauli_idx, is_z, on_target = k, True, op.qubits[0] == t
+            # Search on both control and target wires
+            for q in (c, t):
+                mid = dag.next_on_qubit(nid, q)
+                while mid is not None and mid != cur:
+                    if mid in dag._ops:
+                        mid_op = dag.op(mid)
+                        if len(mid_op.qubits) == 1 and mid_op.qubits[0] in (c, t):
+                            if _is_pauli_like(mid_op, Gate.Z, Gate.RZ):
+                                pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t
+                                break
+                            if _is_pauli_like(mid_op, Gate.X, Gate.RX):
+                                pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t
+                                break
+                    mid = dag.next_on_qubit(mid, q)
+                if pauli_nid is not None:
                     break
-                if _is_pauli_like(op, Gate.X, Gate.RX):
-                    pauli_idx, is_z, on_target = k, False, op.qubits[0] == t
+
+            if pauli_nid is None:
+                cur = dag.next_on_qubit(cur, c)
+                steps += 1
+                continue
+
+            # Check all intermediates (except pauli) commute with CX
+            ok = True
+            for q in (c, t):
+                mid = dag.next_on_qubit(nid, q)
+                while mid is not None and mid != cur:
+                    if mid in dag._ops and mid != pauli_nid:
+                        if not commutes(dag.op(mid), op):
+                            ok = False
+                            break
+                    mid = dag.next_on_qubit(mid, q)
+                if not ok:
                     break
+            if not ok:
+                cur = dag.next_on_qubit(cur, c)
+                steps += 1
+                continue
 
-        if pauli_idx is None:
-            continue
-        if not all(k == pauli_idx or commutes(ops[k], ops[i]) for k in range(i + 1, j)):
-            continue
+            # Build replacement
+            pauli_op = dag.op(pauli_nid)
+            use_rot = pauli_op.gate in (Gate.RZ, Gate.RX)
+            g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
+            make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
 
-        # Build replacement gates (use rotation form if input was rotation)
-        use_rot = ops[pauli_idx].gate in (Gate.RZ, Gate.RX)
-        g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
-        make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
+            # Remove the 2 CX gates and the pauli gate
+            dag.remove_node(cur)       # second CX
+            dag.remove_node(pauli_nid) # pauli
 
-        # Rules: Z(t)/X(c) → both qubits, Z(c)/X(t) → single qubit
-        if is_z == on_target:  # Z on target or X on control → propagates to both
-            new = [make(c), make(t)]
-        else:  # Z on control or X on target → unchanged, removes 2 CX
-            new = [make(t if on_target else c)]
+            if is_z == on_target:  # Z on target or X on control → propagates to both
+                dag.set_op(nid, make(c))
+                dag.add_op(make(t))
+            else:  # Z on control or X on target → single qubit
+                dag.set_op(nid, make(t if on_target else c))
 
-        intermediates = [ops[k] for k in range(i + 1, j) if k != pauli_idx]
-        ops[i:j + 1] = intermediates + new
-        return True
+            return True
+
+        cur = dag.next_on_qubit(cur, c)
+        steps += 1
     return False
 
 
-def _try_hadamard_cx_to_cz(ops: list[Operation], i: int) -> bool:
-    """H(t)·CX(c,t)·H(t) → CZ(c,t). CZ is symmetric so qubit order is preserved from CX."""
-    if i + 2 >= len(ops):
+def _try_hadamard_cx_to_cz(dag: DAGCircuit, nid: int) -> bool:
+    """H(t)·CX(c,t)·H(t) → CZ(c,t)."""
+    op = dag.op(nid)
+    if op.gate != Gate.H:
         return False
-    op1, op2, op3 = ops[i], ops[i + 1], ops[i + 2]
-    if (op1.gate == Gate.H and op2.gate == Gate.CX and op3.gate == Gate.H and
-            op1.qubits[0] == op2.qubits[1] == op3.qubits[0]):
-        ops[i:i + 3] = [Operation(Gate.CZ, op2.qubits)]
-        return True
-    return False
+
+    q = op.qubits[0]
+    mid = dag.next_on_qubit(nid, q)
+    if mid is None or mid not in dag._ops:
+        return False
+    mid_op = dag.op(mid)
+    if mid_op.gate != Gate.CX or mid_op.qubits[1] != q:
+        return False
+
+    end = dag.next_on_qubit(mid, q)
+    if end is None or end not in dag._ops:
+        return False
+    end_op = dag.op(end)
+    if end_op.gate != Gate.H or end_op.qubits[0] != q:
+        return False
+
+    # Replace H·CX·H with CZ
+    dag.set_op(mid, Operation(Gate.CZ, mid_op.qubits))
+    dag.remove_node(end)
+    dag.remove_node(nid)
+    return True
 
 
-def _single_pass(ops: list[Operation]) -> bool:
-    """Single optimization pass. Returns True if any changes were made."""
+def _dag_pass(dag: DAGCircuit) -> bool:
+    """Single DAG-native optimization pass. Returns True if any changes made."""
     changed = False
-    i = 0
-    while i < len(ops):
-        if (_try_cancel(ops, i) or _try_merge(ops, i) or
-            _try_inverse_cancel(ops, i) or _try_clifford_merge(ops, i) or
-            _try_hadamard_conjugate(ops, i) or _try_cx_conjugation(ops, i) or
-            _try_hadamard_cx_to_cz(ops, i) or
-            _try_cancel_through_commutation(ops, i) or _try_merge_through_commutation(ops, i)):
+    order = dag.topological_order()  # snapshot
+    for nid in order:
+        if nid not in dag._ops:
+            continue
+        if (_try_cancel(dag, nid) or _try_merge(dag, nid) or
+            _try_inverse_cancel(dag, nid) or _try_clifford_merge(dag, nid) or
+            _try_hadamard_conjugate(dag, nid) or _try_cx_conjugation(dag, nid) or
+            _try_hadamard_cx_to_cz(dag, nid)):
             changed = True
-            i = max(0, i - 1)  # Back up to catch new adjacencies
-        else:
-            i += 1
     return changed
 
 
-def optimize(circuit: Circuit, max_iterations: int = 1000) -> Circuit:
-    """Optimize circuit by applying cancellation and merge rules until fixed point.
-
-    Args:
-        circuit: Circuit to optimize.
-        max_iterations: Safety cap to prevent infinite loops (should never be hit).
-    """
-    ops = list(circuit.ops)
+def optimize(inp, max_iterations: int = 1000):
+    """Optimize circuit by applying cancellation and merge rules. Accepts Circuit or DAGCircuit."""
+    from_circuit = isinstance(inp, Circuit)
+    dag = DAGCircuit.from_circuit(inp) if from_circuit else inp
     for _ in range(max_iterations):
-        if not _single_pass(ops):
+        if not _dag_pass(dag):
             break
-    result = Circuit(circuit.n_qubits)
-    result.ops = ops
-    return result
+        # Rebuild to fix wire tracking after add_op in CX conjugation
+        new = DAGCircuit(dag.n_qubits, dag.n_classical)
+        for op in dag.topological_ops():
+            new.add_op(op)
+        dag = new
+    return dag.to_circuit() if from_circuit else dag
