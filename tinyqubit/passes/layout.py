@@ -56,13 +56,38 @@ def _vf2_layout(edges: set[tuple[int, int]], n_logical: int,
 
 
 def _sabre_layout(dag: DAGCircuit, target: Target) -> list[int]:
-    """Forward-backward routing to find a good initial layout."""
-    from .route import route
+    """Forward-backward routing to find a good initial layout.
 
-    fwd_layout = route(dag, target)._tracker.logical_to_physical[:dag.n_qubits]
+    Uses forward routing to get an end-state layout, then backward routing
+    with that layout to find a good initial placement.
+    For small circuits (<= 20 ops), runs extra forward-backward iterations.
+    """
+    from .route import route
+    from ..ir import Gate
+
     rev_dag = DAGCircuit(dag.n_qubits, dag.n_classical)
     for op in reversed(dag.topological_ops()): rev_dag.add_op(op)
-    return route(rev_dag, target, initial_layout=fwd_layout)._tracker.logical_to_physical[:dag.n_qubits]
+
+    # Trial 0: standard forward-backward
+    fwd = route(dag, target)
+    fwd_layout = fwd._tracker.logical_to_physical[:dag.n_qubits]
+    result = route(rev_dag, target, initial_layout=fwd_layout)
+    best_layout = result._tracker.logical_to_physical[:dag.n_qubits]
+
+    # Extra iterations only for small circuits where routing is cheap
+    if len(dag._ops) <= 20:
+        best_swaps = sum(1 for op in route(dag, target, initial_layout=best_layout).topological_ops() if op.gate == Gate.SWAP)
+        for _ in range(2):
+            seed = route(rev_dag, target, initial_layout=best_layout)
+            fwd2 = route(dag, target, initial_layout=seed._tracker.logical_to_physical[:dag.n_qubits])
+            rev2 = route(rev_dag, target, initial_layout=fwd2._tracker.logical_to_physical[:dag.n_qubits])
+            layout = rev2._tracker.logical_to_physical[:dag.n_qubits]
+            n_swaps = sum(1 for op in route(dag, target, initial_layout=layout).topological_ops() if op.gate == Gate.SWAP)
+            if n_swaps < best_swaps:
+                best_swaps = n_swaps
+                best_layout = layout
+
+    return best_layout
 
 
 def select_layout(dag: DAGCircuit, target: Target) -> list[int] | None:
@@ -78,8 +103,13 @@ def select_layout(dag: DAGCircuit, target: Target) -> list[int] | None:
     if layout is not None:
         return None if layout == identity else layout
 
-    # Skip SabreLayout if interaction graph denser than coupling map
-    if len(edges) <= len(target.edges):
+    # VF2 failed — use SabreLayout when the interaction graph is sparse enough
+    # that a better placement can actually reduce SWAPs.
+    # Max possible edges for n qubits = n*(n-1)/2. If interaction density
+    # exceeds coupling density by too much, layout won't help.
+    n = dag.n_qubits
+    tgt_undirected = len(target.edges) // 2
+    if tgt_undirected > 0 and len(edges) <= tgt_undirected * 3:
         layout = _sabre_layout(dag, target)
         if layout != identity: return layout
     return None

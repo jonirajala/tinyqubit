@@ -11,8 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tinyqubit.ir import Circuit, Gate
+from tinyqubit.dag import DAGCircuit
 from tinyqubit.target import Target
 from tinyqubit.passes.route import route
+from tinyqubit.passes.layout import select_layout
 
 from benchmarks.topologies import (
     line_topology,
@@ -124,7 +126,9 @@ def run_topology_benchmark(topology_name: str, n_qubits: int, edges: frozenset, 
         if tq_c.n_qubits > n_qubits:
             continue
 
-        routed = route(tq_c, target)
+        dag = DAGCircuit.from_circuit(tq_c)
+        layout = select_layout(dag, target)
+        routed = route(tq_c, target, initial_layout=layout)
         tq_2q = count_2q(routed)
         tq_swaps = count_swaps(routed)
         tq_cx_eq = count_cx_equivalent(routed)
