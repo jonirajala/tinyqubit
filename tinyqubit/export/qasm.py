@@ -1,7 +1,7 @@
 """OpenQASM export: to_openqasm2(), to_openqasm3()"""
 from __future__ import annotations
 
-from ..ir import Circuit, Gate, Operation
+from ..ir import Circuit, Gate, Operation, Parameter
 
 
 class UnsupportedGateError(Exception):
@@ -9,7 +9,10 @@ class UnsupportedGateError(Exception):
 
 
 def _format_params(op: Operation) -> str:
-    return f"({', '.join(str(p) for p in op.params)})" if op.params else ''
+    if not op.params:
+        return ''
+    parts = [p.name if isinstance(p, Parameter) else str(p) for p in op.params]
+    return f"({', '.join(parts)})"
 
 
 def _format_gate(op: Operation) -> str:
@@ -31,6 +34,8 @@ def _add_mapping(lines: list[str], circuit: Circuit):
 
 def to_openqasm2(circuit: Circuit, include_mapping: bool = True) -> str:
     """Export circuit to OpenQASM 2.0 format."""
+    if circuit.is_parameterized:
+        raise ValueError("Cannot export parameterized circuit to OpenQASM 2.0. Call circuit.bind() first.")
     lines = ['OPENQASM 2.0;', 'include "qelib1.inc";', f'qreg q[{circuit.n_qubits}];']
     if _needs_classical(circuit):
         lines.append(f'creg c[{circuit.n_classical}];')
@@ -66,6 +71,9 @@ def to_openqasm3(circuit: Circuit, include_mapping: bool = True) -> str:
     lines = ['OPENQASM 3.0;', 'include "stdgates.inc";', '', f'qubit[{circuit.n_qubits}] q;']
     if _needs_classical(circuit):
         lines.append(f'bit[{circuit.n_classical}] c;')
+    # Declare symbolic parameters as input variables
+    for p in sorted(circuit.parameters, key=lambda p: p.name):
+        lines.append(f'input float {p.name};')
     if include_mapping:
         _add_mapping(lines, circuit)
     lines.append('')

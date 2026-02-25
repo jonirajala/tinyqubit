@@ -80,7 +80,8 @@ class CompileReport:
 
 
 def _fmt(op: "Operation") -> str:
-    args = [str(q) for q in op.qubits] + [f"{p:.2f}" for p in op.params]
+    from .ir import Parameter
+    args = [str(q) for q in op.qubits] + [p.name if isinstance(p, Parameter) else f"{p:.2f}" for p in op.params]
     return f"{op.gate.name}({','.join(args)})"
 
 

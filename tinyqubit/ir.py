@@ -11,6 +11,20 @@ from __future__ import annotations
 from enum import Enum, auto
 from dataclasses import dataclass
 
+
+class Parameter:
+    """Named symbolic parameter for variational circuits."""
+    __slots__ = ('name',)
+    def __init__(self, name: str): self.name = name
+    def __repr__(self): return f"Parameter({self.name!r})"
+    def __eq__(self, other): return isinstance(other, Parameter) and self.name == other.name
+    def __hash__(self): return hash(('Parameter', self.name))
+
+
+def _has_parameter(params: tuple) -> bool:
+    """Check if any param is a symbolic Parameter."""
+    return any(isinstance(p, Parameter) for p in params)
+
 class Gate(Enum):
     """19 primitive quantum gates."""
     # Pauli gates
@@ -58,7 +72,7 @@ class Gate(Enum):
 class Operation:
     gate: Gate
     qubits: tuple[int, ...]
-    params: tuple[float, ...] = ()
+    params: tuple[float | Parameter, ...] = ()
     classical_bit: int | None = None  # For MEASURE: which classical bit to store result
     condition: tuple[int, int] | None = None  # (classical_bit, expected_value) for conditional
 
@@ -102,12 +116,12 @@ class Circuit:
     def t(self, q: int) -> "Circuit": return self._add(Gate.T, (q,))
     def sdg(self, q: int) -> "Circuit": return self._add(Gate.SDG, (q,))
     def tdg(self, q: int) -> "Circuit": return self._add(Gate.TDG, (q,))
-    def rx(self, q: int, theta: float) -> "Circuit": return self._add(Gate.RX, (q,), (theta,))
-    def ry(self, q: int, theta: float) -> "Circuit": return self._add(Gate.RY, (q,), (theta,))
-    def rz(self, q: int, theta: float) -> "Circuit": return self._add(Gate.RZ, (q,), (theta,))
+    def rx(self, q: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.RX, (q,), (theta,))
+    def ry(self, q: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.RY, (q,), (theta,))
+    def rz(self, q: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.RZ, (q,), (theta,))
     def cx(self, c: int, t: int) -> "Circuit": return self._add(Gate.CX, (c, t))
     def cz(self, a: int, b: int) -> "Circuit": return self._add(Gate.CZ, (min(a,b), max(a,b)))  # Canonicalize
-    def cp(self, c: int, t: int, theta: float) -> "Circuit": return self._add(Gate.CP, (c, t), (theta,))
+    def cp(self, c: int, t: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.CP, (c, t), (theta,))
     def swap(self, a: int, b: int) -> "Circuit": return self._add(Gate.SWAP, (min(a,b), max(a,b)))  # Canonicalize
     def ccx(self, c1: int, c2: int, t: int) -> "Circuit": return self._add(Gate.CCX, (c1, c2, t))
     def ccz(self, a: int, b: int, c: int) -> "Circuit": return self._add(Gate.CCZ, tuple(sorted([a, b, c])))  # Symmetric → canonicalize
@@ -123,6 +137,28 @@ class Circuit:
     def c_if(self, classical_bit: int, value: int = 1) -> _ConditionalContext:
         """Context manager for conditional operations."""
         return _ConditionalContext(self, classical_bit, value)
+
+    @property
+    def parameters(self) -> set[Parameter]:
+        """Return set of all unbound Parameters in the circuit."""
+        return {p for op in self.ops for p in op.params if isinstance(p, Parameter)}
+
+    @property
+    def is_parameterized(self) -> bool:
+        """True if any operation has an unbound Parameter."""
+        return any(_has_parameter(op.params) for op in self.ops)
+
+    def bind(self, values: dict[str, float]) -> "Circuit":
+        """Return new Circuit with Parameters substituted. Missing params left unbound."""
+        c = Circuit(self.n_qubits, self.n_classical)
+        for op in self.ops:
+            if _has_parameter(op.params):
+                new_params = tuple(values[p.name] if isinstance(p, Parameter) and p.name in values else p
+                                   for p in op.params)
+                c.ops.append(Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition))
+            else:
+                c.ops.append(op)
+        return c
 
     def draw(self) -> None:                                                                                                                                                                                          
         if not self.ops:                                                                                                                                                                                             

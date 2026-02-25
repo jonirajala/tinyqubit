@@ -18,7 +18,7 @@ Standard decompositions (all correct up to global phase):
 """
 
 from math import pi
-from ..ir import Circuit, Operation, Gate
+from ..ir import Circuit, Operation, Gate, _has_parameter
 from ..dag import DAGCircuit
 
 
@@ -191,6 +191,8 @@ def _decompose_ops(ops: list[Operation], basis: frozenset[Gate]) -> list[Operati
         for op in ops:
             if op.gate in basis or op.gate in (Gate.MEASURE, Gate.RESET):
                 new_ops.append(op)
+            elif _has_parameter(op.params) and op.gate == Gate.CP:
+                new_ops.append(op)  # Skip: CP decomposition does arithmetic on theta
             elif op.gate in rules:
                 # Propagate condition to all decomposed ops
                 for new_op in rules[op.gate](op.qubits, op.params):

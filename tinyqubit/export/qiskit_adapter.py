@@ -29,17 +29,24 @@ def to_qiskit(circuit) -> "QuantumCircuit":
     """Convert a tinyqubit Circuit to a Qiskit QuantumCircuit."""
     try:
         from qiskit import QuantumCircuit
+        from qiskit.circuit import Parameter as QiskitParameter
     except ImportError:
         raise ImportError("Qiskit required: pip install qiskit")
 
-    from ..ir import Gate
+    from ..ir import Gate, Parameter
+
+    # Map tinyqubit Parameters to Qiskit Parameters
+    _param_map = {}
+    for p in circuit.parameters:
+        _param_map[p.name] = QiskitParameter(p.name)
 
     needs_clbits = any(op.gate == Gate.MEASURE or op.condition is not None for op in circuit.ops)
     n_clbits = circuit.n_classical if needs_clbits else 0
     qc = QuantumCircuit(circuit.n_qubits, n_clbits)
 
     for op in circuit.ops:
-        g, q, p = op.gate, op.qubits, op.params
+        g, q = op.gate, op.qubits
+        p = tuple(_param_map[v.name] if isinstance(v, Parameter) else v for v in op.params)
 
         if g == Gate.MEASURE:
             cbit = op.classical_bit if op.classical_bit is not None else q[0]

@@ -12,3 +12,4 @@ venv/
 .env
 
 docs/
+CLAUDE.md

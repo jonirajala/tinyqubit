@@ -13,7 +13,7 @@ Rules applied in deterministic order:
 """
 
 from math import pi
-from ..ir import Circuit, Operation, Gate
+from ..ir import Circuit, Operation, Gate, _has_parameter, Parameter
 from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
 
 
@@ -101,8 +101,11 @@ def _try_merge(dag: DAGCircuit, nid: int) -> bool:
     op = dag.op(nid)
     if op.gate not in MERGE_GATES:
         return False
+    if _has_parameter(op.params):
+        return False
 
-    match = _find_partner(dag, nid, lambda c: c.gate == op.gate and c.qubits == op.qubits)
+    match = _find_partner(dag, nid, lambda c: c.gate == op.gate and c.qubits == op.qubits
+                          and not _has_parameter(c.params))
     if match is not None:
         op2 = dag.op(match)
         angle = (op.params[0] + op2.params[0] + pi) % (2 * pi) - pi
@@ -178,6 +181,7 @@ def _try_hadamard_conjugate(dag: DAGCircuit, nid: int) -> bool:
 def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
     """Check if op is gate or rot_gate(π + 2πk) (equivalent up to global phase)."""
     return op.gate == gate or (op.gate == rot_gate and op.params and
+                               not isinstance(op.params[0], Parameter) and
                                abs(op.params[0] % (2 * pi) - pi) < 1e-9)
 
 

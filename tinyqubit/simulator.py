@@ -15,7 +15,7 @@ from __future__ import annotations
 import numpy as np
 from math import sqrt, cos, sin, pi
 from typing import TYPE_CHECKING
-from .ir import Circuit, Gate
+from .ir import Circuit, Gate, _has_parameter
 
 if TYPE_CHECKING:
     from .noise import NoiseModel
@@ -144,8 +144,10 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
     state = np.zeros(2**n, dtype=complex)
     state[0] = 1.0
 
-    # Validate qubit indices
+    # Validate qubit indices and unbound parameters
     for op in circuit.ops:
+        if _has_parameter(op.params):
+            raise TypeError(f"Cannot simulate: {op.gate.name} has unbound Parameter. Call circuit.bind() first.")
         for q in op.qubits:
             if not (0 <= q < n):
                 raise ValueError(f"Invalid qubit index {q} for {n}-qubit circuit in {op.gate.name}")

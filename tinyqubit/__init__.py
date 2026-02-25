@@ -2,7 +2,7 @@
 TinyQubit - A tiny quantum circuit compiler
 """
 
-from .ir import Circuit, Gate, Operation
+from .ir import Circuit, Gate, Operation, Parameter
 from .dag import DAGCircuit, commutes
 from .target import Target
 from .compile import transpile
@@ -19,6 +19,7 @@ __all__ = [
     "Circuit",
     "Gate",
     "Operation",
+    "Parameter",
     "DAGCircuit",
     "commutes",
     # Compilation

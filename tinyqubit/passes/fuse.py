@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from math import pi, atan2, sqrt
 from collections import defaultdict
-from ..ir import Circuit, Operation, Gate
+from ..ir import Circuit, Operation, Gate, _has_parameter
 from ..dag import DAGCircuit
 from ..simulator import _get_gate_matrix
 
@@ -103,6 +103,10 @@ def _fuse_ops(ops: list[Operation], n_qubits: int) -> list[Operation]:
 
     def flush(q: int):
         if not pending[q]:
+            return
+        if any(_has_parameter(op.params) for op in pending[q]):
+            result.extend(pending[q])
+            pending[q] = []
             return
         if not _should_fuse(pending[q]):
             result.extend(pending[q])
