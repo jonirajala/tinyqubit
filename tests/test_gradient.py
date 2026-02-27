@@ -1,9 +1,9 @@
-"""Tests for parameter-shift and finite-difference gradients."""
+"""Tests for gradient computation."""
 import numpy as np
 import pytest
 from tinyqubit import (
     Circuit, Parameter, Z, Observable,
-    parameter_shift_gradient, finite_difference_gradient,
+    parameter_shift_gradient, finite_difference_gradient, adjoint_gradient,
 )
 
 
@@ -85,3 +85,56 @@ def test_rx_gradient():
     theta = 0.9
     grad = parameter_shift_gradient(c, Z(0), {"theta": theta})
     assert abs(grad["theta"] - (-np.sin(theta))) < 1e-10
+
+
+# --- Adjoint differentiation tests ---
+
+@pytest.mark.parametrize("theta", [0.0, 0.5, 1.0, np.pi / 2, np.pi, 2.5])
+def test_adjoint_ry_z(theta):
+    c = Circuit(1)
+    c.ry(0, Parameter("theta"))
+    grad = adjoint_gradient(c, Z(0), {"theta": theta})
+    assert abs(grad["theta"] - (-np.sin(theta))) < 1e-10
+
+
+def test_adjoint_multi_parameter():
+    c = Circuit(1)
+    c.ry(0, Parameter("theta"))
+    c.rz(0, Parameter("phi"))
+    grad = adjoint_gradient(c, Z(0), {"theta": 0.7, "phi": 1.2})
+    assert abs(grad["theta"] - (-np.sin(0.7))) < 1e-10
+    assert abs(grad["phi"]) < 1e-10
+
+
+def test_adjoint_cp():
+    c = Circuit(2)
+    c.h(0); c.h(1)
+    c.cp(0, 1, Parameter("theta"))
+    c.h(0); c.h(1)
+    vals = {"theta": 0.9}
+    adj = adjoint_gradient(c, Z(0) @ Z(1), vals)
+    ps = parameter_shift_gradient(c, Z(0) @ Z(1), vals)
+    assert abs(adj["theta"] - ps["theta"]) < 1e-10
+
+
+def test_adjoint_shared_parameter():
+    # RY(θ)RY(θ)|0⟩ = RY(2θ)|0⟩, ⟨Z⟩ = cos(2θ), d/dθ = -2sin(2θ)
+    p = Parameter("theta")
+    c = Circuit(1)
+    c.ry(0, p)
+    c.ry(0, p)
+    vals = {"theta": 0.6}
+    adj = adjoint_gradient(c, Z(0), vals)
+    fd = finite_difference_gradient(c, Z(0), vals)
+    assert abs(adj["theta"] - (-2 * np.sin(1.2))) < 1e-10
+    assert abs(adj["theta"] - fd["theta"]) < 1e-5
+
+
+def test_adjoint_bell_state():
+    c = Circuit(2)
+    c.ry(0, Parameter("theta"))
+    c.cx(0, 1)
+    vals = {"theta": 0.8}
+    adj = adjoint_gradient(c, Z(0) @ Z(1), vals)
+    ps = parameter_shift_gradient(c, Z(0) @ Z(1), vals)
+    assert abs(adj["theta"] - ps["theta"]) < 1e-10

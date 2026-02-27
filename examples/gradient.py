@@ -1,10 +1,10 @@
-"""Train a 1-qubit circuit to produce |1⟩ using parameter-shift gradients."""
+"""Train a 1-qubit circuit to produce |1⟩ using adjoint differentiation."""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tinyqubit import Circuit, Parameter, Z, expectation, parameter_shift_gradient
+from tinyqubit import Circuit, Parameter, Z, expectation, adjoint_gradient
 import numpy as np
 
 # Parameterized circuit: RY(θ)|0⟩
@@ -13,12 +13,12 @@ c = Circuit(1)
 c.ry(0, theta)
 
 # Train θ so ⟨Z⟩ → -1 (i.e. |1⟩)
-# Loss = ⟨Z⟩, gradient via parameter-shift rule
+# Loss = ⟨Z⟩, gradient via adjoint differentiation
 lr = 0.3
 theta_val = 0.1
 
 for step in range(30):
-    grad = parameter_shift_gradient(c, Z(0), {"theta": theta_val})
+    grad = adjoint_gradient(c, Z(0), {"theta": theta_val})
 
     theta_val -= lr * grad["theta"]
 
