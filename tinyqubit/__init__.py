@@ -13,6 +13,7 @@ from .noise import (
     readout_error, realistic_noise
 )
 from .observable import Observable, X, Y, Z, expectation
+from .gradient import parameter_shift_gradient, finite_difference_gradient
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -46,6 +47,9 @@ __all__ = [
     "Y",
     "Z",
     "expectation",
+    # Gradients
+    "parameter_shift_gradient",
+    "finite_difference_gradient",
     # Optimization
     "fuse_1q_gates",
     # Export

@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tinyqubit import Circuit, Parameter, Z, expectation
+from tinyqubit import Circuit, Parameter, Z, expectation, parameter_shift_gradient
 import numpy as np
 
 # Parameterized circuit: RY(θ)|0⟩
@@ -18,12 +18,9 @@ lr = 0.3
 theta_val = 0.1
 
 for step in range(30):
-    shift = np.pi / 2
-    e_plus = expectation(c.bind({"theta": theta_val + shift}), Z(0))
-    e_minus = expectation(c.bind({"theta": theta_val - shift}), Z(0))
-    grad = (e_plus - e_minus) / 2
+    grad = parameter_shift_gradient(c, Z(0), {"theta": theta_val})
 
-    theta_val -= lr * grad
+    theta_val -= lr * grad["theta"]
 
     e = expectation(c.bind({"theta": theta_val}), Z(0))
     if step % 5 == 0:
