@@ -141,8 +141,11 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
     n = circuit.n_qubits
     rng = np.random.default_rng(seed)
     classical = {i: 0 for i in range(circuit.n_classical)}  # Initialize all bits to 0
-    state = np.zeros(2**n, dtype=complex)
-    state[0] = 1.0
+    if circuit._initial_state is not None:
+        state = circuit._initial_state.copy()
+    else:
+        state = np.zeros(2**n, dtype=complex)
+        state[0] = 1.0
 
     # Validate qubit indices and unbound parameters
     for op in circuit.ops:
@@ -196,3 +199,44 @@ def sample(state: np.ndarray, shots: int, seed: int = None) -> dict[str, int]:
     values, counts = np.unique(outcomes, return_counts=True)
     n_bits = int(np.log2(len(state)))
     return {format(v, f'0{n_bits}b'): int(c) for v, c in zip(values, counts)}
+
+def to_unitary(circuit: Circuit) -> np.ndarray:
+    """Build full unitary matrix of the circuit. Max 12 qubits."""
+    n = circuit.n_qubits
+    if n > 12: raise ValueError("to_unitary supports at most 12 qubits")
+    if circuit._initial_state is not None: raise ValueError("to_unitary does not support initialized circuits")
+    for op in circuit.ops:
+        if op.gate in (Gate.MEASURE, Gate.RESET): raise ValueError(f"to_unitary does not support {op.gate.name}")
+        if op.condition is not None: raise ValueError("to_unitary does not support conditional operations")
+        if _has_parameter(op.params): raise TypeError(f"Cannot compute unitary: {op.gate.name} has unbound Parameter")
+    dim = 2 ** n
+    U = np.eye(dim, dtype=complex)
+    for op in circuit.ops:
+        if op.gate.n_qubits == 1:
+            mat = _get_gate_matrix(op.gate, op.params)
+            for k in range(dim): U[:, k] = _apply_single_qubit(U[:, k], mat, op.qubits[0], n)
+        elif op.gate.n_qubits == 2:
+            for k in range(dim): U[:, k] = _apply_two_qubit(U[:, k], op.gate, op.qubits[0], op.qubits[1], n, op.params)
+        else:
+            for k in range(dim): U[:, k] = _apply_three_qubit(U[:, k], op.gate, *op.qubits, n)
+    return U
+
+def probabilities(circuit: Circuit, wires: list[int] | None = None, seed: int | None = None) -> np.ndarray:
+    """Compute measurement probabilities. Optionally marginal over specified wires."""
+    state, _ = simulate(circuit, seed=seed)
+    probs = np.abs(state) ** 2
+    if wires is None: return probs
+    n = circuit.n_qubits
+    probs = probs.reshape([2] * n)
+    trace_out = tuple(i for i in range(n) if i not in wires)
+    if trace_out: probs = probs.sum(axis=trace_out)
+    order = [sorted(wires).index(w) for w in wires]
+    return probs.transpose(order).flatten()
+
+def marginal_counts(counts: dict[str, int], wires: list[int]) -> dict[str, int]:
+    """Extract marginal counts for specified wire positions."""
+    result = {}
+    for bitstring, count in counts.items():
+        key = ''.join(bitstring[w] for w in wires)
+        result[key] = result.get(key, 0) + count
+    return result

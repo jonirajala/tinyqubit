@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from enum import Enum, auto
 from dataclasses import dataclass
+import numpy as np
 
 
 class Parameter:
@@ -77,6 +78,9 @@ class Operation:
     condition: tuple[int, int] | None = None  # (classical_bit, expected_value) for conditional
 
 
+_GATE_ADJOINT = {Gate.S: Gate.SDG, Gate.SDG: Gate.S, Gate.T: Gate.TDG, Gate.TDG: Gate.T}
+_PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP})
+
 # Context manager for conditional operations
 class _ConditionalContext:
     """Context manager for c_if conditional blocks."""
@@ -102,6 +106,7 @@ class Circuit:
         self.n_classical = n_classical if n_classical is not None else n_qubits
         self.ops: list[Operation] = []
         self._current_condition: tuple[int, int] | None = None  # For c_if context manager
+        self._initial_state: np.ndarray | None = None
 
     def _add(self, gate: Gate, qubits: tuple, params: tuple = (),
              classical_bit: int | None = None) -> "Circuit":
@@ -151,6 +156,7 @@ class Circuit:
     def bind(self, values: dict[str, float]) -> "Circuit":
         """Return new Circuit with Parameters substituted. Missing params left unbound."""
         c = Circuit(self.n_qubits, self.n_classical)
+        c._initial_state = self._initial_state
         for op in self.ops:
             if _has_parameter(op.params):
                 new_params = tuple(values[p.name] if isinstance(p, Parameter) and p.name in values else p
@@ -159,6 +165,36 @@ class Circuit:
             else:
                 c.ops.append(op)
         return c
+
+    def inverse(self) -> Circuit:
+        """Return the adjoint (inverse) circuit."""
+        if self._initial_state is not None:
+            raise ValueError("inverse does not support initialized circuits")
+        for op in self.ops:
+            if op.gate in (Gate.MEASURE, Gate.RESET):
+                raise ValueError(f"inverse does not support {op.gate.name}")
+            if op.condition is not None:
+                raise ValueError("inverse does not support conditional operations")
+            if _has_parameter(op.params):
+                raise ValueError("inverse does not support unbound Parameters")
+        c = Circuit(self.n_qubits, self.n_classical)
+        for op in reversed(self.ops):
+            gate = _GATE_ADJOINT.get(op.gate, op.gate)
+            params = tuple(-p for p in op.params) if op.gate in _PARAM_GATES else op.params
+            c.ops.append(Operation(gate, op.qubits, params))
+        return c
+
+    def initialize(self, statevector) -> Circuit:
+        """Set initial statevector (normalized automatically)."""
+        sv = np.asarray(statevector, dtype=complex).ravel()
+        if sv.shape[0] != 2 ** self.n_qubits:
+            raise ValueError(f"Statevector size {sv.shape[0]} doesn't match {2 ** self.n_qubits}")
+        self._initial_state = sv / np.linalg.norm(sv)
+        return self
+
+    def to_unitary(self) -> np.ndarray:
+        from .simulator import to_unitary
+        return to_unitary(self)
 
     def draw(self) -> None:                                                                                                                                                                                          
         if not self.ops:                                                                                                                                                                                             

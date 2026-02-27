@@ -6,7 +6,7 @@ from .ir import Circuit, Gate, Operation, Parameter
 from .dag import DAGCircuit, commutes
 from .target import Target
 from .compile import transpile
-from .simulator import simulate, states_equal, sample
+from .simulator import simulate, states_equal, sample, to_unitary, probabilities, marginal_counts
 from .export import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
 from .noise import (
     NoiseModel, depolarizing, amplitude_damping, phase_damping,
@@ -29,6 +29,9 @@ __all__ = [
     "simulate",
     "states_equal",
     "sample",
+    "to_unitary",
+    "probabilities",
+    "marginal_counts",
     # Noise
     "NoiseModel",
     "depolarizing",
