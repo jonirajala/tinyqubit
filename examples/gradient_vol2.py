@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 from tinyqubit import (
-    Circuit, Parameter, expectation, adjoint_gradient,
+    Circuit, Parameter, expectation, Adam,
     expectation_sweep, gradient_landscape,
 )
 from tinyqubit.observable import X, Y, Z
@@ -29,15 +29,13 @@ ansatz.ry(0, c).ry(1, d)
 
 ansatz.draw()
 
-# --- VQE optimization via adjoint gradient descent ---
+# --- VQE optimization via Adam ---
 print("\n=== VQE Optimization ===")
 params = {"a": 0.5, "b": -0.3, "c": 0.8, "d": -0.2}
-lr = 0.4
+opt = Adam(stepsize=0.15)
 
-for step in range(50):
-    grad = adjoint_gradient(ansatz, H, params)
-    for k in params:
-        params[k] -= lr * grad[k]
+for step in range(80):
+    params = opt.step(params, ansatz, H)
     if step % 10 == 0:
         e = expectation(ansatz.bind(params), H)
         print(f"  step {step:2d}: E = {e:+.6f}")

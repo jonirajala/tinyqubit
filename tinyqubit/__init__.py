@@ -14,6 +14,7 @@ from .noise import (
 )
 from .observable import Observable, X, Y, Z, expectation, expectation_batch, expectation_sweep
 from .gradient import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, gradient_landscape
+from .optimize import GradientDescent, Adam, SPSA
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -55,6 +56,10 @@ __all__ = [
     "finite_difference_gradient",
     "adjoint_gradient",
     "gradient_landscape",
+    # Optimizers
+    "GradientDescent",
+    "Adam",
+    "SPSA",
     # Optimization
     "fuse_1q_gates",
     # Export
