@@ -12,6 +12,7 @@ from .noise import (
     NoiseModel, depolarizing, amplitude_damping, phase_damping,
     readout_error, realistic_noise
 )
+from .observable import Observable, X, Y, Z, expectation
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -39,6 +40,12 @@ __all__ = [
     "phase_damping",
     "readout_error",
     "realistic_noise",
+    # Observables
+    "Observable",
+    "X",
+    "Y",
+    "Z",
+    "expectation",
     # Optimization
     "fuse_1q_gates",
     # Export

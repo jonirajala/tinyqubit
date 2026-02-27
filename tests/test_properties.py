@@ -72,7 +72,8 @@ def random_circuit(draw, min_qubits=2, max_qubits=5, min_ops=1, max_ops=15):
             gate = draw(st.sampled_from(TWO_QUBIT_GATES))
             q0 = draw(st.integers(0, n_qubits - 1))
             q1 = draw(st.integers(0, n_qubits - 1).filter(lambda x: x != q0))
-            c.ops.append(Operation(gate, (q0, q1)))
+            qubits = (min(q0, q1), max(q0, q1)) if gate in (Gate.CZ, Gate.SWAP) else (q0, q1)
+            c.ops.append(Operation(gate, qubits))
 
     return c
 

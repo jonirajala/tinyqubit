@@ -250,15 +250,15 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
             g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
             make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
 
-            # Remove the 2 CX gates and the pauli gate
-            dag.remove_node(cur)       # second CX
-            dag.remove_node(pauli_nid) # pauli
+            # Remove pauli; replace CX gates with single-qubit equivalents
+            dag.remove_node(pauli_nid)
 
             if is_z == on_target:  # Z on target or X on control → propagates to both
                 dag.set_op(nid, make(c))
-                dag.add_op(make(t))
+                dag.set_op(cur, make(t))  # keep cur's position on target wire
             else:  # Z on control or X on target → single qubit
                 dag.set_op(nid, make(t if on_target else c))
+                dag.remove_node(cur)
 
             return True
 
