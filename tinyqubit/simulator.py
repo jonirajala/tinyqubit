@@ -181,6 +181,7 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
         else:  # 3Q
             state = _apply_three_qubit(state, op.gate, *op.qubits, n)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
+    assert abs(np.linalg.norm(state) - 1.0) < 1e-10, "statevector norm drifted"
     return state, classical
 
 def states_equal(a: np.ndarray, b: np.ndarray, tol: float = 1e-10) -> bool:
@@ -231,7 +232,9 @@ def probabilities(circuit: Circuit, wires: list[int] | None = None, seed: int | 
     trace_out = tuple(i for i in range(n) if i not in wires)
     if trace_out: probs = probs.sum(axis=trace_out)
     order = [sorted(wires).index(w) for w in wires]
-    return probs.transpose(order).flatten()
+    result = probs.transpose(order).flatten()
+    assert abs(result.sum() - 1.0) < 1e-10, "probabilities do not sum to 1"
+    return result
 
 def marginal_counts(counts: dict[str, int], wires: list[int]) -> dict[str, int]:
     """Extract marginal counts for specified wire positions."""
