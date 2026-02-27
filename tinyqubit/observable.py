@@ -69,3 +69,20 @@ def expectation(circuit: Circuit, observable: Observable) -> float:
             psi = _apply_single_qubit(psi, _PAULI_MATRIX[pauli], qubit, n)
         result += coeff * np.vdot(state, psi)
     return result.real
+
+
+def expectation_batch(circuits: list[Circuit], observable: Observable) -> np.ndarray:
+    """Compute ⟨ψ|O|ψ⟩ for each circuit in a list."""
+    return np.array([expectation(c, observable) for c in circuits])
+
+
+def expectation_sweep(circuit: Circuit, param_name: str, values: np.ndarray,
+                      observable: Observable, base_values: dict[str, float] | None = None) -> np.ndarray:
+    """Sweep one parameter and compute ⟨ψ(θ)|O|ψ(θ)⟩ for each value."""
+    base = base_values or {}
+    work = circuit.bind({})
+    result = np.empty(len(values))
+    for i, v in enumerate(values):
+        work.bind_params({**base, param_name: v})
+        result[i] = expectation(work, observable)
+    return result

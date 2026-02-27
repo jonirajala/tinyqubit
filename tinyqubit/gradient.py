@@ -102,3 +102,19 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, values: dict[str,
         state = _unapply_op(state, op, n)
         lam = _unapply_op(lam, op, n)
     return grad
+
+
+def gradient_landscape(circuit: Circuit, param_names: list[str], observable: Observable,
+                       base_values: dict[str, float], n_points: int = 50,
+                       ranges: list[tuple[float, float]] | None = None) -> np.ndarray:
+    """2D expectation sweep over two parameters. Returns (n_points, n_points) array."""
+    ranges = ranges or [(0, 2 * np.pi)] * 2
+    ax0 = np.linspace(*ranges[0], n_points)
+    ax1 = np.linspace(*ranges[1], n_points)
+    work = circuit.bind({})
+    result = np.empty((n_points, n_points))
+    for i, v0 in enumerate(ax0):
+        for j, v1 in enumerate(ax1):
+            work.bind_params({**base_values, param_names[0]: v0, param_names[1]: v1})
+            result[i, j] = expectation(work, observable)
+    return result

@@ -166,6 +166,19 @@ class Circuit:
                 c.ops.append(op)
         return c
 
+    def bind_params(self, values: dict[str, float]) -> "Circuit":
+        """In-place parameter rebinding. Caches param slots for fast repeated calls."""
+        if not hasattr(self, '_param_slots'):
+            self._param_slots = [(i, op) for i, op in enumerate(self.ops) if _has_parameter(op.params)]
+        for i, tmpl in self._param_slots:
+            new_params = tuple(values[p.name] if isinstance(p, Parameter) and p.name in values else p for p in tmpl.params)
+            self.ops[i] = Operation(tmpl.gate, tmpl.qubits, new_params, tmpl.classical_bit, tmpl.condition)
+        return self
+
+    def _structure_key(self) -> tuple:
+        """Hashable key capturing circuit structure, ignoring parameter values."""
+        return (self.n_qubits, tuple((op.gate, op.qubits) for op in self.ops))
+
     def inverse(self) -> Circuit:
         """Return the adjoint (inverse) circuit."""
         if self._initial_state is not None:

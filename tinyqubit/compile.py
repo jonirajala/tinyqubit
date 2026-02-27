@@ -33,7 +33,7 @@ from .report import collect_metrics, build_report
 _ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
 
 
-def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
+def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict | None = None) -> Circuit:
     """
     Transpile circuit for target hardware.
 
@@ -41,7 +41,15 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
         circuit: Input circuit with logical qubit indices
         target: Hardware target (connectivity + basis gates)
         verbosity: 0=silent, 1=summary, 2=normal, 3=verbose
+        cache: Optional dict for caching compiled circuits by structure.
+            NOTE: cache returns the same mutable object on hits, so bind_params
+            on a cached result mutates the cached entry. Intended pattern is
+            "transpile once, rebind many times" on the same circuit object.
     """
+    if cache is not None:
+        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates)
+        if key in cache:
+            return cache[key]
     stages = [] if verbosity > 0 else None
 
     def track(dag: DAGCircuit, name: str) -> DAGCircuit:
@@ -80,5 +88,8 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0) -> Circuit:
 
     if verbosity > 0:
         print(build_report(circuit, result, stages, tracker, target).to_text(verbosity))
+
+    if cache is not None:
+        cache[key] = result
 
     return result

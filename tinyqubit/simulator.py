@@ -240,3 +240,7 @@ def marginal_counts(counts: dict[str, int], wires: list[int]) -> dict[str, int]:
         key = ''.join(bitstring[w] for w in wires)
         result[key] = result.get(key, 0) + count
     return result
+
+def simulate_batch(circuits: list[Circuit]) -> list[tuple[np.ndarray, dict[int, int]]]:
+    """Simulate multiple circuits. Returns list of (statevector, classical_bits)."""
+    return [simulate(c) for c in circuits]
