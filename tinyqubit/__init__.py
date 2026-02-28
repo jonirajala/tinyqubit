@@ -16,6 +16,7 @@ from .observable import Observable, X, Y, Z, expectation, expectation_batch, exp
 from .gradient import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, gradient_landscape
 from .optimize import GradientDescent, Adam, SPSA
 from .info import state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
+from .encoding import angle_encoding, basis_encoding, amplitude_encoding, iqp_encoding
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -67,6 +68,11 @@ __all__ = [
     "entanglement_entropy",
     "concurrence",
     "mutual_information",
+    # Encoding
+    "angle_encoding",
+    "basis_encoding",
+    "amplitude_encoding",
+    "iqp_encoding",
     # Optimization
     "fuse_1q_gates",
     # Export
