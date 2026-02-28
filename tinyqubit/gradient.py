@@ -28,14 +28,14 @@ def _shot_expectation(circuit: Circuit, observable: Observable, shots: int, seed
 
 
 def parameter_shift_gradient(circuit: Circuit, observable: Observable,
-                             values: dict[str, float], shots: int | None = None) -> dict[str, float]:
+                             params: dict[str, float], shots: int | None = None) -> dict[str, float]:
     """Compute gradient via the parameter-shift rule: df/dθ = [f(θ+π/2) - f(θ-π/2)] / 2"""
     shift = np.pi / 2
     exp_fn = expectation if shots is None else lambda c, o: _shot_expectation(c, o, shots)
     grad = {}
     for param in sorted(circuit.parameters, key=lambda p: p.name):
-        v_plus = {**values, param.name: values[param.name] + shift}
-        v_minus = {**values, param.name: values[param.name] - shift}
+        v_plus = {**params, param.name: params[param.name] + shift}
+        v_minus = {**params, param.name: params[param.name] - shift}
         e_plus = exp_fn(circuit.bind(v_plus), observable)
         e_minus = exp_fn(circuit.bind(v_minus), observable)
         grad[param.name] = (e_plus - e_minus) / 2
@@ -43,12 +43,12 @@ def parameter_shift_gradient(circuit: Circuit, observable: Observable,
 
 
 def finite_difference_gradient(circuit: Circuit, observable: Observable,
-                               values: dict[str, float], epsilon: float = 1e-7) -> dict[str, float]:
+                               params: dict[str, float], epsilon: float = 1e-7) -> dict[str, float]:
     """Compute gradient via symmetric finite differences: df/dθ ≈ [f(θ+ε) - f(θ-ε)] / 2ε"""
     grad = {}
     for param in sorted(circuit.parameters, key=lambda p: p.name):
-        v_plus = {**values, param.name: values[param.name] + epsilon}
-        v_minus = {**values, param.name: values[param.name] - epsilon}
+        v_plus = {**params, param.name: params[param.name] + epsilon}
+        v_minus = {**params, param.name: params[param.name] - epsilon}
         e_plus = expectation(circuit.bind(v_plus), observable)
         e_minus = expectation(circuit.bind(v_minus), observable)
         grad[param.name] = (e_plus - e_minus) / (2 * epsilon)
@@ -65,9 +65,9 @@ def _unapply_op(state, op, n):
     return _apply_three_qubit(state, gate, *op.qubits, n)
 
 
-def adjoint_gradient(circuit: Circuit, observable: Observable, values: dict[str, float]) -> dict[str, float]:
+def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float]) -> dict[str, float]:
     """Compute all gradients in one forward + backward pass (adjoint differentiation)."""
-    bound = circuit.bind(values)
+    bound = circuit.bind(params)
     n = bound.n_qubits
     state, _ = simulate(bound)
     # |λ⟩ = O|ψ⟩
@@ -104,18 +104,18 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, values: dict[str,
     return grad
 
 
-def quantum_fisher_information(circuit: Circuit, values: dict[str, float]) -> np.ndarray:
+def quantum_fisher_information(circuit: Circuit, params: dict[str, float]) -> np.ndarray:
     """Compute the Quantum Fisher Information matrix via parameter-shift statevectors."""
-    psi, _ = simulate(circuit.bind(values))
-    params = sorted(circuit.parameters, key=lambda p: p.name)
+    psi, _ = simulate(circuit.bind(params))
+    sorted_params = sorted(circuit.parameters, key=lambda p: p.name)
     shift = np.pi / 2
     # Compute |∂_i ψ⟩ = (|ψ(θ+s)⟩ - |ψ(θ-s)⟩) / 2 for each parameter
     dpsi = []
-    for p in params:
-        sp, _ = simulate(circuit.bind({**values, p.name: values[p.name] + shift}))
-        sm, _ = simulate(circuit.bind({**values, p.name: values[p.name] - shift}))
+    for p in sorted_params:
+        sp, _ = simulate(circuit.bind({**params, p.name: params[p.name] + shift}))
+        sm, _ = simulate(circuit.bind({**params, p.name: params[p.name] - shift}))
         dpsi.append((sp - sm) / 2)
-    n = len(params)
+    n = len(sorted_params)
     F = np.empty((n, n))
     for i in range(n):
         for j in range(i, n):
@@ -137,3 +137,14 @@ def gradient_landscape(circuit: Circuit, param_names: list[str], observable: Obs
             work.bind_params({**base_values, param_names[0]: v0, param_names[1]: v1})
             result[i, j] = expectation(work, observable)
     return result
+
+
+def cost_gradient(circuit: Circuit, cost_fn, params: dict[str, float], *args) -> dict[str, float]:
+    """Parameter-shift gradient of cost_fn(circuit.bind(params), *args)."""
+    grad = {}
+    for k in params:
+        plus, minus = dict(params), dict(params)
+        plus[k] += np.pi / 2
+        minus[k] -= np.pi / 2
+        grad[k] = (cost_fn(circuit.bind(plus), *args) - cost_fn(circuit.bind(minus), *args)) / 2
+    return grad

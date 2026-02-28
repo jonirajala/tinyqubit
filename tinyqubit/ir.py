@@ -15,8 +15,10 @@ import numpy as np
 
 class Parameter:
     """Named symbolic parameter for variational circuits."""
-    __slots__ = ('name',)
-    def __init__(self, name: str): self.name = name
+    __slots__ = ('name', 'trainable')
+    def __init__(self, name: str, trainable: bool = True):
+        self.name = name
+        self.trainable = trainable
     def __repr__(self): return f"Parameter({self.name!r})"
     def __eq__(self, other): return isinstance(other, Parameter) and self.name == other.name
     def __hash__(self): return hash(('Parameter', self.name))
@@ -147,6 +149,11 @@ class Circuit:
     def parameters(self) -> set[Parameter]:
         """Return set of all unbound Parameters in the circuit."""
         return {p for op in self.ops for p in op.params if isinstance(p, Parameter)}
+
+    @property
+    def trainable_parameters(self) -> set[Parameter]:
+        """Return set of trainable (non-feature) Parameters."""
+        return {p for p in self.parameters if p.trainable}
 
     @property
     def is_parameterized(self) -> bool:

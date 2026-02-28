@@ -1,57 +1,52 @@
 """
-2-class classifier on half-moon data using data reuploading.
+Iris classification with a quantum kernel nearest-centroid classifier.
 
-Circuit: 3 layers of [angle_feature_map → CX → trainable RY]
-Decision: sign(⟨Z₀⟩) → class label (+1 or -1)
-Training: online Adam, minimize -yᵢ·⟨Z₀⟩ per sample
+Data: UCI Iris (setosa vs versicolor, 4 features, 4 qubits).
+Kernel: ZZ feature map → Gram matrix via |⟨φ(xᵢ)|φ(xⱼ)⟩|².
+Classifier: for each test point, predict class with highest mean kernel similarity.
 """
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import urllib.request
 import numpy as np
-from tinyqubit import Circuit, Parameter, expectation, Adam, cross_entropy_cost
-from tinyqubit.observable import Z
-from tinyqubit.feature_map import angle_feature_map
-from tinyqubit.ansatz import basic_entangler_layers
+from tinyqubit import kernel_matrix
+from tinyqubit.feature_map import zz_feature_map
 
+# --- Fetch iris dataset from UCI ML Repository ---
+_UCI_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data"
+_raw = urllib.request.urlopen(_UCI_URL).read().decode()
+_rows = [line.split(",") for line in _raw.strip().split("\n") if line.strip()]
+_all_features = np.array([[float(v) for v in r[:4]] for r in _rows])
+_all_labels = np.array([r[4].strip() for r in _rows])
 
-# --- Half-moon dataset ---
-def make_moons(n, noise=0.1, seed=42):
-    rng = np.random.RandomState(seed)
-    t = np.linspace(0, np.pi, n)
-    x1 = np.column_stack([np.cos(t), np.sin(t)]) + rng.randn(n, 2) * noise
-    x2 = np.column_stack([1 - np.cos(t), 1 - np.sin(t) - 0.5]) + rng.randn(n, 2) * noise
-    return np.vstack([x1, x2]), np.concatenate([np.ones(n), -np.ones(n)])
+# First 100 samples = setosa (0) + versicolor (1), all 4 features
+_IRIS_RAW = _all_features[:100]
+_IRIS_LABELS = np.array([0]*50 + [1]*50)
 
-X, y = make_moons(20)
-X = (X - X.min(0)) / (X.max(0) - X.min(0)) * np.pi
-y_01 = ((y + 1) / 2).astype(int)  # {-1,+1} → {0,1} for cross-entropy
+# Scale to [0, π]
+X = (_IRIS_RAW - _IRIS_RAW.min(0)) / (_IRIS_RAW.max(0) - _IRIS_RAW.min(0)) * np.pi
 
-# --- Data-reuploading circuit: encode data 3 times interleaved with trainable layers ---
-x0, x1 = Parameter("x0"), Parameter("x1")
-qc = Circuit(2)
-for layer in range(3):
-    angle_feature_map(qc, [x0, x1], wires=[0, 1])
-    basic_entangler_layers(qc, n_layers=1, prefix=f"l{layer}")
+# Train/test split (80/20, deterministic)
+rng = np.random.RandomState(42)
+idx = rng.permutation(100)
+X_train, y_train = X[idx[:80]], _IRIS_LABELS[idx[:80]]
+X_test, y_test = X[idx[80:]], _IRIS_LABELS[idx[80:]]
 
-obs = Z(0)
-params = {f"l{l}_{0}_{w}": 0.5 * (-1) ** (l * 2 + w) for l in range(3) for w in range(2)}
-opt = Adam(stepsize=0.05)
+# --- Quantum kernel Gram matrices (4 qubits = 4 features) ---
+print("=== Iris Quantum Kernel Classifier ===\n")
+print(f"  train: {len(X_train)} samples, test: {len(X_test)} samples")
+print("  computing kernel matrices...")
 
-# --- Train: online Adam, one step per sample ---
-print("=== Quantum Classifier (half-moons, data reuploading) ===\n")
-for epoch in range(20):
-    order = np.random.RandomState(epoch).permutation(len(y))
-    for i in order:
-        data_bound = qc.bind({"x0": X[i, 0], "x1": X[i, 1]})
-        params = opt.step(params, data_bound, -y[i] * obs)
+K_train = kernel_matrix(zz_feature_map, X_train, n_qubits=4, wires=[0, 1, 2, 3])
+K_test = kernel_matrix(zz_feature_map, X_test, X_train, n_qubits=4, wires=[0, 1, 2, 3])
 
-    trained = qc.bind(params)
-    preds = [np.sign(expectation(trained.bind({"x0": xi[0], "x1": xi[1]}), obs)) for xi in X]
-    acc = np.mean([p == yi for p, yi in zip(preds, y)]) * 100
-    if epoch % 4 == 0 or epoch == 19:
-        loss = cross_entropy_cost(trained, X, y_01, obs)
-        print(f"  epoch {epoch:2d}: acc={acc:.0f}%  loss={loss:.4f}")
+# --- Kernel nearest-centroid: predict class with highest mean kernel similarity ---
+preds = []
+for i in range(len(X_test)):
+    sim = [K_test[i, y_train == c].mean() for c in [0, 1]]
+    preds.append(np.argmax(sim))
 
-print(f"\n  final: {int(acc)}% ({sum(p == yi for p, yi in zip(preds, y))}/{len(y)})")
+acc = np.mean(np.array(preds) == y_test) * 100
+print(f"\n  accuracy: {acc:.0f}% ({int(acc * len(y_test) / 100)}/{len(y_test)})")

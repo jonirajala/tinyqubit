@@ -12,9 +12,12 @@ class GradientDescent:
         self.stepsize = stepsize
         self._grad_fn = grad_fn or adjoint_gradient
 
-    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable) -> dict[str, float]:
-        grad = self._grad_fn(circuit, observable, params)
+    def _update(self, params: dict[str, float], grad: dict[str, float]) -> dict[str, float]:
         return {k: params[k] - self.stepsize * grad[k] for k in params}
+
+    def step(self, params: dict[str, float], circuit: Circuit = None, observable: Observable = None, grad: dict[str, float] = None) -> dict[str, float]:
+        if grad is None: grad = self._grad_fn(circuit, observable, params)
+        return self._update(params, grad)
 
 
 class Adam:
@@ -27,8 +30,7 @@ class Adam:
         self._v: dict[str, float] = {}
         self._t = 0
 
-    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable) -> dict[str, float]:
-        grad = self._grad_fn(circuit, observable, params)
+    def _update(self, params: dict[str, float], grad: dict[str, float]) -> dict[str, float]:
         self._t += 1
         result = {}
         for k in params:
@@ -38,6 +40,10 @@ class Adam:
             v_hat = self._v[k] / (1 - self.beta2 ** self._t)
             result[k] = params[k] - self.stepsize * m_hat / (np.sqrt(v_hat) + self.eps)
         return result
+
+    def step(self, params: dict[str, float], circuit: Circuit = None, observable: Observable = None, grad: dict[str, float] = None) -> dict[str, float]:
+        if grad is None: grad = self._grad_fn(circuit, observable, params)
+        return self._update(params, grad)
 
 
 class SPSA:
@@ -52,15 +58,16 @@ class SPSA:
         if self._shots is None: return expectation(circuit, observable)
         return _shot_expectation(circuit, observable, self._shots, seed=int(self._rng.integers(2**31)))
 
-    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable) -> dict[str, float]:
+    def _perturb_and_step(self, params: dict[str, float], eval_fn) -> dict[str, float]:
         keys = sorted(params)
         delta = self._rng.choice([-1, 1], size=len(keys))
         p_plus = {k: params[k] + self.perturbation * d for k, d in zip(keys, delta)}
         p_minus = {k: params[k] - self.perturbation * d for k, d in zip(keys, delta)}
-        e_plus = self._eval(circuit.bind(p_plus), observable)
-        e_minus = self._eval(circuit.bind(p_minus), observable)
-        g_est = (e_plus - e_minus) / (2 * self.perturbation)
+        g_est = (eval_fn(p_plus) - eval_fn(p_minus)) / (2 * self.perturbation)
         return {k: params[k] - self.stepsize * g_est / d for k, d in zip(keys, delta)}
+
+    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable) -> dict[str, float]:
+        return self._perturb_and_step(params, lambda p: self._eval(circuit.bind(p), observable))
 
 
 class QNG:
@@ -69,8 +76,8 @@ class QNG:
         self.stepsize, self.epsilon = stepsize, epsilon
         self._grad_fn = grad_fn or adjoint_gradient
 
-    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable) -> dict[str, float]:
-        grad = self._grad_fn(circuit, observable, params)
+    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable = None, grad: dict[str, float] = None) -> dict[str, float]:
+        if grad is None: grad = self._grad_fn(circuit, observable, params)
         F = quantum_fisher_information(circuit, params)
         F_reg = F + self.epsilon * np.eye(len(F))
         keys = sorted(params)
