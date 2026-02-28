@@ -1,7 +1,7 @@
 """
 2-class classifier on half-moon data using data reuploading.
 
-Circuit: 3 layers of [angle_encoding → CX → trainable RY]
+Circuit: 3 layers of [angle_feature_map → CX → trainable RY]
 Decision: sign(⟨Z₀⟩) → class label (+1 or -1)
 Training: online Adam, minimize -yᵢ·⟨Z₀⟩ per sample
 """
@@ -12,7 +12,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 from tinyqubit import Circuit, Parameter, expectation, Adam
 from tinyqubit.observable import Z
-from tinyqubit.encoding import angle_encoding
+from tinyqubit.feature_map import angle_feature_map
+from tinyqubit.ansatz import basic_entangler_layers
 
 
 # --- Half-moon dataset ---
@@ -30,12 +31,11 @@ X = (X - X.min(0)) / (X.max(0) - X.min(0)) * np.pi
 x0, x1 = Parameter("x0"), Parameter("x1")
 qc = Circuit(2)
 for layer in range(3):
-    angle_encoding(qc, [x0, x1], wires=[0, 1])
-    qc.cx(0, 1)
-    qc.ry(0, Parameter(f"a{layer}")).ry(1, Parameter(f"b{layer}"))
+    angle_feature_map(qc, [x0, x1], wires=[0, 1])
+    basic_entangler_layers(qc, n_layers=1, prefix=f"l{layer}")
 
 obs = Z(0)
-params = {f"{c}{l}": 0.5 * (-1) ** i for i, (l, c) in enumerate((l, c) for l in range(3) for c in "ab")}
+params = {f"l{l}_{0}_{w}": 0.5 * (-1) ** (l * 2 + w) for l in range(3) for w in range(2)}
 opt = Adam(stepsize=0.05)
 
 # --- Train: online Adam, one step per sample ---
