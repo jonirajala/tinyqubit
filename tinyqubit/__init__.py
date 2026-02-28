@@ -20,6 +20,7 @@ from .feature_map import angle_feature_map, basis_feature_map, amplitude_feature
 from .kernel import quantum_kernel, kernel_matrix
 from .ansatz import strongly_entangling_layers, basic_entangler_layers
 from .cost import cross_entropy_cost, mse_cost, fidelity_cost
+from .trainability import gradient_variance, expressibility
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -89,6 +90,9 @@ __all__ = [
     "cross_entropy_cost",
     "mse_cost",
     "fidelity_cost",
+    # Trainability
+    "gradient_variance",
+    "expressibility",
     # Optimization
     "fuse_1q_gates",
     # Export
