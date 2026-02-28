@@ -8,7 +8,7 @@ Rules applied in deterministic order:
     - Cancellation: [X,X]->[], [H,H]->[], [CX,CX]->[], [SWAP,SWAP]->[]
     - Merge: [RZ(a),RZ(b)]->[RZ(a+b)], [RX(a),RX(b)]->[RX(a+b)], [RY(a),RY(b)]->[RY(a+b)]
     - Clifford: [S,S]->[Z], [T,T]->[S], [S†,S†]->[Z], [T†,T†]->[S†], [S,S†]->[], [T,T†]->[]
-    - Hadamard conjugation: [H,X,H]->[Z], [H,Z,H]->[X]
+    - Conjugation: [H,X,H]->[Z], [H,Z,H]->[X], [H,CX,H]->[CZ]
     - Commutation-aware: cancel/merge gates through commuting intermediates
 """
 
@@ -17,31 +17,57 @@ from ..ir import Circuit, Operation, Gate, _has_parameter, Parameter
 from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
 
 
-# Gates that cancel when applied twice (self-inverse)
-CANCELLATION_GATES = {Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.CX, Gate.CZ, Gate.SWAP, Gate.CCX, Gate.CCZ}
+# Partner rules: (gate1, gate2, result) — find gate2 through commuting intermediates
+#   result = None   → cancel both
+#   result = Gate   → replace gate1 with result, remove gate2
+#   result = "merge" → sum rotation angles (remove both if ≈ 0)
+# Order matters: cancellation before merge for same gate pair
+PARTNER_RULES: list[tuple[Gate, Gate, Gate | str | None]] = [
+    # Self-inverse (A·A = I)
+    (Gate.X,    Gate.X,    None),
+    (Gate.Y,    Gate.Y,    None),
+    (Gate.Z,    Gate.Z,    None),
+    (Gate.H,    Gate.H,    None),
+    (Gate.CX,   Gate.CX,   None),
+    (Gate.CZ,   Gate.CZ,   None),
+    (Gate.SWAP, Gate.SWAP,  None),
+    (Gate.CCX,  Gate.CCX,  None),
+    (Gate.CCZ,  Gate.CCZ,  None),
+    # Inverse pairs (A·A† = I)
+    (Gate.S,    Gate.SDG,  None),
+    (Gate.SDG,  Gate.S,    None),
+    (Gate.T,    Gate.TDG,  None),
+    (Gate.TDG,  Gate.T,    None),
+    # Clifford merges (A·A = B)
+    (Gate.S,    Gate.S,    Gate.Z),
+    (Gate.T,    Gate.T,    Gate.S),
+    (Gate.SDG,  Gate.SDG,  Gate.Z),
+    (Gate.TDG,  Gate.TDG,  Gate.SDG),
+    # Rotation merges
+    (Gate.RX,   Gate.RX,   "merge"),
+    (Gate.RY,   Gate.RY,   "merge"),
+    (Gate.RZ,   Gate.RZ,   "merge"),
+]
 
-# Gates that can be merged (rotations)
-MERGE_GATES = {Gate.RX, Gate.RY, Gate.RZ}
+# Build index: gate -> [(partner_gate, result), ...]
+_PARTNER_INDEX: dict[Gate, list[tuple[Gate, Gate | str | None]]] = {}
+for _g1, _g2, _res in PARTNER_RULES:
+    _PARTNER_INDEX.setdefault(_g1, []).append((_g2, _res))
 
-# Clifford gate merges: (G1, G2) -> result
-CLIFFORD_MERGES = {
-    (Gate.S, Gate.S): Gate.Z,
-    (Gate.T, Gate.T): Gate.S,
-    (Gate.SDG, Gate.SDG): Gate.Z,
-    (Gate.TDG, Gate.TDG): Gate.SDG,
-}
+# Conjugation: bookend·inner·bookend → result (strict adjacency, no commutation walk)
+# 1Q: all on same qubit — replace nid with result, remove mid+end
+CONJUGATE_1Q: list[tuple[Gate, Gate, Gate]] = [
+    (Gate.H, Gate.X, Gate.Z),
+    (Gate.H, Gate.Z, Gate.X),
+]
 
-# Inverse pairs that cancel
-INVERSE_PAIRS = {
-    (Gate.S, Gate.SDG), (Gate.SDG, Gate.S),
-    (Gate.T, Gate.TDG), (Gate.TDG, Gate.T),
-}
+# 2Q: bookend(q)·inner_2q·bookend(q), q at position pos in inner's qubits
+# Replace mid with result, remove nid+end
+CONJUGATE_2Q: list[tuple[Gate, Gate, int, Gate]] = [
+    (Gate.H, Gate.CX, 1, Gate.CZ),
+]
 
-# Hadamard conjugation: H·G·H = G'
-HADAMARD_CONJUGATES = {
-    Gate.X: Gate.Z,
-    Gate.Z: Gate.X,
-}
+_CONJUGATE_BOOKENDS = frozenset({b for b, _, _ in CONJUGATE_1Q} | {b for b, _, _, _ in CONJUGATE_2Q})
 
 
 def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> int | None:
@@ -82,100 +108,71 @@ def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> 
     return None
 
 
-def _try_cancel(dag: DAGCircuit, nid: int) -> bool:
-    """Try to cancel nid with a matching gate on the qubit wire."""
+def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
+    """Try partner-based rules: cancel, inverse cancel, clifford merge, rotation merge."""
     op = dag.op(nid)
-    if op.gate not in CANCELLATION_GATES:
+    rules = _PARTNER_INDEX.get(op.gate)
+    if not rules:
         return False
-
-    match = _find_partner(dag, nid, lambda c: c.gate == op.gate and c.qubits == op.qubits)
-    if match is not None:
-        dag.remove_node(match)
-        dag.remove_node(nid)
-        return True
-    return False
-
-
-def _try_merge(dag: DAGCircuit, nid: int) -> bool:
-    """Try to merge nid with a matching rotation on the qubit wire."""
-    op = dag.op(nid)
-    if op.gate not in MERGE_GATES:
-        return False
-    if _has_parameter(op.params):
-        return False
-
-    match = _find_partner(dag, nid, lambda c: c.gate == op.gate and c.qubits == op.qubits
-                          and not _has_parameter(c.params))
-    if match is not None:
-        op2 = dag.op(match)
-        angle = (op.params[0] + op2.params[0] + pi) % (2 * pi) - pi
-        if abs(angle) < 1e-9:
+    for partner_gate, result in rules:
+        is_merge = result == "merge"
+        if is_merge and _has_parameter(op.params):
+            continue
+        pred = ((lambda c, pg=partner_gate: c.gate == pg and c.qubits == op.qubits and not _has_parameter(c.params))
+                if is_merge else (lambda c, pg=partner_gate: c.gate == pg and c.qubits == op.qubits))
+        match = _find_partner(dag, nid, pred)
+        if match is None:
+            continue
+        if result is None:
             dag.remove_node(match)
             dag.remove_node(nid)
+        elif is_merge:
+            op2 = dag.op(match)
+            angle = (op.params[0] + op2.params[0] + pi) % (2 * pi) - pi
+            if abs(angle) < 1e-9:
+                dag.remove_node(match)
+                dag.remove_node(nid)
+            else:
+                dag.set_op(nid, Operation(op.gate, op.qubits, (angle,)))
+                dag.remove_node(match)
         else:
-            dag.set_op(nid, Operation(op.gate, op.qubits, (angle,)))
+            dag.set_op(nid, Operation(result, op.qubits))
             dag.remove_node(match)
         return True
     return False
 
 
-def _try_inverse_cancel(dag: DAGCircuit, nid: int) -> bool:
-    """Try to cancel inverse pairs like S·S† or T·T†."""
+def _try_conjugate(dag: DAGCircuit, nid: int) -> bool:
+    """Try bookend·inner·bookend conjugation patterns (strict adjacency)."""
     op = dag.op(nid)
-    inv_gates = {g2 for (g1, g2) in INVERSE_PAIRS if g1 == op.gate}
-    if not inv_gates:
+    if op.gate not in _CONJUGATE_BOOKENDS:
         return False
-
-    match = _find_partner(dag, nid, lambda c: c.gate in inv_gates and c.qubits == op.qubits)
-    if match is not None:
-        dag.remove_node(match)
-        dag.remove_node(nid)
-        return True
-    return False
-
-
-def _try_clifford_merge(dag: DAGCircuit, nid: int) -> bool:
-    """Try Clifford merge like S·S→Z or T·T→S."""
-    op = dag.op(nid)
-    merge_gates = {g2: result for (g1, g2), result in CLIFFORD_MERGES.items() if g1 == op.gate}
-    if not merge_gates:
-        return False
-
-    match = _find_partner(dag, nid, lambda c: c.gate in merge_gates and c.qubits == op.qubits)
-    if match is not None:
-        result_gate = merge_gates[dag.op(match).gate]
-        dag.set_op(nid, Operation(result_gate, op.qubits))
-        dag.remove_node(match)
-        return True
-    return False
-
-
-def _try_hadamard_conjugate(dag: DAGCircuit, nid: int) -> bool:
-    """Try to apply H·G·H = G' transformation."""
-    op = dag.op(nid)
-    if op.gate != Gate.H:
-        return False
-
     q = op.qubits[0]
     mid = dag.next_on_qubit(nid, q)
     if mid is None or mid not in dag._ops:
         return False
     mid_op = dag.op(mid)
-    if mid_op.gate not in HADAMARD_CONJUGATES or mid_op.qubits != op.qubits:
-        return False
-
     end = dag.next_on_qubit(mid, q)
     if end is None or end not in dag._ops:
         return False
     end_op = dag.op(end)
-    if end_op.gate != Gate.H or end_op.qubits != op.qubits:
+    if end_op.gate != op.gate or end_op.qubits != op.qubits:
         return False
-
-    # Replace H·G·H with conjugate
-    dag.set_op(nid, Operation(HADAMARD_CONJUGATES[mid_op.gate], op.qubits))
-    dag.remove_node(end)
-    dag.remove_node(mid)
-    return True
+    # 1Q rules
+    for bookend, inner, result in CONJUGATE_1Q:
+        if op.gate == bookend and mid_op.gate == inner and mid_op.qubits == op.qubits:
+            dag.set_op(nid, Operation(result, op.qubits))
+            dag.remove_node(mid)
+            dag.remove_node(end)
+            return True
+    # 2Q rules
+    for bookend, inner, pos, result in CONJUGATE_2Q:
+        if op.gate == bookend and mid_op.gate == inner and mid_op.qubits[pos] == q:
+            dag.set_op(mid, Operation(result, mid_op.qubits))
+            dag.remove_node(nid)
+            dag.remove_node(end)
+            return True
+    return False
 
 
 def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
@@ -267,34 +264,6 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     return False
 
 
-def _try_hadamard_cx_to_cz(dag: DAGCircuit, nid: int) -> bool:
-    """H(t)·CX(c,t)·H(t) → CZ(c,t)."""
-    op = dag.op(nid)
-    if op.gate != Gate.H:
-        return False
-
-    q = op.qubits[0]
-    mid = dag.next_on_qubit(nid, q)
-    if mid is None or mid not in dag._ops:
-        return False
-    mid_op = dag.op(mid)
-    if mid_op.gate != Gate.CX or mid_op.qubits[1] != q:
-        return False
-
-    end = dag.next_on_qubit(mid, q)
-    if end is None or end not in dag._ops:
-        return False
-    end_op = dag.op(end)
-    if end_op.gate != Gate.H or end_op.qubits[0] != q:
-        return False
-
-    # Replace H·CX·H with CZ
-    dag.set_op(mid, Operation(Gate.CZ, mid_op.qubits))
-    dag.remove_node(end)
-    dag.remove_node(nid)
-    return True
-
-
 def _dag_pass(dag: DAGCircuit) -> bool:
     """Single DAG-native optimization pass. Returns True if any changes made."""
     changed = False
@@ -302,10 +271,7 @@ def _dag_pass(dag: DAGCircuit) -> bool:
     for nid in order:
         if nid not in dag._ops:
             continue
-        if (_try_cancel(dag, nid) or _try_merge(dag, nid) or
-            _try_inverse_cancel(dag, nid) or _try_clifford_merge(dag, nid) or
-            _try_hadamard_conjugate(dag, nid) or _try_cx_conjugation(dag, nid) or
-            _try_hadamard_cx_to_cz(dag, nid)):
+        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid) or _try_cx_conjugation(dag, nid):
             changed = True
     return changed
 
