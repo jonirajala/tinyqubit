@@ -13,8 +13,8 @@ from .noise import (
     readout_error, realistic_noise
 )
 from .observable import Observable, X, Y, Z, expectation, expectation_batch, expectation_sweep
-from .gradient import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, gradient_landscape
-from .optimize import GradientDescent, Adam, SPSA
+from .gradient import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, gradient_landscape, quantum_fisher_information
+from .optimize import GradientDescent, Adam, SPSA, QNG
 from .info import state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
 from .feature_map import angle_feature_map, basis_feature_map, amplitude_feature_map, zz_feature_map, pauli_feature_map
 from .kernel import quantum_kernel, kernel_matrix
@@ -60,10 +60,12 @@ __all__ = [
     "finite_difference_gradient",
     "adjoint_gradient",
     "gradient_landscape",
+    "quantum_fisher_information",
     # Optimizers
     "GradientDescent",
     "Adam",
     "SPSA",
+    "QNG",
     # Quantum info
     "state_fidelity",
     "partial_trace",

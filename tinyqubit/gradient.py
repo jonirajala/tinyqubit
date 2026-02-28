@@ -104,6 +104,25 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, values: dict[str,
     return grad
 
 
+def quantum_fisher_information(circuit: Circuit, values: dict[str, float]) -> np.ndarray:
+    """Compute the Quantum Fisher Information matrix via parameter-shift statevectors."""
+    psi, _ = simulate(circuit.bind(values))
+    params = sorted(circuit.parameters, key=lambda p: p.name)
+    shift = np.pi / 2
+    # Compute |∂_i ψ⟩ = (|ψ(θ+s)⟩ - |ψ(θ-s)⟩) / 2 for each parameter
+    dpsi = []
+    for p in params:
+        sp, _ = simulate(circuit.bind({**values, p.name: values[p.name] + shift}))
+        sm, _ = simulate(circuit.bind({**values, p.name: values[p.name] - shift}))
+        dpsi.append((sp - sm) / 2)
+    n = len(params)
+    F = np.empty((n, n))
+    for i in range(n):
+        for j in range(i, n):
+            F[i, j] = F[j, i] = 2 * np.real(np.vdot(dpsi[i], dpsi[j]) - np.vdot(dpsi[i], psi) * np.vdot(psi, dpsi[j]))
+    return F
+
+
 def gradient_landscape(circuit: Circuit, param_names: list[str], observable: Observable,
                        base_values: dict[str, float], n_points: int = 50,
                        ranges: list[tuple[float, float]] | None = None) -> np.ndarray:

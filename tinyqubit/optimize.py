@@ -1,9 +1,9 @@
-"""Optimizers for variational circuits: GradientDescent, Adam, SPSA."""
+"""Optimizers for variational circuits: GradientDescent, Adam, SPSA, QNG."""
 from __future__ import annotations
 import numpy as np
 from .ir import Circuit
 from .observable import Observable, expectation
-from .gradient import adjoint_gradient, _shot_expectation
+from .gradient import adjoint_gradient, quantum_fisher_information, _shot_expectation
 
 
 class GradientDescent:
@@ -61,3 +61,19 @@ class SPSA:
         e_minus = self._eval(circuit.bind(p_minus), observable)
         g_est = (e_plus - e_minus) / (2 * self.perturbation)
         return {k: params[k] - self.stepsize * g_est / d for k, d in zip(keys, delta)}
+
+
+class QNG:
+    """Quantum Natural Gradient — preconditions gradient with inverse QFI matrix."""
+    def __init__(self, stepsize: float = 0.01, epsilon: float = 1e-3, grad_fn=None):
+        self.stepsize, self.epsilon = stepsize, epsilon
+        self._grad_fn = grad_fn or adjoint_gradient
+
+    def step(self, params: dict[str, float], circuit: Circuit, observable: Observable) -> dict[str, float]:
+        grad = self._grad_fn(circuit, observable, params)
+        F = quantum_fisher_information(circuit, params)
+        F_reg = F + self.epsilon * np.eye(len(F))
+        keys = sorted(params)
+        g = np.array([grad[k] for k in keys])
+        nat_grad = np.linalg.solve(F_reg, g)
+        return {k: params[k] - self.stepsize * ng for k, ng in zip(keys, nat_grad)}
