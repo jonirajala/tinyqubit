@@ -1,6 +1,6 @@
 import numpy as np
 import tinyqubit as tq
-from tinyqubit.cost import cross_entropy_cost, mse_cost, fidelity_cost
+from tinyqubit.qml.cost import cross_entropy_cost, mse_cost, fidelity_cost
 
 
 def _make_circuit(theta_name="θ"):

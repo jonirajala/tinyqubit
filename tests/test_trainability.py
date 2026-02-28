@@ -1,6 +1,7 @@
 """Tests for trainability diagnostics."""
 import numpy as np
-from tinyqubit import Circuit, Parameter, Z, gradient_variance, expressibility
+from tinyqubit import Circuit, Parameter, Z
+from tinyqubit.qml import gradient_variance, expressibility
 
 
 # --- gradient_variance ---

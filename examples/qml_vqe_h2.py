@@ -10,9 +10,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from tinyqubit import Circuit, expectation, Adam
+from tinyqubit import Circuit, expectation
 from tinyqubit.observable import X, Y, Z, Observable
-from tinyqubit.ansatz import strongly_entangling_layers
+from tinyqubit.qml import Adam
+from tinyqubit.qml.ansatz import strongly_entangling_layers
 
 # H₂ Hamiltonian (STO-3G, Jordan-Wigner, R=0.735 Å)
 H = (-1.0523 * Observable([(1.0, {})]) + 0.3979 * Z(0) + -0.3979 * Z(1)

@@ -1,6 +1,6 @@
 """Standard parameterized ansatz templates for variational circuits."""
 from __future__ import annotations
-from .ir import Circuit, Parameter
+from ..ir import Circuit, Parameter
 
 
 def strongly_entangling_layers(circuit: Circuit, n_layers: int, wires: list[int] | None = None, prefix: str = "sel") -> None:

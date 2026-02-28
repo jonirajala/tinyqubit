@@ -1,11 +1,11 @@
 """Trainability diagnostics: barren plateau detection and expressibility."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit
-from .observable import Observable
-from .gradient import parameter_shift_gradient
-from .simulator import simulate
-from .info import state_fidelity
+from ..ir import Circuit
+from ..observable import Observable
+from ..gradient import parameter_shift_gradient
+from ..simulator import simulate
+from ..info import state_fidelity
 
 
 def gradient_variance(circuit: Circuit, observable: Observable, n_samples: int = 100,

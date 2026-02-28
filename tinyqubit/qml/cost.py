@@ -1,10 +1,10 @@
 """Cost functions for variational quantum circuits."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit
-from .observable import Observable, Z, expectation
-from .simulator import simulate
-from .info import state_fidelity
+from ..ir import Circuit
+from ..observable import Observable, Z, expectation
+from ..simulator import simulate
+from ..info import state_fidelity
 
 
 def predict(circuit: Circuit, X: np.ndarray, observable: Observable | None = None) -> np.ndarray:

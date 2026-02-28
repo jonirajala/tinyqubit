@@ -1,6 +1,7 @@
 """Tests for optimizers: GradientDescent, Adam, SPSA."""
 import numpy as np
-from tinyqubit import Circuit, Parameter, GradientDescent, Adam, SPSA, Z, parameter_shift_gradient
+from tinyqubit import Circuit, Parameter, Z, parameter_shift_gradient
+from tinyqubit.qml import GradientDescent, Adam, SPSA
 
 
 def _ry_z_circuit():

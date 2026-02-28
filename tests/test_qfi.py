@@ -1,6 +1,7 @@
 """Tests for Quantum Fisher Information and QNG optimizer."""
 import numpy as np
-from tinyqubit import Circuit, Parameter, QNG, Z, quantum_fisher_information
+from tinyqubit import Circuit, Parameter, Z, quantum_fisher_information
+from tinyqubit.qml import QNG
 
 
 def _ry_z_circuit():

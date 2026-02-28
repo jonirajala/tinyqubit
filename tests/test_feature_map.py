@@ -2,7 +2,7 @@
 import numpy as np
 from math import pi
 from tinyqubit import Circuit, Gate, simulate, probabilities
-from tinyqubit.feature_map import angle_feature_map, basis_feature_map, amplitude_feature_map, zz_feature_map
+from tinyqubit.qml.feature_map import angle_feature_map, basis_feature_map, amplitude_feature_map, zz_feature_map
 
 
 # --- Angle feature map ---

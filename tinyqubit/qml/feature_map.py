@@ -1,7 +1,7 @@
 """Feature map circuits — the bridge between classical data and quantum states."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit, Gate
+from ..ir import Circuit, Gate
 
 
 def angle_feature_map(circuit: Circuit, features, wires: list[int], rotation: Gate = Gate.RY) -> None:

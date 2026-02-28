@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import urllib.request
 import numpy as np
-from tinyqubit import kernel_matrix
-from tinyqubit.feature_map import zz_feature_map
+from tinyqubit.qml import kernel_matrix
+from tinyqubit.qml.feature_map import zz_feature_map
 
 # --- Fetch iris dataset from UCI ML Repository ---
 _UCI_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data"

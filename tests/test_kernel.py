@@ -1,6 +1,6 @@
 import numpy as np
-from tinyqubit import quantum_kernel, kernel_matrix
-from tinyqubit.feature_map import angle_feature_map, basis_feature_map, zz_feature_map
+from tinyqubit.qml import quantum_kernel, kernel_matrix
+from tinyqubit.qml.feature_map import angle_feature_map, basis_feature_map, zz_feature_map
 
 
 def test_kernel_self():

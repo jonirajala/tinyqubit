@@ -14,14 +14,7 @@ from .noise import (
 )
 from .observable import Observable, X, Y, Z, expectation, expectation_batch, expectation_sweep
 from .gradient import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, gradient_landscape, quantum_fisher_information, cost_gradient
-from .optimize import GradientDescent, Adam, SPSA, QNG
 from .info import state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
-from .feature_map import angle_feature_map, basis_feature_map, amplitude_feature_map, zz_feature_map, pauli_feature_map
-from .kernel import quantum_kernel, kernel_matrix
-from .ansatz import strongly_entangling_layers, basic_entangler_layers
-from .cost import predict, cross_entropy_cost, mse_cost, fidelity_cost
-from .hamiltonian import maxcut_hamiltonian
-from .trainability import gradient_variance, expressibility
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -65,39 +58,12 @@ __all__ = [
     "gradient_landscape",
     "quantum_fisher_information",
     "cost_gradient",
-    # Optimizers
-    "GradientDescent",
-    "Adam",
-    "SPSA",
-    "QNG",
     # Quantum info
     "state_fidelity",
     "partial_trace",
     "entanglement_entropy",
     "concurrence",
     "mutual_information",
-    # Feature maps
-    "angle_feature_map",
-    "basis_feature_map",
-    "amplitude_feature_map",
-    "zz_feature_map",
-    "pauli_feature_map",
-    # Quantum kernels
-    "quantum_kernel",
-    "kernel_matrix",
-    # Ansatze
-    "strongly_entangling_layers",
-    "basic_entangler_layers",
-    # Cost functions
-    "predict",
-    "cross_entropy_cost",
-    "mse_cost",
-    "fidelity_cost",
-    # Hamiltonians
-    "maxcut_hamiltonian",
-    # Trainability
-    "gradient_variance",
-    "expressibility",
     # Optimization
     "fuse_1q_gates",
     # Export

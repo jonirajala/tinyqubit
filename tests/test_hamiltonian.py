@@ -1,6 +1,6 @@
 import numpy as np
 import tinyqubit as tq
-from tinyqubit.hamiltonian import maxcut_hamiltonian
+from tinyqubit.qml.hamiltonian import maxcut_hamiltonian
 
 
 def test_maxcut_single_edge():

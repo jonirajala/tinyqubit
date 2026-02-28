@@ -1,6 +1,6 @@
 """Problem-specific Hamiltonians."""
 from __future__ import annotations
-from .observable import Observable, Z
+from ..observable import Observable, Z
 
 
 def maxcut_hamiltonian(edges: list[tuple[int, ...]]) -> Observable:

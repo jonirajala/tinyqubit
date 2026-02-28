@@ -1,8 +1,8 @@
 """Tests for feature maps and ansatz templates."""
 import numpy as np
 from tinyqubit import Circuit, Gate, Parameter, simulate
-from tinyqubit.feature_map import zz_feature_map, pauli_feature_map
-from tinyqubit.ansatz import strongly_entangling_layers, basic_entangler_layers
+from tinyqubit.qml.feature_map import zz_feature_map, pauli_feature_map
+from tinyqubit.qml.ansatz import strongly_entangling_layers, basic_entangler_layers
 
 
 # --- Pauli feature map ---
