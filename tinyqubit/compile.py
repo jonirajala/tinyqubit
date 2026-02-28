@@ -80,7 +80,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
     track(dag, "decompose2")
     dag = push_diagonals(dag)
     dag = fuse_1q_gates(dag)
-    dag = optimize(dag)
+    dag = optimize(dag, basis=target.basis_gates)
     track(dag, "output")
 
     result = dag.to_circuit()

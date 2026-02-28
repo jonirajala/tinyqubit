@@ -1478,6 +1478,58 @@ def test_hadamard_cx_to_cz_preserves_semantics():
     assert states_equal(state_orig, state_opt)
 
 
+def test_optimize_merge_cp():
+    """CP(θ)·CP(φ) on same qubits → CP(θ+φ)."""
+    c = Circuit(2).cp(0, 1, 0.5).cp(0, 1, 0.3)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CP
+    assert opt.ops[0].qubits == (0, 1)
+    assert abs(opt.ops[0].params[0] - 0.8) < 1e-9
+
+
+def test_optimize_merge_cp_to_zero():
+    """CP(θ)·CP(-θ) → cancel."""
+    c = Circuit(2).cp(0, 1, 0.5).cp(0, 1, -0.5)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 0
+
+
+def test_hadamard_cz_to_cx():
+    """H(1)·CZ(0,1)·H(1) → CX(0,1)."""
+    c = Circuit(2).h(1).cz(0, 1).h(1)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CX
+    assert opt.ops[0].qubits == (0, 1)
+
+
+def test_hadamard_cz_to_cx_swapped():
+    """H(0)·CZ(0,1)·H(0) → CX(1,0) (qubit swap: H qubit becomes CX target)."""
+    c = Circuit(2).h(0).cz(0, 1).h(0)
+    opt = optimize(c)
+
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.CX
+    assert opt.ops[0].qubits == (1, 0)
+
+
+def test_hadamard_cz_to_cx_preserves_semantics():
+    """H·CZ·H → CX preserves circuit semantics."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    for h_qubit in (0, 1):
+        c = Circuit(2).h(h_qubit).cz(0, 1).h(h_qubit)
+        opt = optimize(c)
+
+        state_orig, _ = simulate(c)
+        state_opt, _ = simulate(opt)
+        assert states_equal(state_orig, state_opt), f"Failed for H on qubit {h_qubit}"
+
+
 def test_push_diagonals_rz_merge_after_push():
     """RZ gates merge after being pushed together."""
     c = Circuit(2).rz(0, 0.5).cx(0, 1).rz(0, 0.3)

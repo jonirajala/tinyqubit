@@ -8,7 +8,7 @@ Rules applied in deterministic order:
     - Cancellation: [X,X]->[], [H,H]->[], [CX,CX]->[], [SWAP,SWAP]->[]
     - Merge: [RZ(a),RZ(b)]->[RZ(a+b)], [RX(a),RX(b)]->[RX(a+b)], [RY(a),RY(b)]->[RY(a+b)]
     - Clifford: [S,S]->[Z], [T,T]->[S], [S†,S†]->[Z], [T†,T†]->[S†], [S,S†]->[], [T,T†]->[]
-    - Conjugation: [H,X,H]->[Z], [H,Z,H]->[X], [H,CX,H]->[CZ]
+    - Conjugation: [H,X,H]->[Z], [H,Z,H]->[X], [H,CX,H]->[CZ], [H,CZ,H]->[CX]
     - Commutation-aware: cancel/merge gates through commuting intermediates
 """
 
@@ -47,6 +47,7 @@ PARTNER_RULES: list[tuple[Gate, Gate, Gate | str | None]] = [
     (Gate.RX,   Gate.RX,   "merge"),
     (Gate.RY,   Gate.RY,   "merge"),
     (Gate.RZ,   Gate.RZ,   "merge"),
+    (Gate.CP,   Gate.CP,   "merge"),
 ]
 
 # Build index: gate -> [(partner_gate, result), ...]
@@ -62,12 +63,15 @@ CONJUGATE_1Q: list[tuple[Gate, Gate, Gate]] = [
 ]
 
 # 2Q: bookend(q)·inner_2q·bookend(q), q at position pos in inner's qubits
-# Replace mid with result, remove nid+end
-CONJUGATE_2Q: list[tuple[Gate, Gate, int, Gate]] = [
-    (Gate.H, Gate.CX, 1, Gate.CZ),
+# (bookend, inner, bookend_pos_in_inner, result, bookend_pos_in_result)
+# Replace mid with result, remove nid+end; swap qubits when pos != result_pos
+CONJUGATE_2Q: list[tuple[Gate, Gate, int, Gate, int]] = [
+    (Gate.H, Gate.CX, 1, Gate.CZ, 1),    # H·CX·H = CZ (H on target)
+    (Gate.H, Gate.CZ, 0, Gate.CX, 1),    # H(q0)·CZ·H(q0) = CX (H qubit → CX target)
+    (Gate.H, Gate.CZ, 1, Gate.CX, 1),    # H(q1)·CZ·H(q1) = CX (H qubit → CX target)
 ]
 
-_CONJUGATE_BOOKENDS = frozenset({b for b, _, _ in CONJUGATE_1Q} | {b for b, _, _, _ in CONJUGATE_2Q})
+_CONJUGATE_BOOKENDS = frozenset({b for b, _, _ in CONJUGATE_1Q} | {b for b, _, _, _, _ in CONJUGATE_2Q})
 
 
 def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> int | None:
@@ -142,7 +146,7 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
     return False
 
 
-def _try_conjugate(dag: DAGCircuit, nid: int) -> bool:
+def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = None) -> bool:
     """Try bookend·inner·bookend conjugation patterns (strict adjacency)."""
     op = dag.op(nid)
     if op.gate not in _CONJUGATE_BOOKENDS:
@@ -165,10 +169,13 @@ def _try_conjugate(dag: DAGCircuit, nid: int) -> bool:
             dag.remove_node(mid)
             dag.remove_node(end)
             return True
-    # 2Q rules
-    for bookend, inner, pos, result in CONJUGATE_2Q:
+    # 2Q rules — skip if result gate not in target basis
+    for bookend, inner, pos, result, result_pos in CONJUGATE_2Q:
+        if basis is not None and result not in basis:
+            continue
         if op.gate == bookend and mid_op.gate == inner and mid_op.qubits[pos] == q:
-            dag.set_op(mid, Operation(result, mid_op.qubits))
+            rq = mid_op.qubits if pos == result_pos else mid_op.qubits[::-1]
+            dag.set_op(mid, Operation(result, rq))
             dag.remove_node(nid)
             dag.remove_node(end)
             return True
@@ -264,24 +271,24 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     return False
 
 
-def _dag_pass(dag: DAGCircuit) -> bool:
+def _dag_pass(dag: DAGCircuit, basis: frozenset[Gate] | None = None) -> bool:
     """Single DAG-native optimization pass. Returns True if any changes made."""
     changed = False
     order = dag.topological_order()  # snapshot
     for nid in order:
         if nid not in dag._ops:
             continue
-        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid) or _try_cx_conjugation(dag, nid):
+        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid, basis) or _try_cx_conjugation(dag, nid):
             changed = True
     return changed
 
 
-def optimize(inp, max_iterations: int = 1000):
+def optimize(inp, max_iterations: int = 1000, basis: frozenset[Gate] | None = None):
     """Optimize circuit by applying cancellation and merge rules. Accepts Circuit or DAGCircuit."""
     from_circuit = isinstance(inp, Circuit)
     dag = DAGCircuit.from_circuit(inp) if from_circuit else inp
     for _ in range(max_iterations):
-        if not _dag_pass(dag):
+        if not _dag_pass(dag, basis):
             break
         # Rebuild to fix wire tracking after add_op in CX conjugation
         new = DAGCircuit(dag.n_qubits, dag.n_classical)

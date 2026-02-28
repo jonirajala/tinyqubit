@@ -13,7 +13,7 @@ from .ir import Circuit, Operation, Gate
 
 # Centralized commutation rules -----------------------------------------------
 
-DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CCZ}
+DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ}
 _DIAG_1Q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
 
 
