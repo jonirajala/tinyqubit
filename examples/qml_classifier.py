@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from tinyqubit import Circuit, Parameter, expectation, Adam
+from tinyqubit import Circuit, Parameter, expectation, Adam, cross_entropy_cost
 from tinyqubit.observable import Z
 from tinyqubit.feature_map import angle_feature_map
 from tinyqubit.ansatz import basic_entangler_layers
@@ -26,6 +26,7 @@ def make_moons(n, noise=0.1, seed=42):
 
 X, y = make_moons(20)
 X = (X - X.min(0)) / (X.max(0) - X.min(0)) * np.pi
+y_01 = ((y + 1) / 2).astype(int)  # {-1,+1} → {0,1} for cross-entropy
 
 # --- Data-reuploading circuit: encode data 3 times interleaved with trainable layers ---
 x0, x1 = Parameter("x0"), Parameter("x1")
@@ -46,9 +47,11 @@ for epoch in range(20):
         data_bound = qc.bind({"x0": X[i, 0], "x1": X[i, 1]})
         params = opt.step(params, data_bound, -y[i] * obs)
 
-    preds = [np.sign(expectation(qc.bind({**params, "x0": xi[0], "x1": xi[1]}), obs)) for xi in X]
+    trained = qc.bind(params)
+    preds = [np.sign(expectation(trained.bind({"x0": xi[0], "x1": xi[1]}), obs)) for xi in X]
     acc = np.mean([p == yi for p, yi in zip(preds, y)]) * 100
     if epoch % 4 == 0 or epoch == 19:
-        print(f"  epoch {epoch:2d}: acc={acc:.0f}%")
+        loss = cross_entropy_cost(trained, X, y_01, obs)
+        print(f"  epoch {epoch:2d}: acc={acc:.0f}%  loss={loss:.4f}")
 
 print(f"\n  final: {int(acc)}% ({sum(p == yi for p, yi in zip(preds, y))}/{len(y)})")

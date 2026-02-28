@@ -19,6 +19,7 @@ from .info import state_fidelity, partial_trace, entanglement_entropy, concurren
 from .feature_map import angle_feature_map, basis_feature_map, amplitude_feature_map, zz_feature_map, pauli_feature_map
 from .kernel import quantum_kernel, kernel_matrix
 from .ansatz import strongly_entangling_layers, basic_entangler_layers
+from .cost import cross_entropy_cost, mse_cost, fidelity_cost
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -84,6 +85,10 @@ __all__ = [
     # Ansatze
     "strongly_entangling_layers",
     "basic_entangler_layers",
+    # Cost functions
+    "cross_entropy_cost",
+    "mse_cost",
+    "fidelity_cost",
     # Optimization
     "fuse_1q_gates",
     # Export

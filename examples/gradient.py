@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tinyqubit import Circuit, Parameter, Z, expectation, GradientDescent
+from tinyqubit import Circuit, Parameter, Z, expectation, GradientDescent, fidelity_cost
 import numpy as np
 
 # Parameterized circuit: RY(θ)|0⟩
@@ -24,4 +24,5 @@ for step in range(30):
 
 # θ converges to π, where RY(π)|0⟩ = |1⟩ and ⟨Z⟩ = -1
 e = expectation(c.bind(params), Z(0))
-print(f"\nfinal: θ={params['theta']:.4f} (π={np.pi:.4f}), ⟨Z⟩={e:.4f}")
+target_one = np.array([0.0, 1.0])
+print(f"\nfinal: θ={params['theta']:.4f} (π={np.pi:.4f}), ⟨Z⟩={e:.4f}, fidelity_cost={fidelity_cost(c.bind(params), target_one):.6f}")
