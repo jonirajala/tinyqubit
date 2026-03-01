@@ -1801,3 +1801,133 @@ def test_fuse_2q_skips_parametric():
     # Should be unchanged — 3 ops
     assert len(fused.ops) == 3
     assert sum(1 for op in fused.ops if op.gate == Gate.CX) == 2
+
+
+# =============================================================================
+# Circuit Equivalence Verification Tests
+# =============================================================================
+
+from tinyqubit.simulator import verify
+
+
+def test_verify_identical():
+    """Same circuit verifies as equivalent."""
+    c = Circuit(2).h(0).cx(0, 1)
+    assert verify(c, c)
+
+
+def test_verify_compiled():
+    """Transpile result with tracker verifies as equivalent."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+    )
+    c = Circuit(2).h(0).cx(0, 1)
+    result = transpile(c, target)
+    assert verify(c, result, tracker=result._tracker)
+
+
+def test_verify_different():
+    """H vs X are not equivalent."""
+    c1 = Circuit(1).h(0)
+    c2 = Circuit(1).x(0)
+    assert not verify(c1, c2)
+
+
+def test_verify_with_tracker():
+    """Routed circuit with qubit permutation verifies correctly."""
+    from tinyqubit.compile import transpile
+
+    target = Target(
+        n_qubits=3,
+        edges=line_topology(3),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+    )
+    c = Circuit(3).h(0).cx(0, 2)
+    result = transpile(c, target)
+    assert verify(c, result, tracker=result._tracker)
+
+
+def test_verify_parametric():
+    """Parametric circuit: original vs compiled verifies across param values."""
+    from tinyqubit.ir import Parameter
+
+    c1 = Circuit(1).rx(0, Parameter("theta")).rz(0, Parameter("phi"))
+    c2 = Circuit(1).rx(0, Parameter("theta")).rz(0, Parameter("phi"))
+    assert verify(c1, c2)
+
+
+def test_verify_parametric_mismatch():
+    """Parametric circuit with wrong gate fails verification."""
+    from tinyqubit.ir import Parameter
+
+    c1 = Circuit(1).rx(0, Parameter("theta"))
+    c2 = Circuit(1).ry(0, Parameter("theta"))
+    assert not verify(c1, c2)
+
+
+def test_verify_with_measure():
+    """Circuit with MEASURE uses statevector fallback."""
+    c = Circuit(1).x(0)
+    c.measure(0, 0)
+    c2 = Circuit(1).x(0)
+    c2.measure(0, 0)
+    assert verify(c, c2)
+
+
+def test_verify_param_preservation():
+    """Compiled circuit has same parameters as original."""
+    from tinyqubit.ir import Parameter
+    from tinyqubit.compile import transpile
+
+    c = Circuit(2)
+    c.rx(0, Parameter("a")).rz(1, Parameter("b")).cx(0, 1)
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+    )
+    result = transpile(c, target)
+    assert c.parameters == result.parameters
+
+
+def test_transpile_verify_flag():
+    """transpile(..., verify=True) runs without warning."""
+    from tinyqubit.compile import transpile
+    import warnings
+
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+    )
+    c = Circuit(2).h(0).cx(0, 1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        transpile(c, target, verify=True)
+
+
+def test_verify_gradient_consistency():
+    """adjoint_gradient matches before and after transpile."""
+    from tinyqubit.ir import Parameter
+    from tinyqubit.compile import transpile
+    from tinyqubit.gradient import adjoint_gradient
+    from tinyqubit.observable import Z
+    import numpy as np
+
+    theta = Parameter("theta")
+    c = Circuit(2).rx(0, theta).cx(0, 1)
+    target = Target(
+        n_qubits=2,
+        edges=frozenset({(0, 1)}),
+        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
+    )
+    compiled = transpile(c, target)
+
+    vals = {"theta": 0.7}
+    grad_orig = adjoint_gradient(c, Z(0), vals)
+    grad_compiled = adjoint_gradient(compiled, Z(0), vals)
+    assert abs(grad_orig["theta"] - grad_compiled["theta"]) < 1e-6

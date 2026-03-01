@@ -33,7 +33,8 @@ from .report import collect_metrics, build_report
 _ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
 
 
-def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict | None = None) -> Circuit:
+def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict | None = None,
+              verify: bool = False) -> Circuit:
     """
     Transpile circuit for target hardware.
 
@@ -87,8 +88,18 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
     result = dag.to_circuit()
     result._tracker = tracker
 
+    verified = None
+    if verify:
+        from .simulator import verify as _verify
+        verified = _verify(circuit, result, tracker=tracker)
+        if not verified:
+            import warnings
+            warnings.warn("Compiled circuit failed equivalence check")
+
     if verbosity > 0:
-        print(build_report(circuit, result, stages, tracker, target).to_text(verbosity))
+        report = build_report(circuit, result, stages, tracker, target)
+        report.verified = verified
+        print(report.to_text(verbosity))
 
     if cache is not None:
         cache[key] = result

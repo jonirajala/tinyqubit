@@ -247,3 +247,35 @@ def marginal_counts(counts: dict[str, int], wires: list[int]) -> dict[str, int]:
 def simulate_batch(circuits: list[Circuit]) -> list[tuple[np.ndarray, dict[int, int]]]:
     """Simulate multiple circuits. Returns list of (statevector, classical_bits)."""
     return [simulate(c) for c in circuits]
+
+
+def verify(original: Circuit, compiled: Circuit, tracker=None, tol: float = 1e-9, n_samples: int = 5) -> bool:
+    """Check circuit equivalence, including across random parameter values for parametric circuits."""
+
+    def _check_equiv(c1: Circuit, c2: Circuit) -> bool:
+        n = c1.n_qubits
+        has_nonunitary = any(op.gate in (Gate.MEASURE, Gate.RESET) or op.condition is not None for op in c1.ops)
+        if n <= 12 and not has_nonunitary:
+            U1, U2 = to_unitary(c1), to_unitary(c2)
+            if tracker is not None:
+                perm = [tracker.logical_to_phys(i) for i in range(n)]
+                U2 = np.transpose(U2.reshape([2]*n + [2]*n), perm + [p + n for p in perm]).reshape(2**n, 2**n)
+            return abs(np.trace(U1.conj().T @ U2)) / (2**n) > 1 - tol
+        # Statevector fallback
+        s1, _ = simulate(c1)
+        s2, _ = simulate(c2)
+        if tracker is not None:
+            perm = [tracker.logical_to_phys(i) for i in range(n)]
+            s2 = np.transpose(s2.reshape([2] * n), perm).reshape(-1)
+        return states_equal(s1, s2, tol)
+
+    if original.is_parameterized:
+        rng = np.random.default_rng(42)
+        param_names = sorted(p.name for p in original.parameters)
+        for _ in range(n_samples):
+            vals = {name: rng.uniform(0, 2 * pi) for name in param_names}
+            c1, c2 = original.bind(vals), compiled.bind(vals)
+            if not _check_equiv(c1, c2):
+                return False
+        return True
+    return _check_equiv(original, compiled)

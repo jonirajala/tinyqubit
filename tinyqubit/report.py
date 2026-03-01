@@ -35,6 +35,7 @@ class CompileReport:
     basis: list[str] = field(default_factory=list)
     layout_method: str = "identity"
     initial_layout: list[int] | None = None
+    verified: bool | None = None
 
     def to_text(self, verbosity: int = 2) -> str:
         lines = [
@@ -51,6 +52,8 @@ class CompileReport:
             if self.initial_layout:
                 mapping = ", ".join(f"q{i}->p{p}" for i, p in enumerate(self.initial_layout))
                 lines.append(f"          {mapping}")
+        if self.verified is not None:
+            lines.append(f"  Verify: {'PASS' if self.verified else 'FAIL'}")
         if verbosity < 2: return "\n".join(lines)
 
         lines += ["", "PASSES", "  Name            Gates  2Q  Depth  T  Delta", "  " + "-" * 48]
