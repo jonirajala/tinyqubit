@@ -41,43 +41,57 @@ _GATE_1Q_PARAM = {
 def _get_gate_matrix(gate: Gate, params: tuple) -> np.ndarray:
     return _GATE_1Q_CACHE[gate] if gate in _GATE_1Q_CACHE else _GATE_1Q_PARAM[gate](params[0])
 
+_DIAG_PHASE = {Gate.Z: -1, Gate.S: 1j, Gate.SDG: -1j,
+               Gate.T: np.exp(1j * pi / 4), Gate.TDG: np.exp(-1j * pi / 4)}
+
+def _apply_diagonal_1q(state: np.ndarray, gate: Gate, qubit: int, n: int, params: tuple) -> np.ndarray:
+    state = state.reshape([2] * n)
+    idx1 = [slice(None)] * n; idx1[qubit] = 1
+    if gate == Gate.RZ:
+        idx0 = [slice(None)] * n; idx0[qubit] = 0
+        t = params[0]
+        state[tuple(idx0)] *= np.exp(-1j * t / 2)
+        state[tuple(idx1)] *= np.exp(1j * t / 2)
+    else:
+        state[tuple(idx1)] *= _DIAG_PHASE[gate]
+    return state.reshape(-1)
+
 def _apply_single_qubit(state: np.ndarray, matrix: np.ndarray, qubit: int, n: int) -> np.ndarray:
     state = state.reshape([2] * n)
-    axes = list(range(n))
-    axes[qubit], axes[-1] = axes[-1], axes[qubit]
-    state = np.transpose(state, axes)
-    state = np.tensordot(state, matrix, axes=([-1], [1]))
-
-    return np.transpose(state, axes).reshape(-1)
+    idx0 = [slice(None)] * n; idx0[qubit] = 0
+    idx1 = [slice(None)] * n; idx1[qubit] = 1
+    idx0, idx1 = tuple(idx0), tuple(idx1)
+    s0, s1 = state[idx0], state[idx1]
+    out = np.empty_like(state)
+    out[idx0] = matrix[0, 0] * s0 + matrix[0, 1] * s1
+    out[idx1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
+    return out.reshape(-1)
 
 def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, params: tuple = ()) -> np.ndarray:
     state = state.reshape([2] * n)
-    new = state.copy()
-    
     def idx(v0, v1):
-        i = [slice(None)] * n
-        i[q0], i[q1] = v0, v1
+        i = [slice(None)] * n; i[q0], i[q1] = v0, v1
         return tuple(i)
-
-    if gate == Gate.CX: new[idx(1,0)], new[idx(1,1)] = state[idx(1,1)].copy(), state[idx(1,0)].copy()
-    elif gate == Gate.CZ: new[idx(1,1)] *= -1
-    elif gate == Gate.SWAP: new[idx(0,1)], new[idx(1,0)] = state[idx(1,0)].copy(), state[idx(0,1)].copy()
-    elif gate == Gate.CP: new[idx(1,1)] *= np.exp(1j * params[0])
-
-    return new.reshape(-1)
+    if gate == Gate.CX:
+        state[idx(1, 0)], state[idx(1, 1)] = state[idx(1, 1)].copy(), state[idx(1, 0)].copy()
+    elif gate == Gate.CZ:
+        state[idx(1, 1)] *= -1
+    elif gate == Gate.SWAP:
+        state[idx(0, 1)], state[idx(1, 0)] = state[idx(1, 0)].copy(), state[idx(0, 1)].copy()
+    elif gate == Gate.CP:
+        state[idx(1, 1)] *= np.exp(1j * params[0])
+    return state.reshape(-1)
 
 def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, n: int) -> np.ndarray:
     state = state.reshape([2] * n)
-    new = state.copy()
     def idx(v0, v1, v2):
-        i = [slice(None)] * n
-        i[q0], i[q1], i[q2] = v0, v1, v2
+        i = [slice(None)] * n; i[q0], i[q1], i[q2] = v0, v1, v2
         return tuple(i)
     if gate == Gate.CCX:
-        new[idx(1,1,0)], new[idx(1,1,1)] = state[idx(1,1,1)].copy(), state[idx(1,1,0)].copy()
+        state[idx(1, 1, 0)], state[idx(1, 1, 1)] = state[idx(1, 1, 1)].copy(), state[idx(1, 1, 0)].copy()
     elif gate == Gate.CCZ:
-        new[idx(1,1,1)] *= -1
-    return new.reshape(-1)
+        state[idx(1, 1, 1)] *= -1
+    return state.reshape(-1)
 
 def _apply_gate_noise(state: np.ndarray, op, noise_model, n: int, rng) -> np.ndarray:
     if noise_model is None: return state
@@ -173,7 +187,10 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
                     state = _apply_batch_1q(state, group, n)
                     for _ in range(end_i - i - 1): next(ops_iter)
                     continue
-            state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
+            if op.gate in _DIAG_PHASE or op.gate == Gate.RZ:
+                state = _apply_diagonal_1q(state, op.gate, op.qubits[0], n, op.params)
+            else:
+                state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif op.gate.n_qubits == 2:
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
