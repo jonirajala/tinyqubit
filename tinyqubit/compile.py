@@ -41,6 +41,7 @@ def _realize_dag(dag: DAGCircuit, target: Target, t_optimal: bool = False, objec
     tracker = getattr(dag, '_tracker', None)
     dag = decompose(dag, target.basis_gates, t_optimal=t_optimal)
     dag = fuse_2q_blocks(dag)
+    dag = decompose(dag, target.basis_gates)
     dag = push_diagonals(dag)
     dag = fuse_1q_gates(dag)
     dag = optimize(dag, basis=target.basis_gates)
