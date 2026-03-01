@@ -5,9 +5,9 @@ Contains:
     - Target: Hardware description (n_qubits, edges, basis_gates)
     - Helper methods: are_connected, shortest_path, is_all_to_all, distance
 
-Note: Edges are treated as UNDIRECTED. Edge (a,b) allows 2Q gates in both
-directions. For hardware with directional CX, additional handling would be
-needed in the compiler (not currently implemented).
+Note: Routing always treats edges as undirected (both directions valid for
+adjacency). When directed=True, edges define allowed CX directions and the
+fix_direction pass inserts H-sandwiches for reversed CX gates.
 """
 
 from dataclasses import dataclass, field
@@ -17,11 +17,13 @@ from .ir import Gate
 
 @dataclass
 class Target:
-    """Describes quantum hardware constraints. Edges are undirected."""
+    """Describes quantum hardware constraints. Edges are undirected for routing;
+    when directed=True, edges define allowed CX directions for the direction pass."""
     n_qubits: int
     edges: frozenset[tuple[int, int]]
     basis_gates: frozenset[Gate]
     name: str = ""
+    directed: bool = False
     edge_error: dict[tuple[int, int], float] | None = None
     virtual_gates: frozenset[Gate] = frozenset()
     _adj: dict[int, list[int]] = field(default_factory=dict, repr=False, compare=False)

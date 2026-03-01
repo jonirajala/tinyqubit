@@ -18,6 +18,7 @@ from .passes.decompose import decompose
 from .passes.fuse import fuse_1q_gates, fuse_2q_blocks
 from .passes.optimize import optimize
 from .passes.push_diagonals import push_diagonals
+from .passes.direction import fix_direction_dag
 from .report import collect_metrics, build_report
 
 # Routing basis: universal set that router understands
@@ -42,6 +43,7 @@ def _realize_dag(dag: DAGCircuit, target: Target, t_optimal: bool = False, objec
     dag = decompose(dag, target.basis_gates, t_optimal=t_optimal)
     dag = fuse_2q_blocks(dag)
     dag = decompose(dag, target.basis_gates)
+    dag = fix_direction_dag(dag, target)
     dag = push_diagonals(dag)
     dag = fuse_1q_gates(dag)
     dag = optimize(dag, basis=target.basis_gates)
@@ -82,7 +84,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
             Safe for compute-uncompute patterns; not exact for bare CCX/CCZ.
     """
     if cache is not None:
-        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, t_optimal, objective)
+        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, target.directed, t_optimal, objective)
         if key in cache:
             return cache[key]
     stages = [] if verbosity > 0 else None

@@ -2202,3 +2202,86 @@ def test_transpile_objective_error():
     result = transpile(c, t, objective="error")
     for op in result.ops:
         assert op.gate in basis | {Gate.MEASURE, Gate.RESET}
+
+
+# =============================================================================
+# CX Direction Correction
+# =============================================================================
+
+def test_direction_noop_undirected():
+    """Undirected target passes CX through unchanged."""
+    from tinyqubit.passes.direction import fix_direction
+    t = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+               basis_gates=frozenset({Gate.CX, Gate.RZ}))
+    c = Circuit(3).cx(1, 0)
+    result = fix_direction(c, t)
+    assert len(result.ops) == 1
+    assert result.ops[0].gate == Gate.CX
+    assert result.ops[0].qubits == (1, 0)
+
+
+def test_direction_correct_passes_through():
+    """CX in allowed direction passes through unchanged."""
+    from tinyqubit.passes.direction import fix_direction
+    t = Target(n_qubits=2, edges=frozenset({(0, 1)}),
+               basis_gates=frozenset({Gate.CX, Gate.RZ}), directed=True)
+    c = Circuit(2).cx(0, 1)
+    result = fix_direction(c, t)
+    assert len(result.ops) == 1
+    assert result.ops[0].gate == Gate.CX
+    assert result.ops[0].qubits == (0, 1)
+
+
+def test_direction_reversed_gets_h_sandwich():
+    """CX in wrong direction gets H-sandwich reversal (5 ops)."""
+    from tinyqubit.passes.direction import fix_direction
+    t = Target(n_qubits=2, edges=frozenset({(0, 1)}),
+               basis_gates=frozenset({Gate.CX, Gate.RZ}), directed=True)
+    c = Circuit(2).cx(1, 0)
+    result = fix_direction(c, t)
+    assert len(result.ops) == 5
+    gates = [op.gate for op in result.ops]
+    assert gates == [Gate.H, Gate.H, Gate.CX, Gate.H, Gate.H]
+    assert result.ops[2].qubits == (0, 1)  # reversed to allowed direction
+
+
+def test_direction_unitary_equivalence():
+    """H-sandwich CX is unitarily equivalent to reversed CX."""
+    import numpy as np
+    from tinyqubit.passes.direction import fix_direction
+    t = Target(n_qubits=2, edges=frozenset({(0, 1)}),
+               basis_gates=frozenset({Gate.CX, Gate.H, Gate.RZ}), directed=True)
+    original = Circuit(2).cx(1, 0)
+    fixed = fix_direction(original, t)
+    u_orig = original.to_unitary()
+    u_fixed = fixed.to_unitary()
+    assert np.allclose(u_orig, u_fixed), "H-sandwich CX must equal reversed CX"
+
+
+def test_direction_end_to_end():
+    """Directed target transpile: all output CX in allowed directions."""
+    from tinyqubit import transpile
+    edges = frozenset({(0, 1), (1, 2), (2, 3)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    t = Target(n_qubits=4, edges=edges, basis_gates=basis, directed=True)
+    c = Circuit(4).h(0).cx(0, 1).cx(1, 2).cx(2, 3)
+    result = transpile(c, t)
+    for op in result.ops:
+        if op.gate == Gate.CX:
+            assert op.qubits in edges, f"CX{op.qubits} not in allowed edges {edges}"
+
+
+def test_direction_condition_propagation():
+    """Conditional CX reversed: all 5 ops carry the condition."""
+    from tinyqubit.passes.direction import fix_direction
+    t = Target(n_qubits=2, edges=frozenset({(0, 1)}),
+               basis_gates=frozenset({Gate.CX, Gate.RZ}), directed=True)
+    c = Circuit(2, n_classical=1)
+    c.measure(0, 0)
+    with c.c_if(0, 1):
+        c.cx(1, 0)
+    result = fix_direction(c, t)
+    conditional_ops = [op for op in result.ops if op.condition is not None]
+    assert len(conditional_ops) == 5
+    for op in conditional_ops:
+        assert op.condition == (0, 1)
