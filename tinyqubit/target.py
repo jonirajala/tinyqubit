@@ -173,3 +173,81 @@ def validate(circuit, target: Target) -> list[str]:
         if target.directed and op.gate == Gate.CX and op.qubits not in target.edges:
             errors.append(f"CX{op.qubits} wrong direction for directed target")
     return errors
+
+
+# Built-in hardware targets -------
+
+_IBM_BASIS = frozenset({Gate.RZ, Gate.X, Gate.CX})
+_IONQ_BASIS = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CX})
+_CZ_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CZ})
+
+def _all_to_all(n):
+    return frozenset((i, j) for i in range(n) for j in range(i + 1, n))
+
+# IBM Eagle r3 heavy-hex coupling map (127Q, directed CX)
+# Source: qiskit-ibm-runtime FakeBrisbane conf_brisbane.json
+_IBM_EAGLE_EDGES = frozenset({
+    (1,0), (2,1), (3,2), (4,3), (4,5), (4,15), (6,5), (6,7),
+    (7,8), (8,9), (10,9), (10,11), (11,12), (12,17), (13,12), (14,0),
+    (14,18), (15,22), (16,8), (16,26), (17,30), (18,19), (20,19), (20,33),
+    (21,20), (21,22), (22,23), (24,23), (24,34), (25,24), (26,25), (27,26),
+    (28,27), (28,29), (28,35), (30,29), (30,31), (31,32), (32,36), (33,39),
+    (34,43), (35,47), (36,51), (37,38), (39,38), (40,39), (40,41), (41,53),
+    (42,41), (42,43), (43,44), (44,45), (46,45), (46,47), (48,47), (48,49),
+    (50,49), (50,51), (52,37), (52,56), (53,60), (54,45), (54,64), (55,49),
+    (55,68), (56,57), (57,58), (58,59), (58,71), (59,60), (60,61), (62,61),
+    (62,63), (62,72), (63,64), (65,64), (65,66), (67,66), (67,68), (69,68),
+    (69,70), (73,66), (74,70), (74,89), (75,90), (76,75), (77,71), (77,76),
+    (77,78), (79,78), (79,80), (80,81), (81,72), (81,82), (82,83), (83,92),
+    (84,83), (85,73), (85,84), (85,86), (86,87), (87,88), (88,89), (91,79),
+    (92,102), (93,87), (93,106), (94,90), (94,95), (95,96), (97,96), (97,98),
+    (98,91), (99,98), (100,99), (100,110), (101,100), (101,102), (102,103), (104,103),
+    (105,104), (105,106), (107,106), (108,107), (108,112), (109,96), (110,118), (111,104),
+    (112,126), (113,114), (114,109), (114,115), (116,115), (116,117), (117,118), (118,119),
+    (120,119), (121,120), (122,111), (122,121), (122,123), (124,123), (125,124), (125,126),
+})
+
+# Rigetti Ankaa-2 octagonal lattice (84Q, undirected CZ)
+# NOTE: qubits 42 and 48 are absent from the topology
+_RIGETTI_ANKAA_EDGES = frozenset({
+    (0,1), (0,7), (1,2), (1,8), (2,3), (2,9), (3,4), (3,10),
+    (4,5), (4,11), (5,6), (5,12), (6,13), (7,8), (7,14), (8,9),
+    (8,15), (9,10), (9,16), (10,11), (11,12), (11,18), (12,13), (12,19),
+    (13,20), (14,15), (14,21), (15,16), (15,22), (16,17), (16,23), (17,18),
+    (17,24), (18,19), (18,25), (19,20), (19,26), (20,27), (21,22), (21,28),
+    (22,23), (22,29), (23,24), (23,30), (24,25), (24,31), (25,26), (25,32),
+    (26,27), (26,33), (28,29), (28,35), (29,30), (29,36), (30,31), (30,37),
+    (31,38), (32,33), (32,39), (33,34), (33,40), (34,41), (35,36), (36,37),
+    (36,43), (37,38), (37,44), (38,39), (38,45), (39,40), (39,46), (40,41),
+    (40,47), (43,50), (44,45), (44,51), (45,46), (45,52), (46,47), (46,53),
+    (47,54), (49,50), (49,56), (50,51), (50,57), (51,52), (51,58), (52,53),
+    (52,59), (53,54), (53,60), (54,55), (54,61), (55,62), (56,57), (56,63),
+    (57,58), (57,64), (58,59), (58,65), (59,60), (59,66), (60,61), (60,67),
+    (61,62), (61,68), (62,69), (63,64), (63,70), (64,65), (64,71), (65,66),
+    (65,72), (66,73), (67,68), (67,74), (68,69), (68,75), (69,76), (70,71),
+    (70,77), (71,72), (71,78), (72,73), (72,79), (73,74), (73,80), (74,75),
+    (74,81), (75,76), (75,82), (76,83), (77,78), (78,79), (79,80), (80,81),
+    (81,82), (82,83),
+})
+
+IBM_BRISBANE = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_brisbane", directed=True)
+IBM_OSAKA = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_osaka", directed=True)
+IBM_KYOTO = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_kyoto", directed=True)
+IONQ_HARMONY = Target(n_qubits=11, edges=_all_to_all(11), basis_gates=_IONQ_BASIS, name="ionq_harmony")
+IONQ_ARIA = Target(n_qubits=25, edges=_all_to_all(25), basis_gates=_IONQ_BASIS, name="ionq_aria")
+RIGETTI_ANKAA = Target(n_qubits=84, edges=_RIGETTI_ANKAA_EDGES, basis_gates=_CZ_BASIS, name="rigetti_ankaa")
+
+# IQM Garnet square lattice (20Q, undirected CZ)
+# Source: qiskit-on-iqm fake_garnet.py
+_IQM_GARNET_EDGES = frozenset({
+    (0,1), (0,3), (1,4), (2,3), (2,7), (3,4), (3,8), (4,5),
+    (4,9), (5,6), (5,10), (6,11), (7,8), (7,12), (8,9), (8,13),
+    (9,10), (9,14), (10,11), (10,15), (11,16), (12,13), (13,14),
+    (13,17), (14,15), (14,18), (15,16), (15,19), (17,18), (18,19),
+})
+
+# IQM Spark star topology (5Q, undirected CZ)
+_IQM_SPARK_EDGES = frozenset({(0,2), (1,2), (2,3), (2,4)})
+
+IQM_GARNET = Target(n_qubits=20, edges=_IQM_GARNET_EDGES, basis_gates=_CZ_BASIS, name="iqm_garnet")
+IQM_SPARK = Target(n_qubits=5, edges=_IQM_SPARK_EDGES, basis_gates=_CZ_BASIS, name="iqm_spark")

@@ -5,7 +5,7 @@ import pytest
 from math import pi
 
 from tinyqubit.ir import Circuit, Gate, Operation
-from tinyqubit.target import Target
+from tinyqubit.target import Target, validate, IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
 from tinyqubit.tracker import QubitTracker
 from tinyqubit.passes.route import route
 from tinyqubit.passes.optimize import optimize
@@ -2353,3 +2353,68 @@ def test_validate_measure_reset_allowed():
     c.measure(1, 1)
     c.reset(0)
     assert validate(c, t) == []
+
+
+# =============================================================================
+# Built-in Hardware Targets
+# =============================================================================
+
+@pytest.mark.parametrize("target,n,name,directed", [
+    (IBM_BRISBANE, 127, "ibm_brisbane", True),
+    (IBM_OSAKA, 127, "ibm_osaka", True),
+    (IBM_KYOTO, 127, "ibm_kyoto", True),
+    (IONQ_HARMONY, 11, "ionq_harmony", False),
+    (IONQ_ARIA, 25, "ionq_aria", False),
+    (RIGETTI_ANKAA, 84, "rigetti_ankaa", False),
+    (IQM_GARNET, 20, "iqm_garnet", False),
+    (IQM_SPARK, 5, "iqm_spark", False),
+])
+def test_builtin_target_properties(target, n, name, directed):
+    assert target.n_qubits == n
+    assert target.name == name
+    assert target.directed == directed
+
+def test_ibm_targets_share_topology():
+    assert IBM_BRISBANE.edges == IBM_OSAKA.edges == IBM_KYOTO.edges
+
+def test_ibm_directed_edge():
+    """IBM targets have directional CX — (1,0) is valid but (0,1) is not in edges."""
+    assert (1, 0) in IBM_BRISBANE.edges
+    assert (0, 1) not in IBM_BRISBANE.edges
+    assert IBM_BRISBANE.are_connected(0, 1)
+    assert IBM_BRISBANE.are_connected(1, 0)
+
+def test_ionq_all_to_all():
+    assert IONQ_HARMONY.is_all_to_all()
+    assert IONQ_ARIA.is_all_to_all()
+
+def test_rigetti_connectivity():
+    assert RIGETTI_ANKAA.are_connected(0, 1)
+    assert RIGETTI_ANKAA.are_connected(0, 7)
+    assert not RIGETTI_ANKAA.are_connected(0, 2)
+
+def test_iqm_spark_star_topology():
+    """Spark is a star: qubit 2 is the hub, connected to 0,1,3,4."""
+    assert IQM_SPARK.are_connected(0, 2)
+    assert IQM_SPARK.are_connected(2, 4)
+    assert not IQM_SPARK.are_connected(0, 1)
+    assert not IQM_SPARK.are_connected(3, 4)
+
+def test_iqm_garnet_connectivity():
+    assert IQM_GARNET.are_connected(0, 1)
+    assert IQM_GARNET.are_connected(0, 3)
+    assert not IQM_GARNET.are_connected(0, 2)
+    assert len(IQM_GARNET.edges) == 30
+
+def test_builtin_validate_integration():
+    """A small basis-gate circuit on connected qubits validates clean."""
+    c = Circuit(127).rz(0, 0.5).x(1).cx(1, 0)
+    assert validate(c, IBM_BRISBANE) == []
+    c2 = Circuit(11).rx(0, 0.5).ry(1, 0.3).cx(0, 1)
+    assert validate(c2, IONQ_HARMONY) == []
+    c3 = Circuit(84).rx(0, 0.5).rz(1, 0.3).cz(0, 1)
+    assert validate(c3, RIGETTI_ANKAA) == []
+    c4 = Circuit(20).rx(0, 0.5).rz(1, 0.3).cz(0, 1)
+    assert validate(c4, IQM_GARNET) == []
+    c5 = Circuit(5).rx(0, 0.5).cz(0, 2)
+    assert validate(c5, IQM_SPARK) == []
