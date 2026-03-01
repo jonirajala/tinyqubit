@@ -48,7 +48,12 @@ PARTNER_RULES: list[tuple[Gate, Gate, Gate | str | None]] = [
     (Gate.RY,   Gate.RY,   "merge"),
     (Gate.RZ,   Gate.RZ,   "merge"),
     (Gate.CP,   Gate.CP,   "merge"),
+    # Cross-type diagonal merges: different named diagonal gates → RZ(sum)
+    *((a, b, "cross_diag") for a in (Gate.S, Gate.SDG, Gate.T, Gate.TDG, Gate.Z)
+      for b in (Gate.S, Gate.SDG, Gate.T, Gate.TDG, Gate.Z) if a != b),
 ]
+
+_DIAG_ANGLE = {Gate.T: pi/4, Gate.TDG: -pi/4, Gate.S: pi/2, Gate.SDG: -pi/2, Gate.Z: pi}
 
 # Build index: gate -> [(partner_gate, result), ...]
 _PARTNER_INDEX: dict[Gate, list[tuple[Gate, Gate | str | None]]] = {}
@@ -120,6 +125,7 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
         return False
     for partner_gate, result in rules:
         is_merge = result == "merge"
+        is_cross = result == "cross_diag"
         if is_merge and _has_parameter(op.params):
             continue
         pred = ((lambda c, pg=partner_gate: c.gate == pg and c.qubits == op.qubits and not _has_parameter(c.params))
@@ -138,6 +144,14 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
                 dag.remove_node(nid)
             else:
                 dag.set_op(nid, Operation(op.gate, op.qubits, (angle,)))
+                dag.remove_node(match)
+        elif is_cross:
+            angle = (_DIAG_ANGLE[op.gate] + _DIAG_ANGLE[dag.op(match).gate] + pi) % (2 * pi) - pi
+            if abs(angle) < 1e-9:
+                dag.remove_node(match)
+                dag.remove_node(nid)
+            else:
+                dag.set_op(nid, Operation(Gate.RZ, op.qubits, (angle,)))
                 dag.remove_node(match)
         else:
             dag.set_op(nid, Operation(result, op.qubits))

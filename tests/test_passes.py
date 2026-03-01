@@ -487,6 +487,57 @@ def test_optimize_merge_to_zero_through_commutation():
 
 
 # =============================================================================
+# Cross-type Diagonal Merge Tests
+# =============================================================================
+
+def test_optimize_cross_diag_s_t():
+    """S·T merges to RZ(3π/4)."""
+    c = Circuit(1).s(0).t(0)
+    opt = optimize(c)
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.RZ
+    assert abs(opt.ops[0].params[0] - 3 * pi / 4) < 1e-9
+
+
+def test_optimize_cross_diag_t_sdg():
+    """T·SDG merges to RZ(-π/4)."""
+    c = Circuit(1).t(0).sdg(0)
+    opt = optimize(c)
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.RZ
+    assert abs(opt.ops[0].params[0] - (-pi / 4)) < 1e-9
+
+
+def test_optimize_cross_diag_z_s():
+    """Z·S merges to RZ(-π/2) (normalized from 3π/2)."""
+    c = Circuit(1).z(0).s(0)
+    opt = optimize(c)
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.RZ
+    assert abs(opt.ops[0].params[0] - (-pi / 2)) < 1e-9
+
+
+def test_optimize_cross_diag_sdg_tdg_cancel():
+    """SDG·TDG merges to RZ(-3π/4)."""
+    c = Circuit(1).sdg(0).tdg(0)
+    opt = optimize(c)
+    assert len(opt.ops) == 1
+    assert opt.ops[0].gate == Gate.RZ
+    assert abs(opt.ops[0].params[0] - (-3 * pi / 4)) < 1e-9
+
+
+def test_optimize_cross_diag_through_cx():
+    """S on control merges with T on same control through CX."""
+    c = Circuit(2).s(0).cx(0, 1).t(0)
+    opt = optimize(c)
+    rz_ops = [op for op in opt.ops if op.gate == Gate.RZ]
+    assert len(rz_ops) == 1
+    assert abs(rz_ops[0].params[0] - 3 * pi / 4) < 1e-9
+    s_ops = [op for op in opt.ops if op.gate in (Gate.S, Gate.T)]
+    assert len(s_ops) == 0
+
+
+# =============================================================================
 # Integration Tests
 # =============================================================================
 
