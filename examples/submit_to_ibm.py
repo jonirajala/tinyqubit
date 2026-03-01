@@ -1,61 +1,78 @@
 """
-Run a Bell state on IBM Quantum hardware.
-
-STATUS: TinyQubit builds the circuit, Qiskit handles transpilation.
-        Future (Phase 9+9.5): TinyQubit will transpile directly for IBM.
+Build circuit → transpile with tinyqubit → submit to IBM Quantum.
 
 Setup: Create .env file with IBM_API_KEY="your-key-here"
-Run:   python examples/run_on_ibm.py
+Run:   python examples/submit_to_ibm.py
 """
-import os
-import sys
+import os, sys
 from pathlib import Path
+from collections import Counter
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2
-from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-from tinyqubit import Circuit, to_openqasm2
+from tinyqubit import Circuit, Gate, Target, transpile, to_openqasm2
 from tinyqubit.export import to_qiskit
 
-# Load API key from .env
-env_file = Path(__file__).parent.parent / ".env"
-if env_file.exists():
-    for line in env_file.read_text().splitlines():
-        if line.startswith("IBM_API_KEY"):
-            IBM_API_KEY = line.split("=", 1)[1].strip().strip('"\'')
-            break
-else:
-    IBM_API_KEY = os.environ.get("IBM_API_KEY", "")
+_GATE_MAP = {"sx": Gate.SX, "rz": Gate.RZ, "cx": Gate.CX, "cz": Gate.CZ, "ecr": Gate.ECR}
+_2Q_GATES = ("cx", "cz", "ecr")
 
-if not IBM_API_KEY:
+
+def _load_api_key() -> str:
+    env_file = Path(__file__).parent.parent / ".env"
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            if line.startswith("IBM_API_KEY"):
+                return line.split("=", 1)[1].strip().strip('"\'')
+    return os.environ.get("IBM_API_KEY", "")
+
+
+def _target_from_backend(backend) -> Target:
+    """Build a tinyqubit Target from a Qiskit backend."""
+    basis = frozenset(_GATE_MAP[n] for n in backend.target.operation_names if n in _GATE_MAP)
+    edges = set()
+    for name in _2Q_GATES:
+        if name in backend.target.operation_names:
+            for qargs in backend.target.qargs_for_operation_name(name):
+                edges.add(tuple(qargs))
+    return Target(n_qubits=backend.num_qubits, edges=frozenset(edges),
+                  basis_gates=basis, name=backend.name, directed=True)
+
+
+api_key = _load_api_key()
+if not api_key:
     print("ERROR: Set IBM_API_KEY in .env file or environment")
     sys.exit(1)
 
-# Build Bell state circuit
-print("=== TinyQubit Circuit ===")
-circuit = Circuit(2).h(0).cx(0, 1).measure(0).measure(1)
+# Build GHZ circuit
+circuit = Circuit(3).h(0).cx(0, 1).cx(1, 2).measure(0).measure(1).measure(2)
+print("=== Logical Circuit ===")
 print(to_openqasm2(circuit))
 
-# Connect to IBM
+# Connect to IBM, build target from assigned backend
 print("=== Connecting to IBM Quantum ===")
-service = QiskitRuntimeService(channel="ibm_quantum_platform", token=IBM_API_KEY)
+service = QiskitRuntimeService(channel="ibm_quantum_platform", token=api_key)
 backend = service.backends()[0]
-print(f"Backend: {backend.name} ({backend.num_qubits} qubits)")
+target = _target_from_backend(backend)
+print(f"Backend: {target.name} ({target.n_qubits}Q, basis: {', '.join(g.name for g in target.basis_gates)})")
 
-# Submit job
+# Transpile with tinyqubit
+print(f"\n=== Compiling for {target.name} ===")
+compiled = transpile(circuit, target, verbosity=1)
+
+print("\n=== Compiled Circuit (OpenQASM 2.0) ===")
+print(to_openqasm2(compiled, include_mapping=False))
+
+counts = Counter(op.gate.name for op in compiled.ops)
+print(f"=== {sum(v for k, v in counts.items() if k != 'MEASURE')} gates: {', '.join(f'{g}={n}' for g, n in sorted(counts.items()))} ===")
+
+# Submit
 print("\n=== Submitting Job ===")
-qc = to_qiskit(circuit)
-qc_transpiled = generate_preset_pass_manager(backend=backend, optimization_level=1).run(qc)
-print(f"Transpiled to {len(qc_transpiled.data)} gates")
+job = SamplerV2(backend).run([to_qiskit(compiled)], shots=1024)
+print(f"Job ID: {job.job_id()}\nWaiting for results...")
 
-job = SamplerV2(backend).run([qc_transpiled], shots=1024)
-print(f"Job ID: {job.job_id()}")
-print("Waiting for results...")
-
-# Results
-counts = job.result()[0].data.c.get_counts()
+result_counts = job.result()[0].data.c.get_counts()
 print("\n=== Results ===")
-for bitstring, count in sorted(counts.items()):
-    print(f"  |{bitstring}⟩: {count} ({100*count/1024:.1f}%)")
-print("\nExpected: ~50% |00⟩, ~50% |11⟩ (Bell state)")
+for bitstring, count in sorted(result_counts.items()):
+    print(f"  |{bitstring}⟩: {count} ({100 * count / 1024:.1f}%)")
+print("\nExpected: ~50% |000⟩, ~50% |111⟩ (GHZ state)")
