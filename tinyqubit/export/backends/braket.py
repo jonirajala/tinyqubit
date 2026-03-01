@@ -28,6 +28,10 @@ def submit_to_braket(circuit, device_arn: str, s3_bucket: str, s3_prefix: str = 
     return AwsDevice(device_arn).run(program, (s3_bucket, s3_prefix), shots=shots)
 
 
-def get_braket_results(task, timeout: float = 600) -> dict[str, int]:
+def get_braket_results(task, timeout: float = 600, n_qubits: int | None = None, tracker=None) -> dict[str, int]:
     """Get measurement counts from Braket task. Returns {"00": 512, "11": 512}."""
-    return dict(task.result().measurement_counts)
+    counts = dict(task.result().measurement_counts)
+    if n_qubits is None:
+        return counts
+    from . import _normalize_counts
+    return _normalize_counts(counts, n_qubits, reverse_bits=False, tracker=tracker)

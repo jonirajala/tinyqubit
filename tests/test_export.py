@@ -533,3 +533,32 @@ class TestDynamicCircuitExport:
         assert 'bit[2] c;' in qasm3
         assert 'c[0] = measure q[0];' in qasm3
         assert 'if (c[1] == 1) { x q[2]; }' in qasm3
+
+
+class TestNormalizeCounts:
+    """Tests for _normalize_counts backend helper."""
+
+    def _tracker(self, mapping):
+        class T:
+            def __init__(self, m): self._p2l = m
+            def phys_to_logical(self, p): return self._p2l[p]
+        return T(mapping)
+
+    def test_reverse_bits(self):
+        from tinyqubit.export.backends import _normalize_counts
+        assert _normalize_counts({"001": 100, "110": 200}, 3, reverse_bits=True) == {"100": 100, "011": 200}
+
+    def test_tracker_remaps(self):
+        from tinyqubit.export.backends import _normalize_counts
+        # p0→l1, p1→l0, p2→l2: "abc" → "bac"
+        assert _normalize_counts({"abc": 50}, 3, tracker=self._tracker({0: 1, 1: 0, 2: 2})) == {"bac": 50}
+
+    def test_reverse_and_tracker(self):
+        from tinyqubit.export.backends import _normalize_counts
+        # reverse "100"→"001", then swap q0↔q1: "001"→"001"
+        assert _normalize_counts({"100": 300}, 3, reverse_bits=True, tracker=self._tracker({0: 1, 1: 0, 2: 2})) == {"001": 300}
+
+    def test_no_normalization_passthrough(self):
+        from tinyqubit.export.backends import _normalize_counts
+        counts = {"01": 42, "10": 58}
+        assert _normalize_counts(counts, 2) is counts

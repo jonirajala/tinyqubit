@@ -24,6 +24,14 @@ def submit_to_ibm(circuit, backend_name: str = "ibm_brisbane", shots: int = 1024
     return SamplerV2(backend).run([transpiled], shots=shots)
 
 
-def get_ibm_results(job, timeout: float = 600) -> dict[str, int]:
-    """Get measurement counts from IBM job. Returns {"00": 512, "11": 512}."""
-    return job.result(timeout=timeout)[0].data.c.get_counts()
+def get_ibm_results(job, timeout: float = 600, n_qubits: int | None = None, tracker=None) -> dict[str, int]:
+    """Get measurement counts from IBM job. Returns {"00": 512, "11": 512}.
+
+    # NOTE: submit_to_ibm() re-transpiles through Qiskit, which may add its own
+    # qubit permutation on top of tinyqubit's routing, so tracker remapping may be inaccurate.
+    """
+    counts = job.result(timeout=timeout)[0].data.c.get_counts()
+    if n_qubits is None:
+        return counts
+    from . import _normalize_counts
+    return _normalize_counts(counts, n_qubits, reverse_bits=True, tracker=tracker)
