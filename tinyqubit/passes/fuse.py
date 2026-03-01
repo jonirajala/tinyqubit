@@ -82,20 +82,6 @@ def _decompose_zxz(U: np.ndarray, qubit: int, tol: float = 1e-9) -> list[Operati
 
     return ops
 
-_ROTATION_GATES = {Gate.RX, Gate.RY, Gate.RZ}
-
-
-def _should_fuse(ops: list[Operation]) -> bool:
-    """Decide if sequence should be fused. Fuse if:
-    - Contains non-rotation gates (H, S, T, X, Y, Z, etc.) that may simplify
-    - Has 4+ gates (likely to reduce)
-    - Has 2-3 gates with at least one non-rotation
-    """
-    if len(ops) >= 4:
-        return True
-    has_non_rotation = any(op.gate not in _ROTATION_GATES for op in ops)
-    return has_non_rotation and len(ops) >= 2
-
 
 def _fuse_ops(ops: list[Operation], n_qubits: int) -> list[Operation]:
     """Core fusion logic on a flat op list."""
@@ -109,13 +95,11 @@ def _fuse_ops(ops: list[Operation], n_qubits: int) -> list[Operation]:
             result.extend(pending[q])
             pending[q] = []
             return
-        if not _should_fuse(pending[q]):
-            result.extend(pending[q])
-        else:
-            U = np.eye(2, dtype=complex)
-            for op in pending[q]:
-                U = _get_gate_matrix(op.gate, op.params) @ U
-            result.extend(_decompose_zxz(U, q))
+        U = np.eye(2, dtype=complex)
+        for op in pending[q]:
+            U = _get_gate_matrix(op.gate, op.params) @ U
+        fused = _decompose_zxz(U, q)
+        result.extend(fused if len(fused) < len(pending[q]) else pending[q])
         pending[q] = []
 
     for op in ops:
