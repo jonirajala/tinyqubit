@@ -2285,3 +2285,71 @@ def test_direction_condition_propagation():
     assert len(conditional_ops) == 5
     for op in conditional_ops:
         assert op.condition == (0, 1)
+
+
+# =============================================================================
+# Validate Tests
+# =============================================================================
+
+from tinyqubit.target import validate
+
+def test_validate_valid_circuit():
+    """Circuit using only basis gates on connected qubits validates clean."""
+    t = Target(n_qubits=3, edges=line_topology(3),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}))
+    c = Circuit(3).rz(0, 0.5).cx(0, 1).cx(1, 2)
+    assert validate(c, t) == []
+
+def test_validate_qubit_count_exceeded():
+    """Circuit with more qubits than target."""
+    t = Target(n_qubits=3, edges=line_topology(3),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}))
+    c = Circuit(5).rz(0, 0.1)
+    errors = validate(c, t)
+    assert len(errors) == 1
+    assert "5 qubits" in errors[0] and "3" in errors[0]
+
+def test_validate_non_basis_gate():
+    """Non-basis gate produces error with gate name, qubits, and basis set."""
+    t = Target(n_qubits=4, edges=line_topology(4),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}))
+    c = Circuit(4).ry(3, 0.5)
+    errors = validate(c, t)
+    assert len(errors) == 1
+    assert "RY" in errors[0]
+    assert "(3,)" in errors[0]
+    assert "CX" in errors[0] and "RZ" in errors[0]
+
+def test_validate_connectivity_violation():
+    """CX on non-adjacent qubits produces connectivity error."""
+    t = Target(n_qubits=4, edges=line_topology(4),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}))
+    c = Circuit(4).cx(0, 3)
+    errors = validate(c, t)
+    assert any("not connected" in e for e in errors)
+
+def test_validate_directed_cx_violation():
+    """Wrong-direction CX on directed target produces direction error."""
+    t = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}), directed=True)
+    c = Circuit(3).cx(1, 0)  # (1,0) not in edges
+    errors = validate(c, t)
+    assert any("wrong direction" in e for e in errors)
+
+def test_validate_multiple_errors():
+    """All errors collected in one call."""
+    t = Target(n_qubits=3, edges=line_topology(3),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}))
+    c = Circuit(5).ry(0, 0.5).cx(0, 4)  # qubit count + non-basis + connectivity
+    errors = validate(c, t)
+    assert len(errors) >= 3
+
+def test_validate_measure_reset_allowed():
+    """MEASURE and RESET never flagged even if not in basis_gates."""
+    t = Target(n_qubits=2, edges=line_topology(2),
+               basis_gates=frozenset({Gate.RZ, Gate.CX}))
+    c = Circuit(2, n_classical=2)
+    c.measure(0, 0)
+    c.measure(1, 1)
+    c.reset(0)
+    assert validate(c, t) == []

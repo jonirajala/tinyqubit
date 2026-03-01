@@ -156,3 +156,20 @@ class Target:
             raise ValueError("edge_error not set on this target")
         return sum(self.edge_error.get((min(op.qubits), max(op.qubits)), 0.0)
                    for op in circuit.ops if op.gate.n_qubits == 2 and op.gate not in self.virtual_gates)
+
+
+def validate(circuit, target: Target) -> list[str]:
+    """Check circuit against target constraints. Returns list of error strings (empty = valid)."""
+    errors = []
+    if circuit.n_qubits > target.n_qubits:
+        errors.append(f"Circuit has {circuit.n_qubits} qubits but target has {target.n_qubits}")
+    allowed = target.basis_gates | {Gate.MEASURE, Gate.RESET}
+    basis_names = ", ".join(sorted(g.name for g in target.basis_gates))
+    for op in circuit.ops:
+        if op.gate not in allowed:
+            errors.append(f"Gate {op.gate.name} on qubits {op.qubits} not in target basis {{{basis_names}}}")
+        if op.gate.n_qubits >= 2 and not target.are_connected(*op.qubits[:2]):
+            errors.append(f"Gate {op.gate.name}{op.qubits} not connected in target topology")
+        if target.directed and op.gate == Gate.CX and op.qubits not in target.edges:
+            errors.append(f"CX{op.qubits} wrong direction for directed target")
+    return errors

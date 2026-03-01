@@ -11,8 +11,13 @@ from __future__ import annotations
 from ..qasm import to_openqasm3
 
 
-def submit_to_braket(circuit, device_arn: str, s3_bucket: str, s3_prefix: str = "tinyqubit-results", shots: int = 1024):
+def submit_to_braket(circuit, device_arn: str, s3_bucket: str, s3_prefix: str = "tinyqubit-results", shots: int = 1024, target=None):
     """Submit circuit to AWS Braket hardware, returns AwsQuantumTask."""
+    if target is not None:
+        from ...target import validate
+        errors = validate(circuit, target)
+        if errors:
+            raise ValueError("Circuit validation failed:\n" + "\n".join(errors))
     try:
         from braket.aws import AwsDevice
         from braket.ir.openqasm import Program

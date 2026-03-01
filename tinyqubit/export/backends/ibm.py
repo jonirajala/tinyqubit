@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 
-def submit_to_ibm(circuit, backend_name: str = "ibm_brisbane", shots: int = 1024):
+def submit_to_ibm(circuit, backend_name: str = "ibm_brisbane", shots: int = 1024, target=None):
     """Submit circuit to IBM Quantum hardware, returns RuntimeJob."""
+    if target is not None:
+        from ...target import validate
+        errors = validate(circuit, target)
+        if errors:
+            raise ValueError("Circuit validation failed:\n" + "\n".join(errors))
     try:
         from qiskit_ibm_runtime import QiskitRuntimeService, SamplerV2
         from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
