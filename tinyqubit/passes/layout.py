@@ -55,37 +55,28 @@ def _vf2_layout(edges: set[tuple[int, int]], n_logical: int,
     return layout
 
 
-def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int]:
-    """Forward-backward routing to find a good initial layout.
+_SABRE_TRIALS = 5
 
-    Uses forward routing to get an end-state layout, then backward routing
-    with that layout to find a good initial placement.
-    For small circuits (<= 20 ops), runs extra forward-backward iterations.
-    """
+
+def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int]:
+    """Multi-trial forward-backward routing to find a good initial layout."""
+    import random
     from .route import route
     from ..ir import Gate
 
     rev_dag = DAGCircuit(dag.n_qubits, dag.n_classical)
     for op in reversed(dag.topological_ops()): rev_dag.add_op(op)
 
-    # Trial 0: standard forward-backward
-    fwd = route(dag, target, objective=objective)
-    fwd_layout = fwd._tracker.logical_to_physical[:dag.n_qubits]
-    result = route(rev_dag, target, initial_layout=fwd_layout, objective=objective)
-    best_layout = result._tracker.logical_to_physical[:dag.n_qubits]
-
-    # Extra iterations only for small circuits where routing is cheap
-    if len(dag._ops) <= 20:
-        best_swaps = sum(1 for op in route(dag, target, initial_layout=best_layout, objective=objective).topological_ops() if op.gate == Gate.SWAP)
-        for _ in range(2):
-            seed = route(rev_dag, target, initial_layout=best_layout, objective=objective)
-            fwd2 = route(dag, target, initial_layout=seed._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
-            rev2 = route(rev_dag, target, initial_layout=fwd2._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
-            layout = rev2._tracker.logical_to_physical[:dag.n_qubits]
-            n_swaps = sum(1 for op in route(dag, target, initial_layout=layout, objective=objective).topological_ops() if op.gate == Gate.SWAP)
-            if n_swaps < best_swaps:
-                best_swaps = n_swaps
-                best_layout = layout
+    best_layout, best_swaps = None, float('inf')
+    for trial in range(_SABRE_TRIALS):
+        # Trial 0: identity start; trials 1+: random initial layout
+        init = None if trial == 0 else random.Random(trial).sample(range(target.n_qubits), dag.n_qubits)
+        fwd = route(dag, target, initial_layout=init, objective=objective)
+        rev = route(rev_dag, target, initial_layout=fwd._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
+        layout = rev._tracker.logical_to_physical[:dag.n_qubits]
+        n_swaps = sum(1 for op in route(dag, target, initial_layout=layout, objective=objective).topological_ops() if op.gate == Gate.SWAP)
+        if n_swaps < best_swaps:
+            best_swaps, best_layout = n_swaps, layout
 
     return best_layout
 
