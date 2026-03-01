@@ -2408,7 +2408,7 @@ def test_iqm_garnet_connectivity():
 
 def test_builtin_validate_integration():
     """A small basis-gate circuit on connected qubits validates clean."""
-    c = Circuit(127).rz(0, 0.5).x(1).cx(1, 0)
+    c = Circuit(127).rz(0, 0.5).sx(1).cx(1, 0)
     assert validate(c, IBM_BRISBANE) == []
     c2 = Circuit(11).rx(0, 0.5).ry(1, 0.3).cx(0, 1)
     assert validate(c2, IONQ_HARMONY) == []

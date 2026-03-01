@@ -4,7 +4,7 @@ TinyQubit - A tiny quantum circuit compiler
 
 from .ir import Circuit, Gate, Operation, Parameter
 from .dag import DAGCircuit, commutes
-from .target import Target, validate, IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
+from .target import Target, validate, IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IBM_TORINO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
 from .compile import transpile, precompile, realize
 from .simulator import simulate, simulate_batch, states_equal, sample, to_unitary, probabilities, marginal_counts, verify
 from .export import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
@@ -31,6 +31,7 @@ __all__ = [
     "IBM_BRISBANE",
     "IBM_OSAKA",
     "IBM_KYOTO",
+    "IBM_TORINO",
     "IONQ_HARMONY",
     "IONQ_ARIA",
     "RIGETTI_ANKAA",

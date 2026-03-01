@@ -31,6 +31,7 @@ _GATE_1Q_CACHE = {
     Gate.SDG: np.array([[1, 0], [0, -1j]], dtype=complex),
     Gate.T: np.array([[1, 0], [0, _T]], dtype=complex),
     Gate.TDG: np.array([[1, 0], [0, np.conj(_T)]], dtype=complex),
+    Gate.SX: 0.5 * np.array([[1+1j, 1-1j], [1-1j, 1+1j]], dtype=complex),
 }
 _GATE_1Q_PARAM = {
     Gate.RX: lambda t: np.array([[cos(t/2), -1j*sin(t/2)], [-1j*sin(t/2), cos(t/2)]], dtype=complex),
@@ -80,6 +81,18 @@ def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, pa
         state[idx(0, 1)], state[idx(1, 0)] = state[idx(1, 0)].copy(), state[idx(0, 1)].copy()
     elif gate == Gate.CP:
         state[idx(1, 1)] *= np.exp(1j * params[0])
+    elif gate == Gate.RZZ:
+        t = params[0]
+        em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
+        state[idx(0, 0)] *= em; state[idx(0, 1)] *= ep
+        state[idx(1, 0)] *= ep; state[idx(1, 1)] *= em
+    elif gate == Gate.ECR:
+        s00, s01, s10, s11 = state[idx(0,0)].copy(), state[idx(0,1)].copy(), state[idx(1,0)].copy(), state[idx(1,1)].copy()
+        # ECR matrix: [[0,0,1,i],[0,0,i,1],[1,-i,0,0],[-i,1,0,0]] / sqrt(2)
+        state[idx(0,0)] = _SQRT2_INV * (s10 + 1j * s11)
+        state[idx(0,1)] = _SQRT2_INV * (1j * s10 + s11)
+        state[idx(1,0)] = _SQRT2_INV * (s00 - 1j * s01)
+        state[idx(1,1)] = _SQRT2_INV * (-1j * s00 + s01)
     return state.reshape(-1)
 
 def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, n: int) -> np.ndarray:

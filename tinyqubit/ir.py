@@ -2,7 +2,7 @@
 Core IR types - the single representation used throughout.
 
 Contains:
-    - Gate: Enum of supported gates (19 primitives)
+    - Gate: Enum of supported gates (22 primitives)
     - Operation: Dataclass (gate, qubits, params)
     - Circuit: Lazy builder, just appends Operations
 """
@@ -29,7 +29,7 @@ def _has_parameter(params: tuple) -> bool:
     return any(isinstance(p, Parameter) for p in params)
 
 class Gate(Enum):
-    """19 primitive quantum gates."""
+    """22 primitive quantum gates."""
     # Pauli gates
     X = auto()
     Y = auto()
@@ -47,11 +47,16 @@ class Gate(Enum):
     RY = auto()
     RZ = auto()
 
+    # Vendor-native single-qubit
+    SX = auto()   # √X = RX(π/2) up to global phase
+
     # Two-qubit
     CX = auto()
     CZ = auto()
     CP = auto()  # Controlled phase
     SWAP = auto()
+    ECR = auto()   # Echoed cross-resonance
+    RZZ = auto()   # ZZ interaction
 
     # Three-qubit
     CCX = auto()   # Toffoli
@@ -63,12 +68,12 @@ class Gate(Enum):
 
     @property
     def n_qubits(self) -> int:
-        if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP): return 2
+        if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP, Gate.ECR, Gate.RZZ): return 2
         if self in (Gate.CCX, Gate.CCZ): return 3
         return 1
 
     @property
-    def n_params(self) -> int: return 1 if self in (Gate.RX, Gate.RY, Gate.RZ, Gate.CP) else 0   
+    def n_params(self) -> int: return 1 if self in (Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ) else 0
 
 
 @dataclass(frozen=True)
@@ -81,7 +86,7 @@ class Operation:
 
 
 _GATE_ADJOINT = {Gate.S: Gate.SDG, Gate.SDG: Gate.S, Gate.T: Gate.TDG, Gate.TDG: Gate.T}
-_PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP})
+_PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ})
 
 # Context manager for conditional operations
 class _ConditionalContext:
@@ -130,6 +135,9 @@ class Circuit:
     def cz(self, a: int, b: int) -> "Circuit": return self._add(Gate.CZ, (min(a,b), max(a,b)))  # Canonicalize
     def cp(self, c: int, t: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.CP, (c, t), (theta,))
     def swap(self, a: int, b: int) -> "Circuit": return self._add(Gate.SWAP, (min(a,b), max(a,b)))  # Canonicalize
+    def sx(self, q: int) -> "Circuit": return self._add(Gate.SX, (q,))
+    def ecr(self, q0: int, q1: int) -> "Circuit": return self._add(Gate.ECR, (q0, q1))
+    def rzz(self, q0: int, q1: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.RZZ, (q0, q1), (theta,))
     def ccx(self, c1: int, c2: int, t: int) -> "Circuit": return self._add(Gate.CCX, (c1, c2, t))
     def ccz(self, a: int, b: int, c: int) -> "Circuit": return self._add(Gate.CCZ, tuple(sorted([a, b, c])))  # Symmetric → canonicalize
 
@@ -276,7 +284,9 @@ class Circuit:
             for q in range(min(qs) + 1, max(qs)):
                 if q not in col: col[q] = "│"
             return col
-        s0, s1 = ("●", "X") if g == Gate.CX else ("●", "●") if g == Gate.CZ else ("╳", "╳")
+        _2q_syms = {Gate.CX: ("●", "X"), Gate.CZ: ("●", "●"), Gate.SWAP: ("╳", "╳"),
+                    Gate.CP: ("●", "P"), Gate.ECR: ("ECR", "ECR"), Gate.RZZ: ("RZZ", "RZZ")}
+        s0, s1 = _2q_syms.get(g, (g.name, g.name))
         col = {qs[0]: s0, qs[1]: s1}
         for q in range(min(qs) + 1, max(qs)): col[q] = "│"
         return col             

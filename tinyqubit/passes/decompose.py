@@ -176,6 +176,59 @@ def _decompose_ccz_4t(a: int, b: int, c: int) -> list[Operation]:
     ]
 
 
+def _decompose_sx(q: int) -> list[Operation]:
+    """SX = RX(π/2)"""
+    return [Operation(Gate.RX, (q,), (pi/2,))]
+
+
+def _decompose_ecr(q0: int, q1: int) -> list[Operation]:
+    """ECR = kron(RZ(-π/2), RX(-π/2)) · CX · kron(X, I)"""
+    return [
+        Operation(Gate.X, (q0,)),
+        Operation(Gate.CX, (q0, q1)),
+        Operation(Gate.RX, (q1,), (-pi/2,)),
+        Operation(Gate.RZ, (q0,), (-pi/2,)),
+    ]
+
+
+def _decompose_rzz(q0: int, q1: int, theta: float) -> list[Operation]:
+    """RZZ(θ) = CX · RZ(θ) · CX"""
+    return [
+        Operation(Gate.CX, (q0, q1)),
+        Operation(Gate.RZ, (q1,), (theta,)),
+        Operation(Gate.CX, (q0, q1)),
+    ]
+
+
+def _decompose_x_to_sx(q: int) -> list[Operation]:
+    """X = SX · SX"""
+    return [Operation(Gate.SX, (q,)), Operation(Gate.SX, (q,))]
+
+
+def _decompose_h_to_sx(q: int) -> list[Operation]:
+    """H = RZ(π/2) · SX · RZ(π/2)"""
+    return [Operation(Gate.RZ, (q,), (pi/2,)), Operation(Gate.SX, (q,)), Operation(Gate.RZ, (q,), (pi/2,))]
+
+
+def _decompose_rx_to_sx(q: int, theta: float) -> list[Operation]:
+    """RX(θ) = RZ(π/2) · SX · RZ(θ+π) · SX · RZ(π/2)"""
+    return [
+        Operation(Gate.RZ, (q,), (pi/2,)), Operation(Gate.SX, (q,)),
+        Operation(Gate.RZ, (q,), (theta + pi,)), Operation(Gate.SX, (q,)),
+        Operation(Gate.RZ, (q,), (pi/2,)),
+    ]
+
+
+def _decompose_cx_to_ecr(q0: int, q1: int) -> list[Operation]:
+    """CX = kron(RZ(π/2), SX) · ECR · kron(X, I)"""
+    return [
+        Operation(Gate.X, (q0,)),
+        Operation(Gate.ECR, (q0, q1)),
+        Operation(Gate.SX, (q1,)),
+        Operation(Gate.RZ, (q0,), (pi/2,)),
+    ]
+
+
 _T_OPTIMAL_OVERRIDES = {
     Gate.CCX: lambda qs, ps: _decompose_ccx_4t(qs[0], qs[1], qs[2]),
     Gate.CCZ: lambda qs, ps: _decompose_ccz_4t(qs[0], qs[1], qs[2]),
@@ -201,6 +254,9 @@ DECOMPOSITIONS = {
     Gate.CP: lambda qs, ps: _decompose_cp(qs[0], qs[1], ps[0]),
     Gate.CCX: lambda qs, ps: _decompose_ccx(qs[0], qs[1], qs[2]),
     Gate.CCZ: lambda qs, ps: _decompose_ccz(qs[0], qs[1], qs[2]),
+    Gate.SX: lambda qs, ps: _decompose_sx(qs[0]),
+    Gate.ECR: lambda qs, ps: _decompose_ecr(qs[0], qs[1]),
+    Gate.RZZ: lambda qs, ps: _decompose_rzz(qs[0], qs[1], ps[0]),
 }
 
 # Alternative decompositions for CZ-native backends (Rigetti, Google, IQM)
@@ -209,10 +265,28 @@ DECOMPOSITIONS_CZ_NATIVE = {
     Gate.CX: lambda qs, ps: _decompose_cx_to_cz(qs[0], qs[1]),
 }
 
+# Alternative decompositions for ECR-native backends (IBM Heron)
+DECOMPOSITIONS_ECR_NATIVE = {
+    **{k: v for k, v in DECOMPOSITIONS.items() if k not in (Gate.ECR, Gate.CX)},
+    Gate.CX: lambda qs, ps: _decompose_cx_to_ecr(qs[0], qs[1]),
+}
+
 
 def _decompose_ops(ops: list[Operation], basis: frozenset[Gate], t_optimal: bool = False) -> list[Operation]:
     """Core decomposition logic on a flat op list."""
-    rules = DECOMPOSITIONS_CZ_NATIVE if (Gate.CZ in basis and Gate.CX not in basis) else DECOMPOSITIONS
+    if Gate.ECR in basis and Gate.CX not in basis:
+        rules = DECOMPOSITIONS_ECR_NATIVE
+    elif Gate.CZ in basis and Gate.CX not in basis:
+        rules = DECOMPOSITIONS_CZ_NATIVE
+    else:
+        rules = DECOMPOSITIONS
+    # SX-native overrides: avoid H↔RX infinite loop when RX/H not in basis
+    if Gate.SX in basis:
+        sx_rules = {}
+        if Gate.X not in basis: sx_rules[Gate.X] = lambda qs, ps: _decompose_x_to_sx(qs[0])
+        if Gate.H not in basis: sx_rules[Gate.H] = lambda qs, ps: _decompose_h_to_sx(qs[0])
+        if Gate.RX not in basis: sx_rules[Gate.RX] = lambda qs, ps: _decompose_rx_to_sx(qs[0], ps[0])
+        if sx_rules: rules = {**rules, **sx_rules}
     if t_optimal:
         rules = {**rules, **_T_OPTIMAL_OVERRIDES}
     changed = True

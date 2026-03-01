@@ -17,15 +17,15 @@ from tinyqubit.export import to_openqasm2
 # =============================================================================
 
 def test_gate_count():
-    """We have exactly 19 primitive gates"""
-    assert len(Gate) == 19
+    """We have exactly 22 primitive gates"""
+    assert len(Gate) == 22
 
 
 def test_gate_n_qubits():
     """Single, two-qubit, and three-qubit gates"""
     single = [Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.T, Gate.SDG, Gate.TDG,
-              Gate.RX, Gate.RY, Gate.RZ, Gate.MEASURE, Gate.RESET]
-    two = [Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP]
+              Gate.RX, Gate.RY, Gate.RZ, Gate.SX, Gate.MEASURE, Gate.RESET]
+    two = [Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP, Gate.ECR, Gate.RZZ]
     three = [Gate.CCX, Gate.CCZ]
 
     for g in single:

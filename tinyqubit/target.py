@@ -177,7 +177,8 @@ def validate(circuit, target: Target) -> list[str]:
 
 # Built-in hardware targets -------
 
-_IBM_BASIS = frozenset({Gate.RZ, Gate.X, Gate.CX})
+_IBM_BASIS = frozenset({Gate.SX, Gate.RZ, Gate.CX})
+_IBM_HERON_BASIS = frozenset({Gate.SX, Gate.RZ, Gate.ECR})
 _IONQ_BASIS = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CX})
 _CZ_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CZ})
 
@@ -233,6 +234,7 @@ _RIGETTI_ANKAA_EDGES = frozenset({
 IBM_BRISBANE = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_brisbane", directed=True)
 IBM_OSAKA = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_osaka", directed=True)
 IBM_KYOTO = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_kyoto", directed=True)
+IBM_TORINO = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_HERON_BASIS, name="ibm_torino", directed=True)
 IONQ_HARMONY = Target(n_qubits=11, edges=_all_to_all(11), basis_gates=_IONQ_BASIS, name="ionq_harmony")
 IONQ_ARIA = Target(n_qubits=25, edges=_all_to_all(25), basis_gates=_IONQ_BASIS, name="ionq_aria")
 RIGETTI_ANKAA = Target(n_qubits=84, edges=_RIGETTI_ANKAA_EDGES, basis_gates=_CZ_BASIS, name="rigetti_ankaa")

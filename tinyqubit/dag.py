@@ -13,7 +13,7 @@ from .ir import Circuit, Operation, Gate
 
 # Centralized commutation rules -----------------------------------------------
 
-DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ}
+DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ, Gate.RZZ}
 _DIAG_1Q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
 
 
@@ -33,15 +33,15 @@ def commutes(op1: Operation, op2: Operation) -> bool:
     # Single-qubit diagonal gates commute with CX on control qubit
     if op1.gate in _DIAG_1Q and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[0]
     if op2.gate in _DIAG_1Q and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[0]
-    # RX commutes with CX on target qubit
-    if op1.gate == Gate.RX and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[1]
-    if op2.gate == Gate.RX and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[1]
+    # RX/SX commute with CX on target qubit
+    if op1.gate in (Gate.RX, Gate.SX) and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[1]
+    if op2.gate in (Gate.RX, Gate.SX) and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[1]
     # Diagonal 1Q gates commute with CCX on control qubits
     if op1.gate in _DIAG_1Q and op2.gate == Gate.CCX: return op1.qubits[0] in op2.qubits[:2]
     if op2.gate in _DIAG_1Q and op1.gate == Gate.CCX: return op2.qubits[0] in op1.qubits[:2]
-    # RX commutes with CCX on target
-    if op1.gate == Gate.RX and op2.gate == Gate.CCX: return op1.qubits[0] == op2.qubits[2]
-    if op2.gate == Gate.RX and op1.gate == Gate.CCX: return op2.qubits[0] == op1.qubits[2]
+    # RX/SX commute with CCX on target
+    if op1.gate in (Gate.RX, Gate.SX) and op2.gate == Gate.CCX: return op1.qubits[0] == op2.qubits[2]
+    if op2.gate in (Gate.RX, Gate.SX) and op1.gate == Gate.CCX: return op2.qubits[0] == op1.qubits[2]
     # Diagonal gates commute with each other
     if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES: return True
     return False

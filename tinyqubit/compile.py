@@ -23,7 +23,7 @@ from .report import collect_metrics, build_report
 
 # Routing basis: universal set that router understands
 # Keep SWAP so router can reason about it before expansion
-_ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
+_ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.SX, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
 
 
 def _precompile_dag(dag: DAGCircuit, t_optimal: bool = False) -> DAGCircuit:
@@ -46,6 +46,7 @@ def _realize_dag(dag: DAGCircuit, target: Target, t_optimal: bool = False, objec
     dag = fix_direction_dag(dag, target)
     dag = push_diagonals(dag)
     dag = fuse_1q_gates(dag)
+    dag = decompose(dag, target.basis_gates)  # Re-lower fused RX when basis uses SX
     dag = optimize(dag, basis=target.basis_gates)
     dag._tracker = tracker
     return dag
