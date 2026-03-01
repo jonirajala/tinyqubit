@@ -1,10 +1,13 @@
-"""Hardware backend adapters: IBM, AWS Braket."""
+"""Hardware backend adapters: IBM Quantum, AWS Braket."""
 from __future__ import annotations
 
-from .ibm import submit_to_ibm, get_ibm_results
+from .ibm_native import submit_ibm, wait_ibm, list_ibm_backends, ibm_target, IBMJob
 from .braket import submit_to_braket, get_braket_results
 
-__all__ = ["submit_to_ibm", "get_ibm_results", "submit_to_braket", "get_braket_results"]
+__all__ = [
+    "submit_ibm", "wait_ibm", "list_ibm_backends", "ibm_target", "IBMJob",
+    "submit_to_braket", "get_braket_results",
+]
 
 
 def _normalize_counts(counts: dict[str, int], n_qubits: int, reverse_bits: bool = False, tracker=None) -> dict[str, int]:

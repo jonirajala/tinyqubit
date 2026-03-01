@@ -4,10 +4,11 @@ TinyQubit - A tiny quantum circuit compiler
 
 from .ir import Circuit, Gate, Operation, Parameter
 from .dag import DAGCircuit, commutes
-from .target import Target, validate, IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IBM_TORINO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
+from .target import Target, validate, IBM_EAGLE_R3, IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IBM_TORINO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
 from .compile import transpile, precompile, realize
 from .simulator import simulate, simulate_batch, states_equal, sample, to_unitary, probabilities, marginal_counts, verify
-from .export import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
+from .export import to_openqasm2, to_openqasm3, UnsupportedGateError
+from .export.backends import submit_ibm, wait_ibm
 from .noise import (
     NoiseModel, depolarizing, amplitude_damping, phase_damping,
     readout_error, realistic_noise
@@ -28,6 +29,7 @@ __all__ = [
     # Compilation
     "Target",
     "validate",
+    "IBM_EAGLE_R3",
     "IBM_BRISBANE",
     "IBM_OSAKA",
     "IBM_KYOTO",
@@ -82,6 +84,7 @@ __all__ = [
     # Export
     "to_openqasm2",
     "to_openqasm3",
-    "to_qiskit",
     "UnsupportedGateError",
+    "submit_ibm",
+    "wait_ibm",
 ]

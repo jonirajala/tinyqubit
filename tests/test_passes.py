@@ -2360,9 +2360,7 @@ def test_validate_measure_reset_allowed():
 # =============================================================================
 
 @pytest.mark.parametrize("target,n,name,directed", [
-    (IBM_BRISBANE, 127, "ibm_brisbane", True),
-    (IBM_OSAKA, 127, "ibm_osaka", True),
-    (IBM_KYOTO, 127, "ibm_kyoto", True),
+    (IBM_BRISBANE, 127, "ibm_eagle_r3", True),
     (IONQ_HARMONY, 11, "ionq_harmony", False),
     (IONQ_ARIA, 25, "ionq_aria", False),
     (RIGETTI_ANKAA, 84, "rigetti_ankaa", False),
@@ -2375,7 +2373,8 @@ def test_builtin_target_properties(target, n, name, directed):
     assert target.directed == directed
 
 def test_ibm_targets_share_topology():
-    assert IBM_BRISBANE.edges == IBM_OSAKA.edges == IBM_KYOTO.edges
+    """IBM_BRISBANE/OSAKA/KYOTO/TORINO are all aliases for IBM_EAGLE_R3."""
+    assert IBM_BRISBANE is IBM_OSAKA is IBM_KYOTO
 
 def test_ibm_directed_edge():
     """IBM targets have directional CX — (1,0) is valid but (0,1) is not in edges."""

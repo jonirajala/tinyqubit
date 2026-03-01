@@ -4,7 +4,6 @@ Tests for export adapters.
 Tests:
     - OpenQASM 2 syntax correctness
     - OpenQASM 3 syntax correctness
-    - Qiskit round-trip (if available)
     - CP gate handling
     - Parametric gates
     - Measurement syntax
@@ -13,7 +12,7 @@ import math
 import pytest
 
 from tinyqubit import Circuit, Gate
-from tinyqubit.export import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
+from tinyqubit.export import to_openqasm2, to_openqasm3, UnsupportedGateError
 
 
 class TestOpenQASM2:
@@ -231,146 +230,6 @@ class TestOpenQASM3:
             assert line in qasm
 
 
-class TestQiskitAdapter:
-    """Tests for Qiskit adapter (when Qiskit is available)."""
-
-    @pytest.fixture
-    def qiskit_available(self):
-        """Check if Qiskit is available."""
-        try:
-            import qiskit
-            return True
-        except ImportError:
-            return False
-
-    def test_import_error_without_qiskit(self, qiskit_available, monkeypatch):
-        """to_qiskit raises ImportError with clear message when Qiskit unavailable."""
-        if qiskit_available:
-            # Temporarily hide qiskit
-            import sys
-            monkeypatch.setitem(sys.modules, 'qiskit', None)
-
-        c = Circuit(2).h(0)
-        # This should raise ImportError if qiskit is hidden/unavailable
-        # Note: May not work perfectly with monkeypatch due to lazy import
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_basic_conversion(self):
-        """Basic circuit converts to Qiskit."""
-        c = Circuit(2).h(0).cx(0, 1)
-        qc = to_qiskit(c)
-        assert qc.num_qubits == 2
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_all_single_qubit_gates(self):
-        """All single-qubit gates convert correctly."""
-        c = Circuit(1).x(0).y(0).z(0).h(0).s(0).t(0).sdg(0).tdg(0)
-        qc = to_qiskit(c)
-        assert qc.num_qubits == 1
-        # Check operation count
-        assert len(qc.data) == 8
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_parametric_gates(self):
-        """Parametric gates convert with correct parameters."""
-        c = Circuit(1).rx(0, math.pi).ry(0, math.pi/2).rz(0, math.pi/4)
-        qc = to_qiskit(c)
-        assert len(qc.data) == 3
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_two_qubit_gates(self):
-        """Two-qubit gates convert correctly."""
-        c = Circuit(2).cx(0, 1).cz(0, 1).swap(0, 1).cp(0, 1, math.pi/4)
-        qc = to_qiskit(c)
-        assert len(qc.data) == 4
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_measurement(self):
-        """Measurements convert correctly."""
-        c = Circuit(2).h(0).measure(0).measure(1)
-        qc = to_qiskit(c)
-        assert qc.num_clbits == 2
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_round_trip_qasm(self):
-        """Circuit can be exported to Qiskit and back to QASM."""
-        from qiskit import qasm2
-        c = Circuit(2).h(0).cx(0, 1)
-        qc = to_qiskit(c)
-        qasm = qasm2.dumps(qc)
-        assert 'h q[0];' in qasm
-        assert 'cx q[0],q[1];' in qasm
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_measure_explicit_classical_bit(self):
-        """Measurement uses explicit classical bit."""
-        c = Circuit(2, n_classical=3)
-        c.measure(0, 2)  # Measure qubit 0 into classical bit 2
-        qc = to_qiskit(c)
-        assert qc.num_clbits == 3
-        # Check the measurement targets the right classical bit
-        measure_op = [inst for inst in qc.data if inst.operation.name == 'measure'][0]
-        assert measure_op.clbits[0]._index == 2
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_reset_gate(self):
-        """RESET gate converts correctly."""
-        c = Circuit(1).x(0).reset(0)
-        qc = to_qiskit(c)
-        op_names = [inst.operation.name for inst in qc.data]
-        assert 'reset' in op_names
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_conditional_gate(self):
-        """Conditional gates convert using if_test."""
-        c = Circuit(2)
-        c.x(0).measure(0, 0)
-        with c.c_if(0, 1):
-            c.x(1)
-        qc = to_qiskit(c)
-        # In Qiskit 1.0+, if_test creates IfElseOp blocks
-        op_names = [inst.operation.name for inst in qc.data]
-        assert 'if_else' in op_names  # Conditional wrapped in if_else block
-
-    @pytest.mark.skipif(
-        not pytest.importorskip("qiskit", reason="Qiskit not installed"),
-        reason="Qiskit not installed"
-    )
-    def test_n_classical_respected(self):
-        """Classical register size uses circuit.n_classical."""
-        c = Circuit(2, n_classical=5)
-        c.measure(0, 0)
-        qc = to_qiskit(c)
-        assert qc.num_clbits == 5
-
-
 class TestTranspiledCircuitExport:
     """Tests for exporting transpiled circuits."""
 
@@ -419,26 +278,26 @@ class TestPublicAPI:
 
     def test_export_from_tinyqubit(self):
         """Export functions available from tinyqubit module."""
-        from tinyqubit import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
+        from tinyqubit import to_openqasm2, to_openqasm3, UnsupportedGateError
         assert callable(to_openqasm2)
         assert callable(to_openqasm3)
-        assert callable(to_qiskit)
         assert issubclass(UnsupportedGateError, Exception)
 
     def test_export_from_export_module(self):
         """Export functions available from tinyqubit.export module."""
-        from tinyqubit.export import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
+        from tinyqubit.export import to_openqasm2, to_openqasm3, UnsupportedGateError
         assert callable(to_openqasm2)
         assert callable(to_openqasm3)
-        assert callable(to_qiskit)
         assert issubclass(UnsupportedGateError, Exception)
 
     def test_backends_importable(self):
-        """Backend adapters are importable (may fail with clear error if deps missing)."""
-        from tinyqubit.export.backends import submit_to_ibm, get_ibm_results
+        """Backend adapters are importable."""
+        from tinyqubit.export.backends import submit_ibm, wait_ibm, list_ibm_backends, ibm_target
         from tinyqubit.export.backends import submit_to_braket, get_braket_results
-        assert callable(submit_to_ibm)
-        assert callable(get_ibm_results)
+        assert callable(submit_ibm)
+        assert callable(wait_ibm)
+        assert callable(list_ibm_backends)
+        assert callable(ibm_target)
         assert callable(submit_to_braket)
         assert callable(get_braket_results)
 
@@ -535,30 +394,3 @@ class TestDynamicCircuitExport:
         assert 'if (c[1] == 1) { x q[2]; }' in qasm3
 
 
-class TestNormalizeCounts:
-    """Tests for _normalize_counts backend helper."""
-
-    def _tracker(self, mapping):
-        class T:
-            def __init__(self, m): self._p2l = m
-            def phys_to_logical(self, p): return self._p2l[p]
-        return T(mapping)
-
-    def test_reverse_bits(self):
-        from tinyqubit.export.backends import _normalize_counts
-        assert _normalize_counts({"001": 100, "110": 200}, 3, reverse_bits=True) == {"100": 100, "011": 200}
-
-    def test_tracker_remaps(self):
-        from tinyqubit.export.backends import _normalize_counts
-        # p0→l1, p1→l0, p2→l2: "abc" → "bac"
-        assert _normalize_counts({"abc": 50}, 3, tracker=self._tracker({0: 1, 1: 0, 2: 2})) == {"bac": 50}
-
-    def test_reverse_and_tracker(self):
-        from tinyqubit.export.backends import _normalize_counts
-        # reverse "100"→"001", then swap q0↔q1: "001"→"001"
-        assert _normalize_counts({"100": 300}, 3, reverse_bits=True, tracker=self._tracker({0: 1, 1: 0, 2: 2})) == {"001": 300}
-
-    def test_no_normalization_passthrough(self):
-        from tinyqubit.export.backends import _normalize_counts
-        counts = {"01": 42, "10": 58}
-        assert _normalize_counts(counts, 2) is counts

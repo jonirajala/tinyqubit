@@ -231,10 +231,13 @@ _RIGETTI_ANKAA_EDGES = frozenset({
     (81,82), (82,83),
 })
 
-IBM_BRISBANE = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_brisbane", directed=True)
-IBM_OSAKA = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_osaka", directed=True)
-IBM_KYOTO = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_kyoto", directed=True)
-IBM_TORINO = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_HERON_BASIS, name="ibm_torino", directed=True)
+# NOTE: These are offline reference topologies for testing. Brisbane/Osaka/Kyoto are retired.
+# For live backends, use ibm_target() from tinyqubit.export.backends.ibm_native.
+IBM_EAGLE_R3 = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_eagle_r3", directed=True)
+IBM_BRISBANE = IBM_EAGLE_R3  # retired 2025-11-03
+IBM_OSAKA = IBM_EAGLE_R3     # retired 2024-08-13
+IBM_KYOTO = IBM_EAGLE_R3     # retired 2024-09-05
+IBM_TORINO = IBM_EAGLE_R3    # live but topology is stale — use ibm_target("ibm_torino") instead
 IONQ_HARMONY = Target(n_qubits=11, edges=_all_to_all(11), basis_gates=_IONQ_BASIS, name="ionq_harmony")
 IONQ_ARIA = Target(n_qubits=25, edges=_all_to_all(25), basis_gates=_IONQ_BASIS, name="ionq_aria")
 RIGETTI_ANKAA = Target(n_qubits=84, edges=_RIGETTI_ANKAA_EDGES, basis_gates=_CZ_BASIS, name="rigetti_ankaa")
