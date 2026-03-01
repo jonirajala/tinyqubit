@@ -77,6 +77,8 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
             if isinstance(p, PendingSwap): result.add_op(Operation(Gate.SWAP, (p.phys_a, p.phys_b)))
             else: result.add_op(Operation(p.gate, p.phys_qubits, p.params))
 
+    swap_budget = len(dag._ops) * 4  # prevent runaway SWAP oscillation
+    swaps_inserted = 0
     while True:
         # Front layer: gates with all dependencies satisfied
         front = sorted(nid for nid in dag._ops if in_deg.get(nid, 0) == 0 and nid not in executed)
@@ -138,6 +140,9 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
         best = min(sorted(candidates), key=lambda sw: _score_swap(sw, front, list(extended), dag, l2p, p2l, dist, decay))
         p0, p1 = best
         tracker.record_swap(p0, p1, -1)
+        swaps_inserted += 1
+        if swaps_inserted > swap_budget:
+            raise RuntimeError("SABRE routing exceeded swap budget")
 
         # Update logical <-> physical mappings after SWAP
         l0, l1 = p2l[p0], p2l[p1]

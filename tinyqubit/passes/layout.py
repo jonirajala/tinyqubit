@@ -71,10 +71,14 @@ def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None)
     for trial in range(_SABRE_TRIALS):
         # Trial 0: identity start; trials 1+: random initial layout
         init = None if trial == 0 else random.Random(trial).sample(range(target.n_qubits), dag.n_qubits)
-        fwd = route(dag, target, initial_layout=init, objective=objective)
-        rev = route(rev_dag, target, initial_layout=fwd._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
-        layout = rev._tracker.logical_to_physical[:dag.n_qubits]
-        n_swaps = sum(1 for op in route(dag, target, initial_layout=layout, objective=objective).topological_ops() if op.gate == Gate.SWAP)
+        try:
+            fwd = route(dag, target, initial_layout=init, objective=objective)
+            rev = route(rev_dag, target, initial_layout=fwd._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
+            layout = rev._tracker.logical_to_physical[:dag.n_qubits]
+            scored = route(dag, target, initial_layout=layout, objective=objective)
+        except RuntimeError:
+            continue  # skip trials where router oscillates
+        n_swaps = sum(1 for op in scored.topological_ops() if op.gate == Gate.SWAP)
         if n_swaps < best_swaps:
             best_swaps, best_layout = n_swaps, layout
 
