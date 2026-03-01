@@ -5,7 +5,7 @@ TinyQubit - A tiny quantum circuit compiler
 from .ir import Circuit, Gate, Operation, Parameter
 from .dag import DAGCircuit, commutes
 from .target import Target
-from .compile import transpile
+from .compile import transpile, precompile, realize
 from .simulator import simulate, simulate_batch, states_equal, sample, to_unitary, probabilities, marginal_counts, verify
 from .export import to_openqasm2, to_openqasm3, to_qiskit, UnsupportedGateError
 from .noise import (
@@ -28,6 +28,8 @@ __all__ = [
     # Compilation
     "Target",
     "transpile",
+    "precompile",
+    "realize",
     # Simulation
     "simulate",
     "simulate_batch",

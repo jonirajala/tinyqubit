@@ -2000,3 +2000,55 @@ def test_transpile_t_optimal_flag():
     r_std = transpile(c, target)
     r_4t = transpile(c, target, t_optimal=True)
     assert len(r_4t.ops) < len(r_std.ops)
+
+
+# =============================================================================
+# Precompile / Realize Tests
+# =============================================================================
+
+_ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
+
+
+def test_precompile_decomposes_to_routing_basis():
+    from tinyqubit import precompile
+    c = Circuit(3).h(0).ccx(0, 1, 2).rz(1.0, 2)
+    result = precompile(c)
+    for op in result.ops:
+        assert op.gate in _ROUTING_BASIS, f"gate {op.gate} not in routing basis"
+
+
+def test_precompile_then_realize_equals_transpile():
+    from tinyqubit import precompile, realize, transpile
+    c = Circuit(3).h(0).cx(0, 1).cx(1, 2)
+    target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    via_transpile = transpile(c, target)
+    via_split = realize(precompile(c), target)
+    assert len(via_split.ops) == len(via_transpile.ops)
+
+
+def test_retarget_same_precompile():
+    from tinyqubit import precompile, realize
+    c = Circuit(3).h(0).cx(0, 1).cx(1, 2)
+    precompiled = precompile(c)
+    ibm = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                 basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    rigetti = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                     basis_gates=frozenset({Gate.CZ, Gate.RX, Gate.RZ}))
+    r_ibm = realize(precompiled, ibm)
+    r_rigetti = realize(precompiled, rigetti)
+    # Both should only contain their respective basis gates (+ MEASURE/RESET)
+    for op in r_ibm.ops:
+        assert op.gate in ibm.basis_gates | {Gate.MEASURE, Gate.RESET}
+    for op in r_rigetti.ops:
+        assert op.gate in rigetti.basis_gates | {Gate.MEASURE, Gate.RESET}
+
+
+def test_realize_requires_precompiled_input():
+    from tinyqubit import precompile, realize
+    c = Circuit(3).h(0).ccx(0, 1, 2)
+    target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    result = realize(precompile(c), target)
+    for op in result.ops:
+        assert op.gate in target.basis_gates | {Gate.MEASURE, Gate.RESET}
