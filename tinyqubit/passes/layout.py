@@ -58,6 +58,33 @@ def _vf2_layout(edges: set[tuple[int, int]], n_logical: int,
 _SABRE_TRIALS = 5
 
 
+def _greedy_path(start: int, adj: dict[int, set[int]]) -> list[int]:
+    """Greedy longest path from start, preferring neighbors with fewest unvisited connections."""
+    path, visited = [start], {start}
+    while True:
+        cands = [(len(adj[nb] - visited), nb) for nb in adj[path[-1]] if nb not in visited]
+        if not cands: break
+        cands.sort()
+        path.append(cands[0][1])
+        visited.add(cands[0][1])
+    return path
+
+
+def _path_seeds(target: Target, n_logical: int) -> list[list[int]]:
+    """Generate unique initial layouts from greedy paths starting at each coupling graph node."""
+    adj: dict[int, set[int]] = {i: set() for i in range(target.n_qubits)}
+    for a, b in target.edges: adj[a].add(b)
+    seen, seeds = set(), []
+    for start in range(target.n_qubits):
+        path = _greedy_path(start, adj)
+        layout = (path + [q for q in range(target.n_qubits) if q not in set(path)])[:n_logical]
+        key = tuple(layout)
+        if key not in seen:
+            seen.add(key)
+            seeds.append(layout)
+    return seeds
+
+
 def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int]:
     """Multi-trial forward-backward routing to find a good initial layout."""
     import random
@@ -67,17 +94,18 @@ def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None)
     rev_dag = DAGCircuit(dag.n_qubits, dag.n_classical)
     for op in reversed(dag.topological_ops()): rev_dag.add_op(op)
 
+    seeds = [None] + [random.Random(t).sample(range(target.n_qubits), dag.n_qubits) for t in range(1, _SABRE_TRIALS)]
+    seeds.extend(_path_seeds(target, dag.n_qubits))
+
     best_layout, best_swaps = None, float('inf')
-    for trial in range(_SABRE_TRIALS):
-        # Trial 0: identity start; trials 1+: random initial layout
-        init = None if trial == 0 else random.Random(trial).sample(range(target.n_qubits), dag.n_qubits)
+    for init in seeds:
         try:
             fwd = route(dag, target, initial_layout=init, objective=objective)
             rev = route(rev_dag, target, initial_layout=fwd._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
             layout = rev._tracker.logical_to_physical[:dag.n_qubits]
             scored = route(dag, target, initial_layout=layout, objective=objective)
         except RuntimeError:
-            continue  # skip trials where router oscillates
+            continue
         n_swaps = sum(1 for op in scored.topological_ops() if op.gate == Gate.SWAP)
         if n_swaps < best_swaps:
             best_swaps, best_layout = n_swaps, layout
