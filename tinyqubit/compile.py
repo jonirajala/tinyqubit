@@ -23,7 +23,7 @@ from .target import Target
 from .passes.route import route
 from .passes.layout import select_layout
 from .passes.decompose import decompose
-from .passes.fuse import fuse_1q_gates
+from .passes.fuse import fuse_1q_gates, fuse_2q_blocks
 from .passes.optimize import optimize
 from .passes.push_diagonals import push_diagonals
 from .report import collect_metrics, build_report
@@ -78,6 +78,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
     # Phase 3: Post-routing - decompose to target basis, optimize
     dag = decompose(dag, target.basis_gates)
     track(dag, "decompose2")
+    dag = fuse_2q_blocks(dag)
     dag = push_diagonals(dag)
     dag = fuse_1q_gates(dag)
     dag = optimize(dag, basis=target.basis_gates)

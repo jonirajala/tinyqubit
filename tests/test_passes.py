@@ -1654,3 +1654,150 @@ def test_target_all_pairs_distances_disconnected():
     assert dist[0][3] == -1
     assert dist[1][2] == -1
     assert dist[1][3] == -1
+
+
+# =============================================================================
+# 2Q Block Fusion (KAK) Tests
+# =============================================================================
+
+from tinyqubit.passes.fuse import fuse_2q_blocks
+
+
+def test_fuse_2q_swap_reduces_cx():
+    """SWAP (3 CX) should fuse to ≤3 CX."""
+    c = Circuit(2).swap(0, 1)
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+    fused = fuse_2q_blocks(dec)
+
+    cx_before = sum(1 for op in dec.ops if op.gate == Gate.CX)
+    cx_after = sum(1 for op in fused.ops if op.gate == Gate.CX)
+    assert cx_before == 3
+    assert cx_after <= 3
+
+
+def test_fuse_2q_double_cx_cancels():
+    """CX CX = identity, should fuse to 0 CX."""
+    c = Circuit(2).cx(0, 1).cx(0, 1)
+    fused = fuse_2q_blocks(c)
+
+    cx_count = sum(1 for op in fused.ops if op.gate == Gate.CX)
+    assert cx_count == 0
+
+
+def test_fuse_2q_preserves_semantics_bell():
+    """Fusing a decomposed Bell circuit preserves statevector."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(2).h(0).cx(0, 1)
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    dec = decompose(c, basis)
+    fused = fuse_2q_blocks(dec)
+
+    state_orig, _ = simulate(c)
+    state_fused, _ = simulate(fused)
+    assert states_equal(state_orig, state_fused)
+
+
+def test_fuse_2q_preserves_semantics_swap():
+    """Fusing decomposed SWAP preserves statevector."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c_orig = Circuit(2).h(0).swap(0, 1)
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    dec = decompose(c_orig, basis)
+    fused = fuse_2q_blocks(dec)
+
+    state_orig, _ = simulate(c_orig)
+    state_fused, _ = simulate(fused)
+    assert states_equal(state_orig, state_fused)
+
+
+def test_fuse_2q_cx_rz_cx_reduces():
+    """CX RZ CX pattern should reduce CX count."""
+    c = Circuit(2).cx(0, 1).rz(0, 0.5).cx(0, 1)
+    fused = fuse_2q_blocks(c)
+
+    cx_before = sum(1 for op in c.ops if op.gate == Gate.CX)
+    cx_after = sum(1 for op in fused.ops if op.gate == Gate.CX)
+    assert cx_after < cx_before
+
+
+def test_fuse_2q_cx_rz_cx_preserves_semantics():
+    """CX RZ CX fusion preserves statevector."""
+    from tinyqubit.simulator import simulate, states_equal
+
+    c = Circuit(2).h(0).cx(0, 1).rz(0, 0.5).cx(0, 1)
+    fused = fuse_2q_blocks(c)
+
+    state_orig, _ = simulate(c)
+    state_fused, _ = simulate(fused)
+    assert states_equal(state_orig, state_fused)
+
+
+def test_fuse_2q_single_cx_unchanged():
+    """Single CX (already optimal) should not grow."""
+    c = Circuit(2).cx(0, 1)
+    fused = fuse_2q_blocks(c)
+
+    cx_count = sum(1 for op in fused.ops if op.gate == Gate.CX)
+    assert cx_count <= 1
+
+
+def test_fuse_2q_stops_at_measure():
+    """Fusion stops at MEASURE barrier."""
+    c = Circuit(2)
+    c.cx(0, 1).cx(0, 1)
+    c.measure(0, 0)
+    c.cx(0, 1).cx(0, 1)
+    fused = fuse_2q_blocks(c)
+
+    measure_ops = [op for op in fused.ops if op.gate == Gate.MEASURE]
+    assert len(measure_ops) == 1
+
+
+def test_fuse_2q_empty_circuit():
+    """Empty circuit stays empty."""
+    c = Circuit(2)
+    fused = fuse_2q_blocks(c)
+    assert len(fused.ops) == 0
+
+
+def test_fuse_2q_only_1q_gates():
+    """Circuit with only 1Q gates is unchanged."""
+    c = Circuit(2).h(0).x(1).rz(0, 0.5)
+    fused = fuse_2q_blocks(c)
+    assert len(fused.ops) == 3
+
+
+def test_fuse_2q_accepts_dag():
+    """fuse_2q_blocks accepts DAGCircuit input."""
+    from tinyqubit.dag import DAGCircuit
+    c = Circuit(2).cx(0, 1).cx(0, 1)
+    dag = DAGCircuit.from_circuit(c)
+    result = fuse_2q_blocks(dag)
+    assert isinstance(result, DAGCircuit)
+
+
+def test_fuse_2q_three_cx_for_two_cx_unitary():
+    """Unitary needing 2 CX uses 3-CX formula (still correct)."""
+    from tinyqubit.simulator import simulate, states_equal
+    # CX · RZ · RZ · CX: KAK gives ncx=2, synthesized via 3-CX path
+    c = Circuit(2).h(0).cx(0, 1).rz(0, 0.3).rz(1, 0.7).cx(0, 1)
+    fused = fuse_2q_blocks(c)
+    state_orig, _ = simulate(c)
+    state_fused, _ = simulate(fused)
+    assert states_equal(state_orig, state_fused)
+
+
+def test_fuse_2q_skips_parametric():
+    """Block with Parameter values is left unchanged."""
+    from tinyqubit.ir import Parameter
+    c = Circuit(2)
+    c.cx(0, 1)
+    c.rz(0, Parameter("theta"))
+    c.cx(0, 1)
+    fused = fuse_2q_blocks(c)
+    # Should be unchanged — 3 ops
+    assert len(fused.ops) == 3
+    assert sum(1 for op in fused.ops if op.gate == Gate.CX) == 2
