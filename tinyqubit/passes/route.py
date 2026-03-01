@@ -8,7 +8,7 @@ from ..tracker import QubitTracker, PendingSwap
 
 def _score_swap(swap: tuple[int, int], front: list[int], extended: list[int],
                 dag: DAGCircuit, l2p: list[int], p2l: list[int],
-                dist: list[list[int]], decay: list[list[float]]) -> float:
+                dist: list[list[int | float]], decay: list[list[float]]) -> float:
     """Score a SWAP candidate. Lower is better."""
     p0, p1 = swap
     new_l2p = l2p.copy()
@@ -20,11 +20,11 @@ def _score_swap(swap: tuple[int, int], front: list[int], extended: list[int],
         op = dag.op(nid)
         if op.gate.n_qubits == 2:
             d = dist[new_l2p[op.qubits[0]]][new_l2p[op.qubits[1]]]
-            if d >= 0: score += weight * d
+            if 0 <= d < float('inf'): score += weight * d
     return score
 
 
-def route(inp, target: Target, initial_layout: list[int] | None = None):
+def route(inp, target: Target, initial_layout: list[int] | None = None, objective: str | None = None):
     """Route circuit using SABRE algorithm. Accepts Circuit or DAGCircuit.
 
     SABRE processes gates in dependency order, inserting SWAPs when 2Q gates
@@ -55,7 +55,7 @@ def route(inp, target: Target, initial_layout: list[int] | None = None):
     # Track in-degrees separately (we read from dag without modifying it)
     in_deg = {nid: len(dag.predecessors(nid)) for nid in dag._ops}
     executed: set[int] = set()
-    dist = target.all_pairs_distances()
+    dist = target.all_pairs_error_costs() if objective == "error" else target.all_pairs_distances()
     n = target.n_qubits
     decay = [[0.0] * n for _ in range(n)]
     if initial_layout is not None:
@@ -113,7 +113,7 @@ def route(inp, target: Target, initial_layout: list[int] | None = None):
             op = dag.op(nid)
             if op.gate.n_qubits == 2:
                 pa, pb = l2p[op.qubits[0]], l2p[op.qubits[1]]
-                if dist[pa][pb] < 0:
+                if dist[pa][pb] < 0 or dist[pa][pb] == float('inf'):
                     raise ValueError(f"No path between qubits {pa} and {pb} - disconnected topology")
 
         # Extended set: future gates for lookahead scoring

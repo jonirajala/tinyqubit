@@ -2052,3 +2052,102 @@ def test_realize_requires_precompiled_input():
     result = realize(precompile(c), target)
     for op in result.ops:
         assert op.gate in target.basis_gates | {Gate.MEASURE, Gate.RESET}
+
+
+# =============================================================================
+# Error-based routing (Target cost model)
+# =============================================================================
+
+def test_target_edge_error_validation():
+    """edge_error must cover all edges exactly."""
+    edges = frozenset({(0, 1), (1, 2)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    # Missing edge (1,2)
+    with pytest.raises(ValueError, match="edge_error must match edges exactly"):
+        Target(n_qubits=3, edges=edges, basis_gates=basis,
+               edge_error={(0, 1): 0.01})
+    # Reversed key order should still work
+    Target(n_qubits=3, edges=edges, basis_gates=basis,
+           edge_error={(1, 0): 0.01, (2, 1): 0.02})
+
+
+def test_target_all_pairs_error_costs():
+    """Floyd-Warshall computes correct error-weighted shortest paths."""
+    # Triangle: 0-1 (0.1), 1-2 (0.2), 0-2 (0.5)
+    # Path 0->2 direct = 0.5, via 1 = 0.1+0.2 = 0.3 (shorter)
+    t = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2), (0, 2)}),
+               basis_gates=frozenset({Gate.CX, Gate.RZ}),
+               edge_error={(0, 1): 0.1, (1, 2): 0.2, (0, 2): 0.5})
+    dist = t.all_pairs_error_costs()
+    assert dist[0][0] == 0.0
+    assert dist[0][1] == 0.1
+    assert dist[1][2] == 0.2
+    assert abs(dist[0][2] - 0.3) < 1e-12  # via 1, not direct
+
+
+def test_error_routing_prefers_low_error():
+    """Diamond topology: router picks low-error 2-hop path over high-error 1-hop."""
+    #   0
+    #  / \        0-1: 0.01, 1-3: 0.01 (total 0.02)
+    # 1   2       0-2: 0.9,  2-3: 0.9  (total 1.8)
+    #  \ /        0-3: not direct
+    #   3
+    edges = frozenset({(0, 1), (0, 2), (1, 3), (2, 3)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    error = {(0, 1): 0.01, (0, 2): 0.9, (1, 3): 0.01, (2, 3): 0.9}
+    t_err = Target(n_qubits=4, edges=edges, basis_gates=basis, edge_error=error)
+    t_hop = Target(n_qubits=4, edges=edges, basis_gates=basis)
+
+    c = Circuit(4).cx(0, 3)  # needs routing: 0 and 3 not adjacent
+    r_err = route(c, t_err, objective="error")
+    r_hop = route(c, t_hop)
+
+    err_swaps = [(op.qubits[0], op.qubits[1]) for op in r_err.ops if op.gate == Gate.SWAP]
+    # Error routing should avoid high-error edges (0-2, 2-3)
+    for sq in err_swaps:
+        assert not (set(sq) == {0, 2} or set(sq) == {2, 3}), "Error routing used high-error edge"
+
+
+def test_expected_error():
+    """expected_error sums 2Q gate errors correctly."""
+    edges = frozenset({(0, 1), (1, 2)})
+    t = Target(n_qubits=3, edges=edges, basis_gates=frozenset({Gate.CX, Gate.RZ}),
+               edge_error={(0, 1): 0.05, (1, 2): 0.1})
+    c = Circuit(3).cx(0, 1).cx(1, 2).cx(0, 1)
+    assert abs(t.expected_error(c) - 0.2) < 1e-12  # 0.05 + 0.1 + 0.05
+
+
+def test_virtual_gates_excluded_from_error():
+    """Gates in virtual_gates are excluded from expected_error."""
+    edges = frozenset({(0, 1), (1, 2)})
+    t = Target(n_qubits=3, edges=edges, basis_gates=frozenset({Gate.CX, Gate.CZ, Gate.RZ}),
+               edge_error={(0, 1): 0.05, (1, 2): 0.1},
+               virtual_gates=frozenset({Gate.CZ}))
+    c = Circuit(3).cx(0, 1).cz(1, 2)
+    assert abs(t.expected_error(c) - 0.05) < 1e-12  # CZ excluded
+
+
+def test_objective_none_preserves_behavior():
+    """Default objective=None gives same result as before (hop-based)."""
+    from conftest import line_topology
+    edges = line_topology(5)
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    t = Target(n_qubits=5, edges=edges, basis_gates=basis)
+    c = Circuit(5).cx(0, 4)
+    r_default = route(c, t)
+    r_none = route(c, t, objective=None)
+    assert [op.gate for op in r_default.ops] == [op.gate for op in r_none.ops]
+    assert [op.qubits for op in r_default.ops] == [op.qubits for op in r_none.ops]
+
+
+def test_transpile_objective_error():
+    """End-to-end transpile with objective='error' produces valid circuit."""
+    from tinyqubit import transpile
+    edges = frozenset({(0, 1), (1, 2), (2, 3)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    error = {(0, 1): 0.01, (1, 2): 0.05, (2, 3): 0.01}
+    t = Target(n_qubits=4, edges=edges, basis_gates=basis, edge_error=error)
+    c = Circuit(4).h(0).cx(0, 1).cx(1, 2).cx(2, 3)
+    result = transpile(c, t, objective="error")
+    for op in result.ops:
+        assert op.gate in basis | {Gate.MEASURE, Gate.RESET}

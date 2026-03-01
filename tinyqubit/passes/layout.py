@@ -55,7 +55,7 @@ def _vf2_layout(edges: set[tuple[int, int]], n_logical: int,
     return layout
 
 
-def _sabre_layout(dag: DAGCircuit, target: Target) -> list[int]:
+def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int]:
     """Forward-backward routing to find a good initial layout.
 
     Uses forward routing to get an end-state layout, then backward routing
@@ -69,20 +69,20 @@ def _sabre_layout(dag: DAGCircuit, target: Target) -> list[int]:
     for op in reversed(dag.topological_ops()): rev_dag.add_op(op)
 
     # Trial 0: standard forward-backward
-    fwd = route(dag, target)
+    fwd = route(dag, target, objective=objective)
     fwd_layout = fwd._tracker.logical_to_physical[:dag.n_qubits]
-    result = route(rev_dag, target, initial_layout=fwd_layout)
+    result = route(rev_dag, target, initial_layout=fwd_layout, objective=objective)
     best_layout = result._tracker.logical_to_physical[:dag.n_qubits]
 
     # Extra iterations only for small circuits where routing is cheap
     if len(dag._ops) <= 20:
-        best_swaps = sum(1 for op in route(dag, target, initial_layout=best_layout).topological_ops() if op.gate == Gate.SWAP)
+        best_swaps = sum(1 for op in route(dag, target, initial_layout=best_layout, objective=objective).topological_ops() if op.gate == Gate.SWAP)
         for _ in range(2):
-            seed = route(rev_dag, target, initial_layout=best_layout)
-            fwd2 = route(dag, target, initial_layout=seed._tracker.logical_to_physical[:dag.n_qubits])
-            rev2 = route(rev_dag, target, initial_layout=fwd2._tracker.logical_to_physical[:dag.n_qubits])
+            seed = route(rev_dag, target, initial_layout=best_layout, objective=objective)
+            fwd2 = route(dag, target, initial_layout=seed._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
+            rev2 = route(rev_dag, target, initial_layout=fwd2._tracker.logical_to_physical[:dag.n_qubits], objective=objective)
             layout = rev2._tracker.logical_to_physical[:dag.n_qubits]
-            n_swaps = sum(1 for op in route(dag, target, initial_layout=layout).topological_ops() if op.gate == Gate.SWAP)
+            n_swaps = sum(1 for op in route(dag, target, initial_layout=layout, objective=objective).topological_ops() if op.gate == Gate.SWAP)
             if n_swaps < best_swaps:
                 best_swaps = n_swaps
                 best_layout = layout
@@ -90,7 +90,7 @@ def _sabre_layout(dag: DAGCircuit, target: Target) -> list[int]:
     return best_layout
 
 
-def select_layout(dag: DAGCircuit, target: Target) -> list[int] | None:
+def select_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int] | None:
     """Select initial qubit layout. Returns layout or None for identity."""
     if target.is_all_to_all() or not dag._ops:
         return None
@@ -110,6 +110,6 @@ def select_layout(dag: DAGCircuit, target: Target) -> list[int] | None:
     n = dag.n_qubits
     tgt_undirected = len(target.edges) // 2
     if tgt_undirected > 0 and len(edges) <= tgt_undirected * 3:
-        layout = _sabre_layout(dag, target)
+        layout = _sabre_layout(dag, target, objective=objective)
         if layout != identity: return layout
     return None

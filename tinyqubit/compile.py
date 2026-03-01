@@ -34,10 +34,10 @@ def _precompile_dag(dag: DAGCircuit, t_optimal: bool = False) -> DAGCircuit:
     return dag
 
 
-def _realize_dag(dag: DAGCircuit, target: Target, t_optimal: bool = False) -> DAGCircuit:
+def _realize_dag(dag: DAGCircuit, target: Target, t_optimal: bool = False, objective: str | None = None) -> DAGCircuit:
     """Target-specific: layout, route, decompose to native basis, re-optimize."""
-    layout = select_layout(dag, target)
-    dag = route(dag, target, initial_layout=layout)
+    layout = select_layout(dag, target, objective=objective)
+    dag = route(dag, target, initial_layout=layout, objective=objective)
     tracker = getattr(dag, '_tracker', None)
     dag = decompose(dag, target.basis_gates, t_optimal=t_optimal)
     dag = fuse_2q_blocks(dag)
@@ -54,17 +54,17 @@ def precompile(circuit: Circuit, t_optimal: bool = False) -> Circuit:
     return _precompile_dag(dag, t_optimal).to_circuit()
 
 
-def realize(circuit: Circuit, target: Target, t_optimal: bool = False) -> Circuit:
+def realize(circuit: Circuit, target: Target, t_optimal: bool = False, objective: str | None = None) -> Circuit:
     """Target-specific lowering: route + decompose to native basis."""
     dag = DAGCircuit.from_circuit(circuit)
-    dag = _realize_dag(dag, target, t_optimal)
+    dag = _realize_dag(dag, target, t_optimal, objective=objective)
     result = dag.to_circuit()
     result._tracker = getattr(dag, '_tracker', None)
     return result
 
 
 def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict | None = None,
-              verify: bool = False, t_optimal: bool = False) -> Circuit:
+              verify: bool = False, t_optimal: bool = False, objective: str | None = None) -> Circuit:
     """
     Transpile circuit for target hardware.
 
@@ -81,7 +81,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
             Safe for compute-uncompute patterns; not exact for bare CCX/CCZ.
     """
     if cache is not None:
-        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, t_optimal)
+        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, t_optimal, objective)
         if key in cache:
             return cache[key]
     stages = [] if verbosity > 0 else None
@@ -96,7 +96,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
     dag = _precompile_dag(dag, t_optimal)
     track(dag, "precompiled")
 
-    dag = _realize_dag(dag, target, t_optimal)
+    dag = _realize_dag(dag, target, t_optimal, objective=objective)
     tracker = getattr(dag, '_tracker', None)
     track(dag, "output")
 

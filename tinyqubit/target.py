@@ -22,9 +22,12 @@ class Target:
     edges: frozenset[tuple[int, int]]
     basis_gates: frozenset[Gate]
     name: str = ""
+    edge_error: dict[tuple[int, int], float] | None = None
+    virtual_gates: frozenset[Gate] = frozenset()
     _adj: dict[int, list[int]] = field(default_factory=dict, repr=False, compare=False)
     _dist: dict[tuple[int, int], int] = field(default_factory=dict, repr=False, compare=False)
     _all_pairs: list[list[int]] | None = field(default=None, repr=False, compare=False)
+    _all_pairs_error: list[list[float]] | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
         # Validate edges
@@ -41,6 +44,12 @@ class Target:
             adj[b].append(a)
         object.__setattr__(self, '_adj', {k: sorted(set(v)) for k, v in adj.items()})
         object.__setattr__(self, '_dist', {})
+
+        if self.edge_error is not None:
+            normalized = {(min(a, b), max(a, b)) for a, b in self.edges}
+            provided = {(min(a, b), max(a, b)) for a, b in self.edge_error}
+            if provided != normalized:
+                raise ValueError(f"edge_error must match edges exactly (missing={normalized - provided}, extra={provided - normalized})")
 
     def are_connected(self, q0: int, q1: int) -> bool:
         """Check if two qubits can do a 2Q gate directly."""
@@ -114,3 +123,34 @@ class Target:
 
         object.__setattr__(self, '_all_pairs', dist)
         return dist
+
+    def all_pairs_error_costs(self) -> list[list[float]]:
+        """All-pairs shortest paths weighted by edge_error. Cached."""
+        if self._all_pairs_error is not None:
+            return self._all_pairs_error
+        if self.edge_error is None:
+            raise ValueError("edge_error not set on this target")
+
+        n = self.n_qubits
+        INF = float('inf')
+        dist = [[INF] * n for _ in range(n)]
+        for i in range(n):
+            dist[i][i] = 0.0
+        for (a, b), err in self.edge_error.items():
+            dist[a][b] = dist[b][a] = err
+
+        for k in range(n):
+            for i in range(n):
+                for j in range(n):
+                    if dist[i][k] + dist[k][j] < dist[i][j]:
+                        dist[i][j] = dist[i][k] + dist[k][j]
+
+        object.__setattr__(self, '_all_pairs_error', dist)
+        return dist
+
+    def expected_error(self, circuit) -> float:
+        """Sum of edge_error for 2Q gates not in virtual_gates."""
+        if self.edge_error is None:
+            raise ValueError("edge_error not set on this target")
+        return sum(self.edge_error.get((min(op.qubits), max(op.qubits)), 0.0)
+                   for op in circuit.ops if op.gate.n_qubits == 2 and op.gate not in self.virtual_gates)
