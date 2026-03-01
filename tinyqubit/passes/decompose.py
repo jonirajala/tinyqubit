@@ -154,6 +154,34 @@ def _decompose_ccz(a: int, b: int, c: int) -> list[Operation]:
     ]
 
 
+def _decompose_ccx_4t(c1: int, c2: int, t: int) -> list[Operation]:
+    """Relative-phase CCX: 4 CX + 2H + 2T + 2TDG = 10 gates, 4 T-count."""
+    return [
+        Operation(Gate.H, (t,)),
+        Operation(Gate.CX, (c2, t)),  Operation(Gate.TDG, (t,)),
+        Operation(Gate.CX, (c1, t)),  Operation(Gate.T, (t,)),
+        Operation(Gate.CX, (c2, t)),  Operation(Gate.TDG, (t,)),
+        Operation(Gate.CX, (c1, t)),  Operation(Gate.T, (t,)),
+        Operation(Gate.H, (t,)),
+    ]
+
+
+def _decompose_ccz_4t(a: int, b: int, c: int) -> list[Operation]:
+    """Relative-phase CCZ: 4 CX + 2T + 2TDG = 8 gates, 4 T-count."""
+    return [
+        Operation(Gate.CX, (b, c)),  Operation(Gate.TDG, (c,)),
+        Operation(Gate.CX, (a, c)),  Operation(Gate.T, (c,)),
+        Operation(Gate.CX, (b, c)),  Operation(Gate.TDG, (c,)),
+        Operation(Gate.CX, (a, c)),  Operation(Gate.T, (c,)),
+    ]
+
+
+_T_OPTIMAL_OVERRIDES = {
+    Gate.CCX: lambda qs, ps: _decompose_ccx_4t(qs[0], qs[1], qs[2]),
+    Gate.CCZ: lambda qs, ps: _decompose_ccz_4t(qs[0], qs[1], qs[2]),
+}
+
+
 # Decomposition rules: gate -> function(qubits, params) -> list[Operation]
 # Note: CX is treated as primitive. CZ decomposes to CX.
 # For CZ-native backends (Rigetti, Google), use DECOMPOSITIONS_CZ_NATIVE instead.
@@ -182,9 +210,11 @@ DECOMPOSITIONS_CZ_NATIVE = {
 }
 
 
-def _decompose_ops(ops: list[Operation], basis: frozenset[Gate]) -> list[Operation]:
+def _decompose_ops(ops: list[Operation], basis: frozenset[Gate], t_optimal: bool = False) -> list[Operation]:
     """Core decomposition logic on a flat op list."""
     rules = DECOMPOSITIONS_CZ_NATIVE if (Gate.CZ in basis and Gate.CX not in basis) else DECOMPOSITIONS
+    if t_optimal:
+        rules = {**rules, **_T_OPTIMAL_OVERRIDES}
     changed = True
     while changed:
         changed, new_ops = False, []
@@ -205,14 +235,14 @@ def _decompose_ops(ops: list[Operation], basis: frozenset[Gate]) -> list[Operati
     return ops
 
 
-def decompose(inp, basis: frozenset[Gate]):
+def decompose(inp, basis: frozenset[Gate], t_optimal: bool = False):
     """Decompose non-basis gates. Accepts Circuit or DAGCircuit, returns same type."""
     from_circuit = isinstance(inp, Circuit)
     if from_circuit:
         dag = DAGCircuit.from_circuit(inp)
     else:
         dag = inp
-    ops = _decompose_ops(list(dag.topological_ops()), basis)
+    ops = _decompose_ops(list(dag.topological_ops()), basis, t_optimal=t_optimal)
     result = DAGCircuit(dag.n_qubits, dag.n_classical)
     for op in ops: result.add_op(op)
     return result.to_circuit() if from_circuit else result

@@ -34,7 +34,7 @@ _ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.CX, Gate.CZ, Gate.SWAP, Gate.
 
 
 def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict | None = None,
-              verify: bool = False) -> Circuit:
+              verify: bool = False, t_optimal: bool = False) -> Circuit:
     """
     Transpile circuit for target hardware.
 
@@ -46,9 +46,12 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
             NOTE: cache returns the same mutable object on hits, so bind_params
             on a cached result mutates the cached entry. Intended pattern is
             "transpile once, rebind many times" on the same circuit object.
+        verify: If True, check equivalence between input and output circuits
+        t_optimal: If True, use relative-phase Toffoli (4T instead of 7T).
+            Safe for compute-uncompute patterns; not exact for bare CCX/CCZ.
     """
     if cache is not None:
-        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates)
+        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, t_optimal)
         if key in cache:
             return cache[key]
     stages = [] if verbosity > 0 else None
@@ -61,7 +64,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
     track(dag, "input")
 
     # Phase 1: Pre-routing - decompose to routing primitives, optimize
-    dag = decompose(dag, _ROUTING_BASIS)
+    dag = decompose(dag, _ROUTING_BASIS, t_optimal=t_optimal)
     track(dag, "decompose1")
     dag = push_diagonals(dag)
     dag = fuse_1q_gates(dag)
@@ -77,7 +80,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
     track(dag, "route")
 
     # Phase 3: Post-routing - decompose to target basis, optimize
-    dag = decompose(dag, target.basis_gates)
+    dag = decompose(dag, target.basis_gates, t_optimal=t_optimal)
     track(dag, "decompose2")
     dag = fuse_2q_blocks(dag)
     dag = push_diagonals(dag)

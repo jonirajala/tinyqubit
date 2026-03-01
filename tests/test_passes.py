@@ -9,7 +9,7 @@ from tinyqubit.target import Target
 from tinyqubit.tracker import QubitTracker
 from tinyqubit.passes.route import route
 from tinyqubit.passes.optimize import optimize
-from tinyqubit.passes.decompose import decompose
+from tinyqubit.passes.decompose import decompose, _decompose_ccx_4t, _decompose_ccz_4t
 
 from conftest import line_topology, all_to_all_topology
 
@@ -1931,3 +1931,72 @@ def test_verify_gradient_consistency():
     grad_orig = adjoint_gradient(c, Z(0), vals)
     grad_compiled = adjoint_gradient(compiled, Z(0), vals)
     assert abs(grad_orig["theta"] - grad_compiled["theta"]) < 1e-6
+
+
+# =============================================================================
+# 4T Relative-Phase Toffoli Tests
+# =============================================================================
+
+def test_decompose_ccx_4t_gate_count():
+    ops = _decompose_ccx_4t(0, 1, 2)
+    assert len(ops) == 10
+
+
+def test_decompose_ccx_4t_t_count():
+    ops = _decompose_ccx_4t(0, 1, 2)
+    t_count = sum(1 for op in ops if op.gate in (Gate.T, Gate.TDG))
+    assert t_count == 4
+
+
+def test_decompose_ccz_4t_gate_count():
+    ops = _decompose_ccz_4t(0, 1, 2)
+    assert len(ops) == 8
+
+
+def test_decompose_ccx_4t_flips_target():
+    """Flips target when both controls |1>, up to global phase."""
+    from tinyqubit.simulator import simulate
+    c = Circuit(3).x(0).x(1)
+    for op in _decompose_ccx_4t(0, 1, 2):
+        c.ops.append(op)
+    sv, _ = simulate(c)
+    assert abs(abs(sv[7]) - 1.0) < 1e-10
+
+
+def test_decompose_ccx_4t_has_relative_phase():
+    """RCCX differs from exact CCX on superposition states."""
+    import numpy as np
+    from tinyqubit.simulator import simulate
+    c_std = Circuit(3).h(0).h(1).h(2).ccx(0, 1, 2)
+    c_4t = Circuit(3).h(0).h(1).h(2)
+    for op in _decompose_ccx_4t(0, 1, 2):
+        c_4t.ops.append(op)
+    sv_std, _ = simulate(c_std)
+    sv_4t, _ = simulate(c_4t)
+    assert not np.allclose(sv_std, sv_4t)
+
+
+def test_decompose_ccx_4t_compute_uncompute():
+    """RCCX · RCCX† = identity (phases cancel)."""
+    import numpy as np
+    from tinyqubit.simulator import simulate
+    c = Circuit(3).h(0).h(1).h(2)
+    for op in _decompose_ccx_4t(0, 1, 2):
+        c.ops.append(op)
+    # Adjoint: reverse order, swap T<->TDG (H and CX are self-inverse)
+    for op in reversed(_decompose_ccx_4t(0, 1, 2)):
+        gate = Gate.TDG if op.gate == Gate.T else (Gate.T if op.gate == Gate.TDG else op.gate)
+        c.ops.append(Operation(gate, op.qubits, op.params))
+    sv, _ = simulate(c)
+    sv_ref, _ = simulate(Circuit(3).h(0).h(1).h(2))
+    assert np.allclose(sv, sv_ref, atol=1e-10)
+
+
+def test_transpile_t_optimal_flag():
+    from tinyqubit import transpile
+    c = Circuit(3).ccx(0, 1, 2)
+    target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    r_std = transpile(c, target)
+    r_4t = transpile(c, target, t_optimal=True)
+    assert len(r_4t.ops) < len(r_std.ops)
