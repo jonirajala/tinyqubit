@@ -288,8 +288,10 @@ def verify(original: Circuit, compiled: Circuit, tracker=None, tol: float = 1e-9
         if n <= 12 and not has_nonunitary:
             U1, U2 = to_unitary(c1), to_unitary(c2)
             if tracker is not None:
-                perm = [tracker.logical_to_phys(i) for i in range(n)]
-                U2 = np.transpose(U2.reshape([2]*n + [2]*n), perm + [p + n for p in perm]).reshape(2**n, 2**n)
+                final_perm = [tracker.logical_to_phys(i) for i in range(n)]
+                initial_perm = list(tracker.initial_layout) if tracker.initial_layout else list(range(n))
+                U2 = np.transpose(U2.reshape([2]*n + [2]*n),
+                                  final_perm + [p + n for p in initial_perm]).reshape(2**n, 2**n)
             return abs(np.trace(U1.conj().T @ U2)) / (2**n) > 1 - tol
         # Statevector fallback
         s1, _ = simulate(c1)

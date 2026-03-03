@@ -1,5 +1,8 @@
-"""OpenQASM export: to_openqasm2(), to_openqasm3()"""
+"""OpenQASM export/import: to_openqasm2(), to_openqasm3(), from_openqasm2()"""
 from __future__ import annotations
+
+import re, ast, operator
+import numpy as np
 
 from ..ir import Circuit, Gate, Operation, Parameter
 
@@ -115,3 +118,103 @@ def to_openqasm3(circuit: Circuit, include_mapping: bool = True, physical_qubits
             lines.append(stmt)
 
     return '\n'.join(lines)
+
+
+# --- QASM2 Import ---
+
+_QASM_GATE_MAP = {g.name.lower(): g for g in Gate}
+_SYMMETRIC_2Q = frozenset({Gate.CZ, Gate.SWAP})
+_PARAM_OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+              ast.Div: operator.truediv, ast.USub: operator.neg}
+
+
+def _eval_param(node) -> float:
+    if isinstance(node, ast.Constant): return float(node.value)
+    if isinstance(node, ast.Name) and node.id == 'pi': return np.pi
+    if isinstance(node, ast.UnaryOp): return _PARAM_OPS[type(node.op)](_eval_param(node.operand))
+    if isinstance(node, ast.BinOp): return _PARAM_OPS[type(node.op)](_eval_param(node.left), _eval_param(node.right))
+    raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+
+
+def _parse_param(s: str) -> float:
+    try: return float(s)
+    except ValueError: return _eval_param(ast.parse(s.strip(), mode='eval').body)
+
+
+def from_openqasm2(qasm: str) -> Circuit:
+    """Parse an OpenQASM 2.0 string into a Circuit."""
+    n_qubits = n_classical = None
+    ops = []
+    in_gate_def = False
+    for line in qasm.split('\n'):
+        line = line.split('//')[0].strip()
+        if not line or line.startswith('OPENQASM') or line.startswith('include') or line.startswith('barrier'):
+            continue
+        # Skip custom gate definitions
+        if line.startswith('gate '):
+            in_gate_def = True; continue
+        if in_gate_def:
+            if '}' in line: in_gate_def = False
+            continue
+
+        m = re.match(r'qreg\s+\w+\[(\d+)\];', line)
+        if m: n_qubits = int(m.group(1)); continue
+        m = re.match(r'creg\s+\w+\[(\d+)\];', line)
+        if m: n_classical = (n_classical or 0) + int(m.group(1)); continue
+
+        # Peel off conditional prefix
+        condition = None
+        m = re.match(r'if\s*\(\s*\w+\[(\d+)\]\s*==\s*(\d+)\s*\)\s*(.*)', line)
+        if m:
+            condition = (int(m.group(1)), int(m.group(2)))
+            line = m.group(3)
+
+        # Measure
+        m = re.match(r'measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];', line)
+        if m:
+            ops.append(Operation(Gate.MEASURE, (int(m.group(1)),), (), int(m.group(2)), condition))
+            continue
+
+        # Reset
+        m = re.match(r'reset\s+\w+\[(\d+)\];', line)
+        if m:
+            ops.append(Operation(Gate.RESET, (int(m.group(1)),), (), None, condition))
+            continue
+
+        # Gate: name(params) qubits;
+        m = re.match(r'(\w+)\s*(?:\(([^)]*)\))?\s+(.+);', line)
+        if not m: continue
+        name, param_str, qubit_str = m.group(1), m.group(2), m.group(3)
+        params = tuple(_parse_param(p) for p in param_str.split(',')) if param_str else ()
+        qubits = tuple(int(x) for x in re.findall(r'\[(\d+)\]', qubit_str))
+
+        nl = name.lower()
+        if nl == 'id': continue  # identity gate — skip
+
+        # u1/u2/u3 → decompose into RZ/RY sequence (global phase ignored)
+        if nl == 'u1':
+            ops.append(Operation(Gate.RZ, qubits, (params[0],), None, condition)); continue
+        if nl == 'u2':
+            phi, lam = params
+            for g, p in [(Gate.RZ, lam), (Gate.RY, np.pi / 2), (Gate.RZ, phi)]:
+                ops.append(Operation(g, qubits, (p,), None, condition))
+            continue
+        if nl == 'u3':
+            theta, phi, lam = params
+            for g, p in [(Gate.RZ, lam), (Gate.RY, theta), (Gate.RZ, phi)]:
+                ops.append(Operation(g, qubits, (p,), None, condition))
+            continue
+
+        gate = _QASM_GATE_MAP.get(nl)
+        if gate is None: raise ValueError(f"Unknown gate: {name}")
+
+        # Canonicalize symmetric gates
+        if gate in _SYMMETRIC_2Q: qubits = (min(qubits), max(qubits))
+        elif gate == Gate.CCZ: qubits = tuple(sorted(qubits))
+
+        ops.append(Operation(gate, qubits, params, None, condition))
+
+    if n_qubits is None: raise ValueError("No qreg declaration found")
+    c = Circuit(n_qubits, n_classical if n_classical is not None else n_qubits)
+    c.ops = ops
+    return c

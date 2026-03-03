@@ -1871,11 +1871,8 @@ def test_verify_compiled():
     """Transpile result with tracker verifies as equivalent."""
     from tinyqubit.compile import transpile
 
-    target = Target(
-        n_qubits=2,
-        edges=frozenset({(0, 1)}),
-        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
-    )
+    target = Target(n_qubits=2, edges=frozenset({(0, 1)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
     c = Circuit(2).h(0).cx(0, 1)
     result = transpile(c, target)
     assert verify(c, result, tracker=result._tracker)
@@ -1883,23 +1880,59 @@ def test_verify_compiled():
 
 def test_verify_different():
     """H vs X are not equivalent."""
-    c1 = Circuit(1).h(0)
-    c2 = Circuit(1).x(0)
-    assert not verify(c1, c2)
+    assert not verify(Circuit(1).h(0), Circuit(1).x(0))
 
 
 def test_verify_with_tracker():
     """Routed circuit with qubit permutation verifies correctly."""
     from tinyqubit.compile import transpile
 
-    target = Target(
-        n_qubits=3,
-        edges=line_topology(3),
-        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}),
-    )
+    target = Target(n_qubits=3, edges=line_topology(3),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
     c = Circuit(3).h(0).cx(0, 2)
     result = transpile(c, target)
     assert verify(c, result, tracker=result._tracker)
+
+
+def test_verify_routed_divergent_perms():
+    """Verify with initial_layout != final permutation (regression for conjugation bug)."""
+    from tinyqubit.compile import transpile
+
+    target = Target(n_qubits=3, edges=line_topology(3),
+                    basis_gates=frozenset({Gate.CX, Gate.H, Gate.RZ, Gate.SX}))
+    # Multiple non-adjacent CXs force swaps that make initial and final perms diverge
+    c = Circuit(3).h(0).t(0).cx(0, 2).cx(2, 1).h(2).t(1).cx(1, 0)
+    result = transpile(c, target)
+    tracker = result._tracker
+    initial = list(tracker.initial_layout) if tracker.initial_layout else list(range(3))
+    final = [tracker.logical_to_phys(i) for i in range(3)]
+    assert initial != final, "test needs a circuit where perms actually diverge"
+    assert verify(c, result, tracker=tracker)
+
+
+def test_verify_routed_4q_line():
+    """Verify on a 4-qubit line with far-apart interactions."""
+    from tinyqubit.compile import transpile
+
+    target = Target(n_qubits=4, edges=line_topology(4),
+                    basis_gates=frozenset({Gate.CX, Gate.H, Gate.RZ, Gate.SX}))
+    c = Circuit(4).h(0).cx(0, 3).cx(3, 1).h(2).cx(2, 0).t(1).cx(1, 3)
+    result = transpile(c, target)
+    assert verify(c, result, tracker=result._tracker)
+
+
+def test_verify_wrong_tracker_fails():
+    """Verification fails when tracker doesn't match the compiled circuit."""
+    from tinyqubit.compile import transpile
+
+    target = Target(n_qubits=3, edges=line_topology(3),
+                    basis_gates=frozenset({Gate.CX, Gate.H, Gate.RZ, Gate.SX}))
+    c1 = Circuit(3).h(0).cx(0, 2)
+    c2 = Circuit(3).cx(0, 2).h(1).cx(1, 0)
+    r1 = transpile(c1, target)
+    r2 = transpile(c2, target)
+    # Cross trackers: r1's circuit with r2's tracker should fail
+    assert not verify(c1, r1, tracker=r2._tracker)
 
 
 def test_verify_parametric():
