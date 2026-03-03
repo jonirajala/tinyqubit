@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from tinyqubit import Circuit, Gate
-from tinyqubit.export import to_openqasm2, to_openqasm3, from_openqasm2, UnsupportedGateError
+from tinyqubit.export import to_openqasm2, to_openqasm3, from_openqasm2, from_openqasm3, UnsupportedGateError
 
 
 class TestOpenQASM2:
@@ -578,3 +578,120 @@ measure q[2] -> c[2];
         c = from_openqasm2(qasm)
         assert math.isclose(c.ops[0].params[0], np.pi * 0.5)
         assert math.isclose(c.ops[1].params[0], np.pi * -0.25)
+
+
+class TestOpenQASM3Import:
+    """Tests for from_openqasm3() parser."""
+
+    def test_round_trip_bell_state(self):
+        """Bell state survives QASM3 export → import round-trip."""
+        c = Circuit(2).h(0).cx(0, 1)
+        imported = from_openqasm3(to_openqasm3(c))
+        assert imported.n_qubits == 2
+        assert len(imported.ops) == len(c.ops)
+        for orig, imp in zip(c.ops, imported.ops):
+            assert orig.gate == imp.gate
+            assert orig.qubits == imp.qubits
+
+    def test_round_trip_all_1q_gates(self):
+        """All single-qubit gates round-trip through QASM3."""
+        c = Circuit(1).x(0).y(0).z(0).h(0).s(0).t(0).sdg(0).tdg(0).sx(0)
+        imported = from_openqasm3(to_openqasm3(c))
+        assert [op.gate for op in imported.ops] == [op.gate for op in c.ops]
+
+    def test_round_trip_parametric(self):
+        """Parametric gates (RX/RY/RZ) round-trip with correct params."""
+        c = Circuit(1).rx(0, math.pi).ry(0, math.pi / 2).rz(0, 0.123)
+        imported = from_openqasm3(to_openqasm3(c))
+        for orig, imp in zip(c.ops, imported.ops):
+            assert orig.gate == imp.gate
+            assert math.isclose(orig.params[0], imp.params[0])
+
+    def test_round_trip_multi_qubit(self):
+        """Multi-qubit gates including QASM3-only CP/CCZ round-trip."""
+        c = Circuit(3).cx(0, 1).cz(0, 2).swap(1, 2).cp(0, 1, math.pi / 4).ccx(0, 1, 2).ccz(0, 1, 2)
+        imported = from_openqasm3(to_openqasm3(c))
+        for orig, imp in zip(c.ops, imported.ops):
+            assert orig.gate == imp.gate
+            assert orig.qubits == imp.qubits
+
+    def test_round_trip_measure(self):
+        """QASM3 assignment-style measure round-trips."""
+        c = Circuit(2).h(0).measure(0).measure(1)
+        imported = from_openqasm3(to_openqasm3(c))
+        measures = [op for op in imported.ops if op.gate == Gate.MEASURE]
+        assert len(measures) == 2
+        assert measures[0].classical_bit == 0
+        assert measures[1].classical_bit == 1
+
+    def test_round_trip_conditional(self):
+        """QASM3 brace-style conditionals round-trip."""
+        c = Circuit(2, n_classical=2)
+        c.x(0).measure(0, 0)
+        with c.c_if(0, 1):
+            c.x(1)
+        imported = from_openqasm3(to_openqasm3(c))
+        cond_op = [op for op in imported.ops if op.condition is not None][0]
+        assert cond_op.gate == Gate.X
+        assert cond_op.condition == (0, 1)
+
+    def test_round_trip_reset(self):
+        """Reset round-trips through QASM3."""
+        c = Circuit(1).x(0).reset(0)
+        imported = from_openqasm3(to_openqasm3(c))
+        assert imported.ops[1].gate == Gate.RESET
+
+    def test_parameter_declarations(self):
+        """'input float name;' creates Parameter objects."""
+        from tinyqubit.ir import Parameter
+        qasm = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[1] q;\ninput float theta;\n\nrx(theta) q[0];'
+        c = from_openqasm3(qasm)
+        assert len(c.ops) == 1
+        assert isinstance(c.ops[0].params[0], Parameter)
+        assert c.ops[0].params[0].name == 'theta'
+
+    def test_parameterized_round_trip(self):
+        """Parameterized circuit export→import preserves Parameter objects."""
+        from tinyqubit.ir import Parameter
+        theta = Parameter('theta')
+        c = Circuit(1).rx(0, theta).ry(0, theta)
+        imported = from_openqasm3(to_openqasm3(c))
+        for op in imported.ops:
+            assert isinstance(op.params[0], Parameter)
+            assert op.params[0].name == 'theta'
+
+    def test_physical_qubits(self):
+        """$N qubit references parsed, n_qubits inferred from max."""
+        qasm = 'OPENQASM 3.0;\ninclude "stdgates.inc";\n\nh $0;\ncx $0, $3;'
+        c = from_openqasm3(qasm)
+        assert c.n_qubits == 4  # max($3) + 1
+        assert c.ops[0].gate == Gate.H
+        assert c.ops[0].qubits == (0,)
+        assert c.ops[1].qubits == (0, 3)
+
+    def test_physical_qubit_measure(self):
+        """c[0] = measure $0; parsed correctly."""
+        qasm = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nbit[1] c;\n\nc[0] = measure $0;'
+        c = from_openqasm3(qasm)
+        assert c.ops[0].gate == Gate.MEASURE
+        assert c.ops[0].qubits == (0,)
+        assert c.ops[0].classical_bit == 0
+
+    def test_custom_gate_def_skipped(self):
+        """Custom gate defs skipped, gate usage still parsed."""
+        qasm = 'OPENQASM 3.0;\ninclude "stdgates.inc";\ngate ecr a, b { rz(1.5707963267948966) a; sx a; cx a, b; x b; }\nqubit[2] q;\n\nh q[0];'
+        c = from_openqasm3(qasm)
+        assert len(c.ops) == 1
+        assert c.ops[0].gate == Gate.H
+
+    def test_symmetric_canonicalization(self):
+        """CZ and SWAP qubits are canonicalized on QASM3 import."""
+        qasm = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\n\ncz q[1], q[0];\nswap q[1], q[0];'
+        c = from_openqasm3(qasm)
+        assert c.ops[0].qubits == (0, 1)
+        assert c.ops[1].qubits == (0, 1)
+
+    def test_missing_qubit_decl_raises(self):
+        """ValueError without qubit[] or $N references."""
+        with pytest.raises(ValueError):
+            from_openqasm3('OPENQASM 3.0;\nh q[0];')

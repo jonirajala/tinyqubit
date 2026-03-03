@@ -1,4 +1,4 @@
-"""OpenQASM export/import: to_openqasm2(), to_openqasm3(), from_openqasm2()"""
+"""OpenQASM export/import: to_openqasm2(), to_openqasm3(), from_openqasm2(), from_openqasm3()"""
 from __future__ import annotations
 
 import re, ast, operator
@@ -120,7 +120,7 @@ def to_openqasm3(circuit: Circuit, include_mapping: bool = True, physical_qubits
     return '\n'.join(lines)
 
 
-# --- QASM2 Import ---
+# --- QASM Import ---
 
 _QASM_GATE_MAP = {g.name.lower(): g for g in Gate}
 _SYMMETRIC_2Q = frozenset({Gate.CZ, Gate.SWAP})
@@ -141,52 +141,94 @@ def _parse_param(s: str) -> float:
     except ValueError: return _eval_param(ast.parse(s.strip(), mode='eval').body)
 
 
-def from_openqasm2(qasm: str) -> Circuit:
-    """Parse an OpenQASM 2.0 string into a Circuit."""
+def _from_openqasm(qasm: str, v3: bool = False) -> Circuit:
+    """Unified OpenQASM 2.0/3.0 parser. v3=True enables QASM3 syntax."""
     n_qubits = n_classical = None
     ops = []
+    params_decl: list[str] = []  # QASM3 `input float name;` declarations
+    max_phys_qubit = -1  # track physical qubit refs for QASM3
     in_gate_def = False
     for line in qasm.split('\n'):
         line = line.split('//')[0].strip()
         if not line or line.startswith('OPENQASM') or line.startswith('include') or line.startswith('barrier'):
             continue
-        # Skip custom gate definitions
+        # Skip custom gate definitions (single-line or multi-line)
         if line.startswith('gate '):
-            in_gate_def = True; continue
+            if '}' not in line: in_gate_def = True
+            continue
         if in_gate_def:
             if '}' in line: in_gate_def = False
             continue
 
-        m = re.match(r'qreg\s+\w+\[(\d+)\];', line)
-        if m: n_qubits = int(m.group(1)); continue
-        m = re.match(r'creg\s+\w+\[(\d+)\];', line)
-        if m: n_classical = (n_classical or 0) + int(m.group(1)); continue
+        # Register declarations — v2 vs v3 syntax
+        if v3:
+            m = re.match(r'qubit\[(\d+)\]\s+\w+;', line)
+            if m: n_qubits = int(m.group(1)); continue
+            m = re.match(r'bit\[(\d+)\]\s+\w+;', line)
+            if m: n_classical = (n_classical or 0) + int(m.group(1)); continue
+            m = re.match(r'input\s+float\s+(\w+);', line)
+            if m: params_decl.append(m.group(1)); continue
+        else:
+            m = re.match(r'qreg\s+\w+\[(\d+)\];', line)
+            if m: n_qubits = int(m.group(1)); continue
+            m = re.match(r'creg\s+\w+\[(\d+)\];', line)
+            if m: n_classical = (n_classical or 0) + int(m.group(1)); continue
 
         # Peel off conditional prefix
         condition = None
-        m = re.match(r'if\s*\(\s*\w+\[(\d+)\]\s*==\s*(\d+)\s*\)\s*(.*)', line)
+        if v3:
+            m = re.match(r'if\s*\(\s*\w+\[(\d+)\]\s*==\s*(\d+)\s*\)\s*\{\s*(.*?)\s*\}', line)
+        else:
+            m = re.match(r'if\s*\(\s*\w+\[(\d+)\]\s*==\s*(\d+)\s*\)\s*(.*)', line)
         if m:
             condition = (int(m.group(1)), int(m.group(2)))
             line = m.group(3)
 
-        # Measure
-        m = re.match(r'measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];', line)
-        if m:
-            ops.append(Operation(Gate.MEASURE, (int(m.group(1)),), (), int(m.group(2)), condition))
-            continue
+        # Measure — v3 uses `c[dst] = measure qref;`
+        if v3:
+            m = re.match(r'\w+\[(\d+)\]\s*=\s*measure\s+(?:\$(\d+)|\w+\[(\d+)\]);', line)
+            if m:
+                q = int(m.group(2) if m.group(2) is not None else m.group(3))
+                if m.group(2) is not None: max_phys_qubit = max(max_phys_qubit, q)
+                ops.append(Operation(Gate.MEASURE, (q,), (), int(m.group(1)), condition))
+                continue
+        else:
+            m = re.match(r'measure\s+\w+\[(\d+)\]\s*->\s*\w+\[(\d+)\];', line)
+            if m:
+                ops.append(Operation(Gate.MEASURE, (int(m.group(1)),), (), int(m.group(2)), condition))
+                continue
 
-        # Reset
-        m = re.match(r'reset\s+\w+\[(\d+)\];', line)
+        # Reset — v3 regex handles both $N and q[N]
+        m = re.match(r'reset\s+(?:\$(\d+)|\w+\[(\d+)\]);', line)
         if m:
-            ops.append(Operation(Gate.RESET, (int(m.group(1)),), (), None, condition))
+            q = int(m.group(1) if m.group(1) is not None else m.group(2))
+            if v3 and m.group(1) is not None: max_phys_qubit = max(max_phys_qubit, q)
+            ops.append(Operation(Gate.RESET, (q,), (), None, condition))
             continue
 
         # Gate: name(params) qubits;
         m = re.match(r'(\w+)\s*(?:\(([^)]*)\))?\s+(.+);', line)
         if not m: continue
         name, param_str, qubit_str = m.group(1), m.group(2), m.group(3)
-        params = tuple(_parse_param(p) for p in param_str.split(',')) if param_str else ()
-        qubits = tuple(int(x) for x in re.findall(r'\[(\d+)\]', qubit_str))
+
+        # Parse params — in v3, tokens matching params_decl become Parameter objects
+        if param_str:
+            parts = []
+            for p in param_str.split(','):
+                p = p.strip()
+                if v3 and p in params_decl:
+                    parts.append(Parameter(p))
+                else:
+                    parts.append(_parse_param(p))
+            params = tuple(parts)
+        else:
+            params = ()
+
+        # Extract qubit indices — regex handles both $N and q[N]
+        qubits = tuple(int(x) for x in re.findall(r'(?:\$|[\w]+\[)(\d+)\]?', qubit_str))
+        if v3:
+            for tok in re.findall(r'\$(\d+)', qubit_str):
+                max_phys_qubit = max(max_phys_qubit, int(tok))
 
         nl = name.lower()
         if nl == 'id': continue  # identity gate — skip
@@ -214,7 +256,21 @@ def from_openqasm2(qasm: str) -> Circuit:
 
         ops.append(Operation(gate, qubits, params, None, condition))
 
-    if n_qubits is None: raise ValueError("No qreg declaration found")
+    # Infer n_qubits from physical qubit refs if no qubit[] declaration (v3 only)
+    if n_qubits is None and v3 and max_phys_qubit >= 0:
+        n_qubits = max_phys_qubit + 1
+    if n_qubits is None:
+        raise ValueError("No qreg declaration found" if not v3 else "No qubit[] declaration or physical qubit ($N) references found")
     c = Circuit(n_qubits, n_classical if n_classical is not None else n_qubits)
     c.ops = ops
     return c
+
+
+def from_openqasm2(qasm: str) -> Circuit:
+    """Parse an OpenQASM 2.0 string into a Circuit."""
+    return _from_openqasm(qasm, v3=False)
+
+
+def from_openqasm3(qasm: str) -> Circuit:
+    """Parse an OpenQASM 3.0 string into a Circuit."""
+    return _from_openqasm(qasm, v3=True)
