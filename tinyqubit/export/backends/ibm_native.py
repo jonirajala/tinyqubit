@@ -74,12 +74,34 @@ def list_ibm_backends(api_key: str | None = None, crn: str | None = None) -> lis
             for b in backends]
 
 
-def ibm_target(backend_name: str, api_key: str | None = None, crn: str | None = None):
+def _parse_edge_errors(props: dict, edges: frozenset) -> dict:
+    """Extract 2Q gate error rates from IBM properties response."""
+    edge_error: dict[tuple[int, int], float] = {}
+    for gate in props.get("gates", []):
+        if len(gate["qubits"]) != 2:
+            continue
+        a, b = gate["qubits"]
+        key = (min(a, b), max(a, b))
+        err = next((p["value"] for p in gate["parameters"] if p["name"] == "gate_error"), None)
+        if err is not None:
+            edge_error[key] = max(edge_error.get(key, 0), err)
+    # Fill missing edges with max known error (conservative — routing avoids them)
+    if edge_error:
+        fill = max(edge_error.values())
+        for a, b in edges:
+            key = (min(a, b), max(a, b))
+            if key not in edge_error:
+                edge_error[key] = fill
+    return edge_error
+
+
+def ibm_target(backend_name: str, api_key: str | None = None, crn: str | None = None, calibration: bool = False):
     """Query IBM backend config and return a tinyqubit Target with real coupling map."""
     from ...ir import Gate
     from ...target import Target
     api_key, crn = _resolve_creds(api_key, crn)
-    req = Request(f"{_IBM_CLOUD}/backends/{backend_name}/configuration", headers=_IBMAuth(api_key, crn).headers())
+    auth = _IBMAuth(api_key, crn)
+    req = Request(f"{_IBM_CLOUD}/backends/{backend_name}/configuration", headers=auth.headers())
     try:
         config = json.loads(urlopen(req).read())
     except HTTPError as e:
@@ -87,7 +109,16 @@ def ibm_target(backend_name: str, api_key: str | None = None, crn: str | None = 
         raise RuntimeError(f"Failed to get config for {backend_name} (HTTP {e.code}): {body}") from e
     basis = frozenset(Gate[g.upper()] for g in config.get("basis_gates", []) if g.upper() in Gate.__members__)
     edges = frozenset(tuple(pair) for pair in config.get("coupling_map", []))
-    return Target(n_qubits=config["n_qubits"], edges=edges, basis_gates=basis, name=backend_name, directed=True)
+    edge_error = None
+    if calibration:
+        req = Request(f"{_IBM_CLOUD}/backends/{backend_name}/properties", headers=auth.headers())
+        try:
+            props = json.loads(urlopen(req).read())
+        except HTTPError as e:
+            body = e.read().decode(errors="replace")
+            raise RuntimeError(f"Failed to get properties for {backend_name} (HTTP {e.code}): {body}") from e
+        edge_error = _parse_edge_errors(props, edges) or None
+    return Target(n_qubits=config["n_qubits"], edges=edges, basis_gates=basis, name=backend_name, directed=True, edge_error=edge_error)
 
 
 def submit_ibm(circuit, backend: str = "ibm_brisbane", shots: int = 4096,
@@ -112,7 +143,7 @@ def submit_ibm(circuit, backend: str = "ibm_brisbane", shots: int = 4096,
     return IBMJob(job_id=resp["id"], _auth=auth, backend=backend)
 
 
-def wait_ibm(job: IBMJob, timeout: float = 600, poll_interval: float = 2) -> dict[str, int]:
+def wait_ibm(job: IBMJob, timeout: float = 600, poll_interval: float = 2, n_bits: int | None = None) -> dict[str, int]:
     """Poll until job completes, return measurement counts dict."""
     deadline, interval = time.time() + timeout, poll_interval
     while True:
@@ -139,7 +170,7 @@ def wait_ibm(job: IBMJob, timeout: float = 600, poll_interval: float = 2) -> dic
     counts: dict[str, int] = {}
     if "data" in pub and "c" in pub["data"]:
         samples = pub["data"]["c"]["samples"]
-        n_bits = len(samples[0].replace("0x", "")) * 4 if samples else 0
+        n_bits = n_bits or (len(samples[0].replace("0x", "")) * 4 if samples else 0)
         for hex_val in samples:
             bits = bin(int(hex_val, 16))[2:].zfill(n_bits)
             counts[bits] = counts.get(bits, 0) + 1

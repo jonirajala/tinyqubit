@@ -45,11 +45,14 @@ if not backends:
     print("ERROR: No backends available")
     sys.exit(1)
 
-# Query real coupling map + basis gates from IBM
+# Query real coupling map + basis gates + calibration data from IBM
 backend_name = backends[0]["name"]
-print(f"\n=== Fetching target config for {backend_name} ===")
-target = ibm_target(backend_name, api_key=api_key, crn=crn)
+print(f"\n=== Fetching target config + calibration for {backend_name} ===")
+target = ibm_target(backend_name, api_key=api_key, crn=crn, calibration=True)
 print(f"  {target.n_qubits}Q, basis: {', '.join(g.name for g in target.basis_gates)}, {len(target.edges)} edges")
+if target.edge_error:
+    errs = target.edge_error.values()
+    print(f"  edge errors: min={min(errs):.5f}, max={max(errs):.5f}, {len(target.edge_error)} edges calibrated")
 
 # Build GHZ circuit
 circuit = Circuit(3).h(0).cx(0, 1).cx(1, 2).measure(0).measure(1).measure(2)
@@ -57,8 +60,8 @@ print("\n=== Logical Circuit ===")
 print(to_openqasm3(circuit))
 
 # Transpile with tinyqubit
-print(f"\n=== Compiling for {target.name} ===")
-compiled = transpile(circuit, target, verbosity=1)
+print(f"\n=== Compiling for {target.name} (error-aware routing) ===")
+compiled = transpile(circuit, target, objective="error", verbosity=1)
 
 print("\n=== Compiled Circuit (OpenQASM 3.0 — physical qubits) ===")
 print(to_openqasm3(compiled, include_mapping=False, physical_qubits=True))
@@ -71,7 +74,7 @@ print("\n=== Submitting Job ===")
 job = submit_ibm(compiled, backend=backend_name, shots=1024, api_key=api_key, crn=crn)
 print(f"Job ID: {job.job_id}\nWaiting for results...")
 
-result_counts = wait_ibm(job, timeout=600)
+result_counts = wait_ibm(job, timeout=600, n_bits=3)
 print("\n=== Results ===")
 total = sum(result_counts.values())
 for bitstring, count in sorted(result_counts.items()):
