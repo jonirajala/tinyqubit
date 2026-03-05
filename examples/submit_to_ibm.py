@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tinyqubit import Circuit, transpile, to_openqasm3, submit_ibm, wait_ibm
 from tinyqubit.export.backends.ibm_native import list_ibm_backends, ibm_target
+from tinyqubit import CompileConfig
 
 
 def _load_env() -> dict[str, str]:
@@ -54,14 +55,15 @@ if target.edge_error:
     errs = target.edge_error.values()
     print(f"  edge errors: min={min(errs):.5f}, max={max(errs):.5f}, {len(target.edge_error)} edges calibrated")
 
-# Build GHZ circuit
-circuit = Circuit(3).h(0).cx(0, 1).cx(1, 2).measure(0).measure(1).measure(2)
+# Build 5-qubit GHZ circuit (non-trivial routing on real hardware)
+circuit = Circuit(5).h(0).cx(0, 1).cx(0, 2).cx(0, 3).cx(0, 4)
+for q in range(5): circuit.measure(q)
 print("\n=== Logical Circuit ===")
 print(to_openqasm3(circuit))
 
 # Transpile with tinyqubit
 print(f"\n=== Compiling for {target.name} (error-aware routing) ===")
-compiled = transpile(circuit, target, objective="error", dd=True, verbosity=1)
+compiled = transpile(circuit, target, preset=CompileConfig(objective="error", dd=True), verbosity=1)
 
 print("\n=== Compiled Circuit (OpenQASM 3.0 — physical qubits) ===")
 print(to_openqasm3(compiled, include_mapping=False, physical_qubits=True))
@@ -74,9 +76,9 @@ print("\n=== Submitting Job ===")
 job = submit_ibm(compiled, backend=backend_name, shots=1024, api_key=api_key, crn=crn)
 print(f"Job ID: {job.job_id}\nWaiting for results...")
 
-result_counts = wait_ibm(job, timeout=600, n_bits=3)
+result_counts = wait_ibm(job, timeout=600, n_bits=5)
 print("\n=== Results ===")
 total = sum(result_counts.values())
 for bitstring, count in sorted(result_counts.items()):
     print(f"  |{bitstring}⟩: {count} ({100 * count / total:.1f}%)")
-print("\nExpected: ~50% |000⟩, ~50% |111⟩ (GHZ state)")
+print("\nExpected: ~50% |00000⟩, ~50% |11111⟩ (GHZ state)")

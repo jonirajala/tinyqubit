@@ -24,7 +24,7 @@ def _score_swap(swap: tuple[int, int], front: list[int], extended: list[int],
     return score
 
 
-def route(inp, target: Target, initial_layout: list[int] | None = None, objective: str | None = None):
+def route(inp, target: Target, initial_layout: list[int] | None = None, objective: str | None = None, lookahead_depth: int = 20):
     """Route circuit using SABRE algorithm. Accepts Circuit or DAGCircuit.
 
     SABRE processes gates in dependency order, inserting SWAPs when 2Q gates
@@ -120,7 +120,7 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
 
         # Extended set: future gates for lookahead scoring
         extended, layer = set(), set(front)
-        for _ in range(20):
+        for _ in range(lookahead_depth):
             nxt = {s for nid in layer for s in dag.successors(nid) if s not in executed and s not in extended}
             if not nxt: break
             extended |= nxt

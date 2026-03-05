@@ -30,7 +30,7 @@ print(to_openqasm3(circuit))
 # Transpile for IQM Garnet (20Q square lattice, CZ basis)
 target = IQM_GARNET
 print(f"\n=== Compiling for {target.name} ===")
-compiled = transpile(circuit, target, verbosity=1)
+compiled = transpile(circuit, target, preset="quality", verbosity=1)
 
 print("\n=== Compiled Circuit (OpenQASM 3.0) ===")
 print(to_openqasm3(compiled, include_mapping=False))

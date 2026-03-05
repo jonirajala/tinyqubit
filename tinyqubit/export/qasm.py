@@ -25,8 +25,8 @@ def _format_params(op: Operation) -> str:
     return f"({', '.join(parts)})"
 
 
-def _format_gate(op: Operation, physical_qubits: bool = False, tracker=None) -> str:
-    fmt = (lambda q: f'${tracker.logical_to_phys(q)}') if physical_qubits else (lambda q: f'q[{q}]')
+def _format_gate(op: Operation, physical_qubits: bool = False) -> str:
+    fmt = (lambda q: f'${q}') if physical_qubits else (lambda q: f'q[{q}]')
     return f'{op.gate.name.lower()}{_format_params(op)} {", ".join(fmt(q) for q in op.qubits)};'
 
 
@@ -79,11 +79,8 @@ def to_openqasm2(circuit: Circuit, include_mapping: bool = True) -> str:
 
 def to_openqasm3(circuit: Circuit, include_mapping: bool = True, physical_qubits: bool = False) -> str:
     """Export circuit to OpenQASM 3.0. physical_qubits=True emits $N references for ISA circuits."""
-    tracker = None
-    if physical_qubits:
-        if not hasattr(circuit, '_tracker') or circuit._tracker is None:
-            raise ValueError("physical_qubits=True requires a compiled circuit (use transpile() first)")
-        tracker = circuit._tracker
+    if physical_qubits and (not hasattr(circuit, '_tracker') or circuit._tracker is None):
+        raise ValueError("physical_qubits=True requires a compiled circuit (use transpile() first)")
 
     lines = ['OPENQASM 3.0;', 'include "stdgates.inc";']
     # Emit definitions for gates not in stdgates.inc
@@ -101,7 +98,7 @@ def to_openqasm3(circuit: Circuit, include_mapping: bool = True, physical_qubits
         _add_mapping(lines, circuit)
     lines.append('')
 
-    qref = (lambda q: f'${tracker.logical_to_phys(q)}') if physical_qubits else (lambda q: f'q[{q}]')
+    qref = (lambda q: f'${q}') if physical_qubits else (lambda q: f'q[{q}]')
     for op in circuit.ops:
         if op.gate == Gate.MEASURE:
             cb = op.classical_bit if op.classical_bit is not None else op.qubits[0]
@@ -109,7 +106,7 @@ def to_openqasm3(circuit: Circuit, include_mapping: bool = True, physical_qubits
         elif op.gate == Gate.RESET:
             stmt = f'reset {qref(op.qubits[0])};'
         else:
-            stmt = _format_gate(op, physical_qubits, tracker)
+            stmt = _format_gate(op, physical_qubits)
 
         if op.condition is not None:
             bit, val = op.condition

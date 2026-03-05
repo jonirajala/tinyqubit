@@ -695,3 +695,18 @@ class TestOpenQASM3Import:
         """ValueError without qubit[] or $N references."""
         with pytest.raises(ValueError):
             from_openqasm3('OPENQASM 3.0;\nh q[0];')
+
+    def test_export_physical_qubits_uses_routed_indices(self):
+        """physical_qubits=True must emit op.qubits directly (already physical after routing)."""
+        from tinyqubit import transpile, Target
+        from tinyqubit.export import to_openqasm3
+        c = Circuit(3).h(0).cx(0, 1).cx(1, 2)
+        target = Target(n_qubits=4, edges=frozenset({(0, 1), (1, 2), (2, 3)}),
+                        basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+        compiled = transpile(c, target)
+        qasm = to_openqasm3(compiled, physical_qubits=True)
+        # All $N references must be valid physical qubits on the target
+        import re
+        phys_refs = [int(m) for m in re.findall(r'\$(\d+)', qasm)]
+        for p in phys_refs:
+            assert p < target.n_qubits, f"$${p} exceeds target size {target.n_qubits}"

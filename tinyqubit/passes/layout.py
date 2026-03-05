@@ -55,9 +55,6 @@ def _vf2_layout(edges: set[tuple[int, int]], n_logical: int,
     return layout
 
 
-_SABRE_TRIALS = 5
-
-
 def _greedy_path(start: int, adj: dict[int, set[int]]) -> list[int]:
     """Greedy longest path from start, preferring neighbors with fewest unvisited connections."""
     path, visited = [start], {start}
@@ -85,7 +82,8 @@ def _path_seeds(target: Target, n_logical: int) -> list[list[int]]:
     return seeds
 
 
-def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int]:
+def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None,
+                  sabre_trials: int = 5, seed_offset: int = 0) -> list[int]:
     """Multi-trial forward-backward routing to find a good initial layout."""
     import random
     from .route import route
@@ -94,7 +92,7 @@ def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None)
     rev_dag = DAGCircuit(dag.n_qubits, dag.n_classical)
     for op in reversed(dag.topological_ops()): rev_dag.add_op(op)
 
-    seeds = [None] + [random.Random(t).sample(range(target.n_qubits), dag.n_qubits) for t in range(1, _SABRE_TRIALS)]
+    seeds = [None] + [random.Random(seed_offset + t).sample(range(target.n_qubits), dag.n_qubits) for t in range(1, sabre_trials)]
     seeds.extend(_path_seeds(target, dag.n_qubits))
 
     best_layout, best_swaps = None, float('inf')
@@ -113,7 +111,8 @@ def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None)
     return best_layout
 
 
-def select_layout(dag: DAGCircuit, target: Target, objective: str | None = None) -> list[int] | None:
+def select_layout(dag: DAGCircuit, target: Target, objective: str | None = None,
+                  sabre_trials: int = 5, seed_offset: int = 0) -> list[int] | None:
     """Select initial qubit layout. Returns layout or None for identity."""
     if target.is_all_to_all() or not dag._ops:
         return None
@@ -133,6 +132,6 @@ def select_layout(dag: DAGCircuit, target: Target, objective: str | None = None)
     n = dag.n_qubits
     tgt_undirected = len(target.edges) // 2
     if tgt_undirected > 0 and len(edges) <= tgt_undirected * 3:
-        layout = _sabre_layout(dag, target, objective=objective)
+        layout = _sabre_layout(dag, target, objective=objective, sabre_trials=sabre_trials, seed_offset=seed_offset)
         if layout != identity: return layout
     return None

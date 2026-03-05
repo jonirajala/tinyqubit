@@ -2082,7 +2082,7 @@ def test_transpile_t_optimal_flag():
     target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
                     basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
     r_std = transpile(c, target)
-    r_4t = transpile(c, target, t_optimal=True)
+    r_4t = transpile(c, target, preset="ft")
     assert len(r_4t.ops) < len(r_std.ops)
 
 
@@ -2232,7 +2232,8 @@ def test_transpile_objective_error():
     error = {(0, 1): 0.01, (1, 2): 0.05, (2, 3): 0.01}
     t = Target(n_qubits=4, edges=edges, basis_gates=basis, edge_error=error)
     c = Circuit(4).h(0).cx(0, 1).cx(1, 2).cx(2, 3)
-    result = transpile(c, t, objective="error")
+    from tinyqubit import CompileConfig
+    result = transpile(c, t, preset=CompileConfig(objective="error"))
     for op in result.ops:
         assert op.gate in basis | {Gate.MEASURE, Gate.RESET}
 
@@ -2495,3 +2496,75 @@ def test_transpile_conditional_qasm3_roundtrip():
     assert len(cond_imported) == len(cond_orig)
     for a, b in zip(cond_orig, cond_imported):
         assert a.condition == b.condition
+
+
+# =============================================================================
+# CompileConfig + Presets
+# =============================================================================
+
+def test_compile_config_frozen():
+    from tinyqubit import CompileConfig
+    cfg = CompileConfig()
+    with pytest.raises(Exception):
+        cfg.sabre_trials = 10
+
+
+def test_compile_config_defaults():
+    from tinyqubit import CompileConfig, PRESET_DEFAULT
+    assert CompileConfig() == PRESET_DEFAULT
+    assert PRESET_DEFAULT.sabre_trials == 5
+    assert PRESET_DEFAULT.objective == "2q"
+    assert PRESET_DEFAULT.multi_trials == 1
+
+
+def test_resolve_config_string():
+    from tinyqubit.compile import _resolve_config, CompileConfig, PRESET_FAST
+    assert _resolve_config("fast") is PRESET_FAST
+    assert _resolve_config(CompileConfig(dd=True)).dd is True
+
+
+def test_preset_ft_fewer_ops():
+    """FT preset (t_optimal) produces fewer ops than default on CCX."""
+    from tinyqubit import transpile, Circuit, Gate, Target
+    c = Circuit(3).ccx(0, 1, 2)
+    target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    r_default = transpile(c, target)
+    r_ft = transpile(c, target, preset="ft")
+    assert len(r_ft.ops) < len(r_default.ops)
+
+
+def test_preset_fast_runs():
+    """PRESET_FAST compiles without error."""
+    from tinyqubit import transpile, Circuit, Gate, Target
+    c = Circuit(3).h(0).cx(0, 1).cx(1, 2)
+    target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    result = transpile(c, target, preset="fast")
+    assert len(result.ops) > 0
+
+
+def test_cache_key_differentiates_configs():
+    """Different configs produce different cache entries."""
+    from tinyqubit import transpile, Circuit, Gate, Target, CompileConfig
+    c = Circuit(3).ccx(0, 1, 2)
+    target = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    cache = {}
+    r1 = transpile(c, target, cache=cache)
+    r2 = transpile(c, target, preset="ft", cache=cache)
+    assert len(cache) == 2
+    assert len(r2.ops) < len(r1.ops)
+
+
+def test_multi_trial_deterministic():
+    """Multi-trial compilation is deterministic across runs."""
+    from tinyqubit import transpile, Circuit, Gate, Target, CompileConfig
+    c = Circuit(4).h(0).cx(0, 1).cx(1, 2).cx(2, 3)
+    target = Target(n_qubits=4, edges=frozenset({(0, 1), (1, 2), (2, 3)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    cfg = CompileConfig(multi_trials=3)
+    r1 = transpile(c, target, preset=cfg)
+    r2 = transpile(c, target, preset=cfg)
+    assert [op.gate for op in r1.ops] == [op.gate for op in r2.ops]
+    assert [op.qubits for op in r1.ops] == [op.qubits for op in r2.ops]

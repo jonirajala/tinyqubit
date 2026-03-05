@@ -41,7 +41,7 @@ print(f"Operations: {len(grover.ops)}")
 print()
 
 # Simulate
-state = simulate(grover)
+state, _ = simulate(grover)
 print("Statevector:")
 print(f"  |00⟩: {state[0]:.4f}")
 print(f"  |01⟩: {state[1]:.4f}")
@@ -60,6 +60,6 @@ print(to_openqasm2(grover))
 # Transpile to hardware basis {RX, RZ, CX}
 print("\n=== Transpiled (basis: RX, RZ, CX) ===")
 target = Target(2, frozenset({(0, 1)}), frozenset({Gate.RX, Gate.RZ, Gate.CX}))
-transpiled = transpile(grover, target,1)
+transpiled = transpile(grover, target, preset="fast", verbosity=1)
 print(f"Operations: {len(transpiled.ops)}")
 print(to_openqasm2(transpiled))

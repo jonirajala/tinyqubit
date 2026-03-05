@@ -127,5 +127,6 @@ def test_transpile_dd_flag():
     c.h(0)
     c.cx(0, 1)
     result_no_dd = transpile(c, target)
-    result_dd = transpile(c, target, dd=True)
+    from tinyqubit import CompileConfig
+    result_dd = transpile(c, target, preset=CompileConfig(dd=True))
     assert len(result_dd.ops) >= len(result_no_dd.ops)
