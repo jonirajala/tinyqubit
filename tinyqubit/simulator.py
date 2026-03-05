@@ -16,6 +16,7 @@ import numpy as np
 from math import sqrt, cos, sin, pi
 from typing import TYPE_CHECKING
 from .ir import Circuit, Gate, _has_parameter
+from .stabilizer import _is_clifford, _simulate_stabilizer
 
 if TYPE_CHECKING:
     from .noise import NoiseModel
@@ -166,13 +167,6 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
              batch_ops: bool = False) -> tuple[np.ndarray, dict[int, int]]:
     """Simulate circuit. Returns (statevector, classical_bits dict)."""
     n = circuit.n_qubits
-    rng = np.random.default_rng(seed)
-    classical = {i: 0 for i in range(circuit.n_classical)}  # Initialize all bits to 0
-    if circuit._initial_state is not None:
-        state = circuit._initial_state.copy()
-    else:
-        state = np.zeros(2**n, dtype=complex)
-        state[0] = 1.0
 
     # Validate qubit indices and unbound parameters
     for op in circuit.ops:
@@ -181,6 +175,17 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
         for q in op.qubits:
             if not (0 <= q < n):
                 raise ValueError(f"Invalid qubit index {q} for {n}-qubit circuit in {op.gate.name}")
+
+    if noise_model is None and circuit._initial_state is None and _is_clifford(circuit):
+        return _simulate_stabilizer(circuit, seed)
+
+    rng = np.random.default_rng(seed)
+    classical = {i: 0 for i in range(circuit.n_classical)}  # Initialize all bits to 0
+    if circuit._initial_state is not None:
+        state = circuit._initial_state.copy()
+    else:
+        state = np.zeros(2**n, dtype=complex)
+        state[0] = 1.0
 
     ops, ops_iter = circuit.ops, iter(enumerate(circuit.ops))
     for i, op in ops_iter:
