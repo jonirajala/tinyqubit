@@ -74,27 +74,46 @@ def readout_error(p0_given_1: float = 0.0, p1_given_0: float = 0.0) -> Callable[
         return outcome
     return apply
 
+def _depolarizing_kraus(p: float) -> list[np.ndarray]:
+    s0, sp = np.sqrt(1 - p), np.sqrt(p / 3)
+    return [s0 * np.eye(2, dtype=complex), sp * _get_gate_matrix(Gate.X, ()),
+            sp * _get_gate_matrix(Gate.Y, ()), sp * _get_gate_matrix(Gate.Z, ())]
+
+def _amplitude_damping_kraus(gamma: float) -> list[np.ndarray]:
+    return [np.array([[1, 0], [0, np.sqrt(1 - gamma)]], dtype=complex),
+            np.array([[0, np.sqrt(gamma)], [0, 0]], dtype=complex)]
+
+def _phase_damping_kraus(lam: float) -> list[np.ndarray]:
+    return [np.array([[1, 0], [0, np.sqrt(1 - lam)]], dtype=complex),
+            np.array([[0, 0], [0, np.sqrt(lam)]], dtype=complex)]
+
 @dataclass
 class NoiseModel:
     """Noise configuration. Use add_* methods to configure, then pass to simulate()."""
     gate_noise: dict[Gate, list[NoiseFn]] = field(default_factory=dict)
     default_noise: list[NoiseFn] = field(default_factory=list)
     readout_error_fn: Callable[[int, np.random.Generator], int] | None = None
+    gate_kraus: dict[Gate, list[list[np.ndarray]]] = field(default_factory=dict)
+    default_kraus: list[list[np.ndarray]] = field(default_factory=list)
 
-    def _add(self, noise: NoiseFn, gates: list[Gate] | None) -> "NoiseModel":
-        if gates is None: self.default_noise.append(noise)
+    def _add(self, noise: NoiseFn, gates: list[Gate] | None, kraus: list[np.ndarray] | None = None) -> "NoiseModel":
+        if gates is None:
+            self.default_noise.append(noise)
+            if kraus is not None: self.default_kraus.append(kraus)
         else:
-            for g in gates: self.gate_noise.setdefault(g, []).append(noise)
+            for g in gates:
+                self.gate_noise.setdefault(g, []).append(noise)
+                if kraus is not None: self.gate_kraus.setdefault(g, []).append(kraus)
         return self
 
     def add_depolarizing(self, p: float, gates: list[Gate] | None = None) -> "NoiseModel":
-        return self._add(depolarizing(p), gates)
+        return self._add(depolarizing(p), gates, _depolarizing_kraus(p))
 
     def add_amplitude_damping(self, gamma: float, gates: list[Gate] | None = None) -> "NoiseModel":
-        return self._add(amplitude_damping(gamma), gates)
+        return self._add(amplitude_damping(gamma), gates, _amplitude_damping_kraus(gamma))
 
     def add_phase_damping(self, lam: float, gates: list[Gate] | None = None) -> "NoiseModel":
-        return self._add(phase_damping(lam), gates)
+        return self._add(phase_damping(lam), gates, _phase_damping_kraus(lam))
 
     def add_readout_error(self, p0_given_1: float = 0.0, p1_given_0: float = 0.0) -> "NoiseModel":
         self.readout_error_fn = readout_error(p0_given_1, p1_given_0)
