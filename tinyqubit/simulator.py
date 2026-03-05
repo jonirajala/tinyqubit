@@ -179,6 +179,10 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
     if noise_model is None and circuit._initial_state is None and _is_clifford(circuit):
         return _simulate_stabilizer(circuit, seed)
 
+    if noise_model is None and circuit._initial_state is None and n > 28:
+        from .mps import _simulate_mps_sv
+        return _simulate_mps_sv(circuit, seed)
+
     rng = np.random.default_rng(seed)
     classical = {i: 0 for i in range(circuit.n_classical)}  # Initialize all bits to 0
     if circuit._initial_state is not None:
