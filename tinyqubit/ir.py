@@ -117,6 +117,11 @@ class Circuit:
 
     def _add(self, gate: Gate, qubits: tuple, params: tuple = (),
              classical_bit: int | None = None) -> "Circuit":
+        for q in qubits:
+            if not (0 <= q < self.n_qubits):
+                raise ValueError(f"Qubit index {q} out of range for {self.n_qubits}-qubit circuit")
+        if len(qubits) != len(set(qubits)):
+            raise ValueError(f"Gate {gate.name} has duplicate qubits: {qubits}")
         self.ops.append(Operation(gate, qubits, params, classical_bit, self._current_condition))
         return self
 

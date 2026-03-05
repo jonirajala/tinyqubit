@@ -221,6 +221,27 @@ def test_ccx_no_canonicalization():
 
 
 # =============================================================================
+# Validation Tests
+# =============================================================================
+
+def test_qubit_out_of_range():
+    with pytest.raises(ValueError, match="out of range"):
+        Circuit(2).h(5)
+
+def test_negative_qubit():
+    with pytest.raises(ValueError, match="out of range"):
+        Circuit(2).x(-1)
+
+def test_duplicate_qubits():
+    with pytest.raises(ValueError, match="duplicate"):
+        Circuit(2).cx(0, 0)
+
+def test_valid_ops_still_work():
+    c = Circuit(3).h(0).cx(0, 1).ccx(0, 1, 2).rz(2, 0.5)
+    assert len(c.ops) == 4
+
+
+# =============================================================================
 # OpenQASM Export Tests
 # =============================================================================
 
