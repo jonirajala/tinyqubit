@@ -58,17 +58,20 @@ def precompile(circuit: Circuit, t_optimal: bool = False) -> Circuit:
     return _precompile_dag(dag, t_optimal).to_circuit()
 
 
-def realize(circuit: Circuit, target: Target, t_optimal: bool = False, objective: str | None = None) -> Circuit:
+def realize(circuit: Circuit, target: Target, t_optimal: bool = False, objective: str | None = None, dd: bool = False) -> Circuit:
     """Target-specific lowering: route + decompose to native basis."""
     dag = DAGCircuit.from_circuit(circuit)
     dag = _realize_dag(dag, target, t_optimal, objective=objective)
     result = dag.to_circuit()
     result._tracker = getattr(dag, '_tracker', None)
+    if dd and target.duration is not None:
+        from .passes.dd import dynamic_decoupling
+        result = dynamic_decoupling(result, target)
     return result
 
 
 def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict | None = None,
-              verify: bool = False, t_optimal: bool = False, objective: str | None = None) -> Circuit:
+              verify: bool = False, t_optimal: bool = False, objective: str | None = None, dd: bool = False) -> Circuit:
     """
     Transpile circuit for target hardware.
 
@@ -85,7 +88,7 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
             Safe for compute-uncompute patterns; not exact for bare CCX/CCZ.
     """
     if cache is not None:
-        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, target.directed, t_optimal, objective)
+        key = (circuit._structure_key(), target.n_qubits, target.edges, target.basis_gates, target.directed, t_optimal, objective, dd)
         if key in cache:
             return cache[key]
     stages = [] if verbosity > 0 else None
@@ -106,6 +109,10 @@ def transpile(circuit: Circuit, target: Target, verbosity: int = 0, cache: dict 
 
     result = dag.to_circuit()
     result._tracker = tracker
+
+    if dd and target.duration is not None:
+        from .passes.dd import dynamic_decoupling
+        result = dynamic_decoupling(result, target)
 
     verified = None
     if verify:

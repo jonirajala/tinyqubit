@@ -18,6 +18,7 @@ from .gradient import parameter_shift_gradient, finite_difference_gradient, adjo
 from .info import state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
 from .schedule import circuit_duration, idle_periods
 from .passes.fuse import fuse_1q_gates
+from .passes.dd import dynamic_decoupling
 
 __all__ = [
     # Core IR
@@ -84,6 +85,7 @@ __all__ = [
     "mutual_information",
     # Optimization
     "fuse_1q_gates",
+    "dynamic_decoupling",
     # Export
     "to_openqasm2",
     "to_openqasm3",

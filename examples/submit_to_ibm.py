@@ -61,7 +61,7 @@ print(to_openqasm3(circuit))
 
 # Transpile with tinyqubit
 print(f"\n=== Compiling for {target.name} (error-aware routing) ===")
-compiled = transpile(circuit, target, objective="error", verbosity=1)
+compiled = transpile(circuit, target, objective="error", dd=True, verbosity=1)
 
 print("\n=== Compiled Circuit (OpenQASM 3.0 — physical qubits) ===")
 print(to_openqasm3(compiled, include_mapping=False, physical_qubits=True))

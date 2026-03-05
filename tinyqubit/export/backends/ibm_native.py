@@ -118,7 +118,10 @@ def ibm_target(backend_name: str, api_key: str | None = None, crn: str | None = 
             body = e.read().decode(errors="replace")
             raise RuntimeError(f"Failed to get properties for {backend_name} (HTTP {e.code}): {body}") from e
         edge_error = _parse_edge_errors(props, edges) or None
-    return Target(n_qubits=config["n_qubits"], edges=edges, basis_gates=basis, name=backend_name, directed=True, edge_error=edge_error)
+    # Default IBM gate durations (dt units). RZ is virtual (0dt) on all IBM backends.
+    _IBM_DUR = {Gate.SX: 32, Gate.X: 32, Gate.RZ: 0, Gate.RX: 32, Gate.CX: 64, Gate.CZ: 64, Gate.RZZ: 64, Gate.MEASURE: 1120, Gate.RESET: 1120}
+    dur = {g: _IBM_DUR[g] for g in basis if g in _IBM_DUR}
+    return Target(n_qubits=config["n_qubits"], edges=edges, basis_gates=basis, name=backend_name, directed=True, edge_error=edge_error, duration=dur or None)
 
 
 def submit_ibm(circuit, backend: str = "ibm_brisbane", shots: int = 4096,

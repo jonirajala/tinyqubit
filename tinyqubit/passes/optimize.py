@@ -128,8 +128,9 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
         is_cross = result == "cross_diag"
         if is_merge and _has_parameter(op.params):
             continue
-        pred = ((lambda c, pg=partner_gate: c.gate == pg and c.qubits == op.qubits and not _has_parameter(c.params))
-                if is_merge else (lambda c, pg=partner_gate: c.gate == pg and c.qubits == op.qubits))
+        def _match(c, pg=partner_gate):
+            return c.gate == pg and c.qubits == op.qubits and c.condition == op.condition
+        pred = (lambda c: _match(c) and not _has_parameter(c.params)) if is_merge else _match
         match = _find_partner(dag, nid, pred)
         if match is None:
             continue
@@ -143,7 +144,7 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
                 dag.remove_node(match)
                 dag.remove_node(nid)
             else:
-                dag.set_op(nid, Operation(op.gate, op.qubits, (angle,)))
+                dag.set_op(nid, Operation(op.gate, op.qubits, (angle,), condition=op.condition))
                 dag.remove_node(match)
         elif is_cross:
             angle = (_DIAG_ANGLE[op.gate] + _DIAG_ANGLE[dag.op(match).gate] + pi) % (2 * pi) - pi
@@ -151,10 +152,10 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
                 dag.remove_node(match)
                 dag.remove_node(nid)
             else:
-                dag.set_op(nid, Operation(Gate.RZ, op.qubits, (angle,)))
+                dag.set_op(nid, Operation(Gate.RZ, op.qubits, (angle,), condition=op.condition))
                 dag.remove_node(match)
         else:
-            dag.set_op(nid, Operation(result, op.qubits))
+            dag.set_op(nid, Operation(result, op.qubits, condition=op.condition))
             dag.remove_node(match)
         return True
     return False
@@ -176,10 +177,13 @@ def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = No
     end_op = dag.op(end)
     if end_op.gate != op.gate or end_op.qubits != op.qubits:
         return False
+    if not (op.condition == mid_op.condition == end_op.condition):
+        return False
+    cond = op.condition
     # 1Q rules
     for bookend, inner, result in CONJUGATE_1Q:
         if op.gate == bookend and mid_op.gate == inner and mid_op.qubits == op.qubits:
-            dag.set_op(nid, Operation(result, op.qubits))
+            dag.set_op(nid, Operation(result, op.qubits, condition=cond))
             dag.remove_node(mid)
             dag.remove_node(end)
             return True
@@ -189,7 +193,7 @@ def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = No
             continue
         if op.gate == bookend and mid_op.gate == inner and mid_op.qubits[pos] == q:
             rq = mid_op.qubits if pos == result_pos else mid_op.qubits[::-1]
-            dag.set_op(mid, Operation(result, rq))
+            dag.set_op(mid, Operation(result, rq, condition=cond))
             dag.remove_node(nid)
             dag.remove_node(end)
             return True
@@ -206,7 +210,7 @@ def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
 def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     """CX·P·CX patterns: Z(t)→Z both, X(c)→X both, Z(c)→Z(c), X(t)→X(t)."""
     op = dag.op(nid)
-    if op.gate != Gate.CX:
+    if op.gate != Gate.CX or op.condition is not None:
         return False
     c, t = op.qubits
 

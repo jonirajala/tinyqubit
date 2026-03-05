@@ -2450,3 +2450,48 @@ def test_builtin_validate_integration():
     assert validate(c4, IQM_GARNET) == []
     c5 = Circuit(5).rx(0, 0.5).cz(0, 2)
     assert validate(c5, IQM_SPARK) == []
+
+
+def test_transpile_preserves_conditional():
+    """Teleportation circuit: conditionals survive full transpile pipeline."""
+    from tinyqubit.compile import transpile
+
+    c = Circuit(3, n_classical=2)
+    c.x(0).h(1).cx(1, 2).cx(0, 1).h(0)
+    c.measure(0, 0).measure(1, 1)
+    with c.c_if(1, 1):
+        c.x(2)
+    with c.c_if(0, 1):
+        c.z(2)
+
+    target = Target(n_qubits=3, edges=line_topology(3),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    result = transpile(c, target)
+
+    cond_ops = [op for op in result.ops if op.condition is not None]
+    assert len(cond_ops) >= 1
+
+
+def test_transpile_conditional_qasm3_roundtrip():
+    """Transpiled conditional circuit round-trips through QASM3."""
+    from tinyqubit.compile import transpile
+    from tinyqubit.export.qasm import to_openqasm3, from_openqasm3
+
+    c = Circuit(2, n_classical=1)
+    c.x(0).measure(0, 0)
+    with c.c_if(0, 1):
+        c.x(1)
+
+    target = Target(n_qubits=2, edges=frozenset({(0, 1)}),
+                    basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))
+    result = transpile(c, target)
+
+    qasm = to_openqasm3(result)
+    assert 'if' in qasm
+
+    imported = from_openqasm3(qasm)
+    cond_orig = [op for op in result.ops if op.condition is not None]
+    cond_imported = [op for op in imported.ops if op.condition is not None]
+    assert len(cond_imported) == len(cond_orig)
+    for a, b in zip(cond_orig, cond_imported):
+        assert a.condition == b.condition
