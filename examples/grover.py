@@ -15,6 +15,7 @@ from tinyqubit.compile import transpile
 from tinyqubit.simulator import simulate, sample
 from tinyqubit.export import to_openqasm2
 from tinyqubit.library import grover_oracle
+from tinyqubit.ftqc import resource_estimate
 
 # 2-qubit Grover searching for |11⟩
 grover = Circuit(2)
@@ -64,3 +65,9 @@ target = Target(2, frozenset({(0, 1)}), frozenset({Gate.RX, Gate.RZ, Gate.CX}))
 transpiled = transpile(grover, target, preset="fast", verbosity=1)
 print(f"Operations: {len(transpiled.ops)}")
 print(to_openqasm2(transpiled))
+
+# FTQC resource estimate
+print("=== FTQC Resource Estimate ===")
+r = resource_estimate(transpiled)
+print(f"T-count: {r.t_count}, T-depth: {r.t_depth}, Cliffords: {r.clifford_count}")
+print(f"Code distance: {r.code_distance}, Physical qubits: {r.physical_qubits}")

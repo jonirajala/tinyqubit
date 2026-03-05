@@ -21,6 +21,7 @@ from .schedule import circuit_duration, idle_periods
 from .passes.fuse import fuse_1q_gates
 from .passes.dd import dynamic_decoupling
 from .library import qft, ghz, grover_oracle, hardware_efficient_ansatz, qaoa_mixer
+from .ftqc import resource_estimate, ResourceEstimate
 
 __all__ = [
     # Core IR
@@ -110,4 +111,7 @@ __all__ = [
     "UnsupportedGateError",
     "submit_ibm",
     "wait_ibm",
+    # FTQC
+    "resource_estimate",
+    "ResourceEstimate",
 ]

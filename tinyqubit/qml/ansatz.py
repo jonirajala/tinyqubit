@@ -12,7 +12,9 @@ def strongly_entangling_layers(circuit: Circuit, n_layers: int, wires: list[int]
             circuit.ry(w, Parameter(f"{prefix}_{l}_{i}_y"))
             circuit.rz(w, Parameter(f"{prefix}_{l}_{i}_z"))
         for i in range(n):
-            circuit.cx(wires[i], wires[(i + l + 1) % n])
+            t = (i + l + 1) % n
+            if t != i:
+                circuit.cx(wires[i], wires[t])
 
 
 def basic_entangler_layers(circuit: Circuit, n_layers: int, wires: list[int] | None = None, prefix: str = "bel") -> None:

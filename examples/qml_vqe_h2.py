@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from tinyqubit import Circuit, expectation
+from tinyqubit import Circuit, expectation, resource_estimate
 from tinyqubit.observable import X, Y, Z, Observable
 from tinyqubit.qml import Adam
 from tinyqubit.qml.ansatz import strongly_entangling_layers
@@ -39,3 +39,9 @@ e_final = expectation(ansatz.bind(params), H)
 print(f"\n  converged: E = {e_final:+.6f} Ha")
 print(f"  exact:     E = {exact_gs:+.6f} Ha")
 print(f"  error:     {abs(e_final - exact_gs):.2e} Ha")
+
+# FTQC resource estimate for the converged ansatz
+r = resource_estimate(ansatz.bind(params))
+print(f"\n=== FTQC Resource Estimate ===")
+print(f"  T-count: {r.t_count}, T-depth: {r.t_depth}, Cliffords: {r.clifford_count}")
+print(f"  Code distance: {r.code_distance}, Physical qubits: {r.physical_qubits}")

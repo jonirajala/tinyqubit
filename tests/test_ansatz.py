@@ -46,6 +46,14 @@ def test_strongly_entangling_parameters():
     params = [op.params[0] for op in qc.ops if op.params and isinstance(op.params[0], Parameter)]
     assert len(params) == 2 * 3 * 2  # 2 params * 3 wires * 2 layers
 
+def test_strongly_entangling_2_qubits():
+    """Regression: 2 qubits with layer offset must not produce self-CX."""
+    qc = Circuit(2)
+    strongly_entangling_layers(qc, n_layers=2)
+    for op in qc.ops:
+        if op.gate == Gate.CX:
+            assert op.qubits[0] != op.qubits[1]
+
 def test_strongly_entangling_deterministic():
     def build():
         qc = Circuit(3)
