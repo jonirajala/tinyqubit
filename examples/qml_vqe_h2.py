@@ -10,7 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from tinyqubit import Circuit, expectation, resource_estimate
+from tinyqubit import Circuit, NoiseModel, expectation, resource_estimate, zne
 from tinyqubit.observable import X, Y, Z, Observable
 from tinyqubit.qml import Adam
 from tinyqubit.qml.ansatz import strongly_entangling_layers
@@ -39,6 +39,16 @@ e_final = expectation(ansatz.bind(params), H)
 print(f"\n  converged: E = {e_final:+.6f} Ha")
 print(f"  exact:     E = {exact_gs:+.6f} Ha")
 print(f"  error:     {abs(e_final - exact_gs):.2e} Ha")
+
+# --- Error mitigation ---
+bound = ansatz.bind(params)
+noise = NoiseModel().add_depolarizing(0.01)
+noisy = zne(bound, H, noise, scale_factors=[1], seed=42)
+mitigated = zne(bound, H, noise, scale_factors=[1, 3, 5], seed=42)
+print(f"\n=== Error Mitigation (ZNE) ===")
+print(f"  ideal:     {e_final:+.6f} Ha")
+print(f"  noisy:     {noisy:+.6f} Ha")
+print(f"  ZNE:       {mitigated:+.6f} Ha")
 
 # FTQC resource estimate for the converged ansatz
 r = resource_estimate(ansatz.bind(params))

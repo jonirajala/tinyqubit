@@ -22,6 +22,7 @@ from .passes.fuse import fuse_1q_gates
 from .passes.dd import dynamic_decoupling
 from .library import qft, ghz, grover_oracle, hardware_efficient_ansatz, qaoa_mixer
 from .ftqc import resource_estimate, ResourceEstimate
+from .mitigation import zne, calibration_matrix, mitigate_readout
 
 __all__ = [
     # Core IR
@@ -114,4 +115,8 @@ __all__ = [
     # FTQC
     "resource_estimate",
     "ResourceEstimate",
+    # Error mitigation
+    "zne",
+    "calibration_matrix",
+    "mitigate_readout",
 ]
