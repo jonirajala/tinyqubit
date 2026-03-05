@@ -220,6 +220,15 @@ class Circuit:
         self._initial_state = sv / np.linalg.norm(sv)
         return self
 
+    def to_json(self) -> str:
+        from .serialize import circuit_to_json
+        return circuit_to_json(self)
+
+    @classmethod
+    def from_json(cls, s: str) -> "Circuit":
+        from .serialize import circuit_from_json
+        return circuit_from_json(s)
+
     def to_unitary(self) -> np.ndarray:
         from .simulator import to_unitary
         return to_unitary(self)
