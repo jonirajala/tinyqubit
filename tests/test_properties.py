@@ -44,18 +44,24 @@ def all_to_all_topology(n: int) -> frozenset[tuple[int, int]]:
 # Gates that can be used in random circuits (excluding MEASURE for simulation tests)
 SINGLE_QUBIT_GATES = [Gate.H, Gate.X, Gate.Y, Gate.Z, Gate.S, Gate.T]
 PARAM_GATES = [Gate.RX, Gate.RY, Gate.RZ]
-TWO_QUBIT_GATES = [Gate.CX, Gate.CZ]
+TWO_QUBIT_GATES = [Gate.CX, Gate.CZ, Gate.SWAP]
+THREE_QUBIT_GATES = [Gate.CCX, Gate.CCZ]
 
 
 @st.composite
-def random_circuit(draw, min_qubits=2, max_qubits=5, min_ops=1, max_ops=15):
+def random_circuit(draw, min_qubits=2, max_qubits=5, min_ops=1, max_ops=15, include_3q=False):
     """Generate a random quantum circuit."""
-    n_qubits = draw(st.integers(min_qubits, max_qubits))
+    min_q = max(min_qubits, 3) if include_3q else min_qubits
+    n_qubits = draw(st.integers(min_q, max_qubits))
     n_ops = draw(st.integers(min_ops, max_ops))
+
+    gate_types = ["single", "param", "two"]
+    if include_3q and n_qubits >= 3:
+        gate_types.append("three")
 
     c = Circuit(n_qubits)
     for _ in range(n_ops):
-        gate_type = draw(st.sampled_from(["single", "param", "two"]))
+        gate_type = draw(st.sampled_from(gate_types))
 
         if gate_type == "single":
             gate = draw(st.sampled_from(SINGLE_QUBIT_GATES))
@@ -68,6 +74,12 @@ def random_circuit(draw, min_qubits=2, max_qubits=5, min_ops=1, max_ops=15):
             theta = draw(st.floats(-2 * pi, 2 * pi, allow_nan=False, allow_infinity=False))
             c.ops.append(Operation(gate, (qubit,), (theta,)))
 
+        elif gate_type == "three":
+            gate = draw(st.sampled_from(THREE_QUBIT_GATES))
+            qs = draw(st.lists(st.integers(0, n_qubits - 1), min_size=3, max_size=3, unique=True))
+            qubits = tuple(sorted(qs)) if gate == Gate.CCZ else tuple(qs)
+            c.ops.append(Operation(gate, qubits))
+
         else:  # two-qubit
             gate = draw(st.sampled_from(TWO_QUBIT_GATES))
             q0 = draw(st.integers(0, n_qubits - 1))
@@ -79,19 +91,46 @@ def random_circuit(draw, min_qubits=2, max_qubits=5, min_ops=1, max_ops=15):
 
 
 @st.composite
+def random_circuit_with_conditionals(draw, min_qubits=3, max_qubits=5, min_ops=2, max_ops=10):
+    """Generate a circuit with MEASURE + conditional gates."""
+    n_qubits = draw(st.integers(min_qubits, max_qubits))
+    c = Circuit(n_qubits, n_classical=n_qubits)
+
+    # Some unitary gates first
+    n_pre = draw(st.integers(1, max(1, max_ops // 2)))
+    for _ in range(n_pre):
+        gate = draw(st.sampled_from(SINGLE_QUBIT_GATES))
+        qubit = draw(st.integers(0, n_qubits - 1))
+        c.ops.append(Operation(gate, (qubit,)))
+
+    # Measure qubit 0
+    c.ops.append(Operation(Gate.MEASURE, (0,), classical_bit=0))
+
+    # Conditional gates on other qubits
+    n_cond = draw(st.integers(1, max(1, max_ops // 2)))
+    for _ in range(n_cond):
+        gate = draw(st.sampled_from(SINGLE_QUBIT_GATES))
+        qubit = draw(st.integers(1, n_qubits - 1))
+        c.ops.append(Operation(gate, (qubit,), condition=(0, 1)))
+
+    return c
+
+
+@st.composite
 def random_target(draw, n_qubits: int):
     """Generate a random target for given qubit count."""
     topo_type = draw(st.sampled_from(["line", "all_to_all"]))
+    basis_choice = draw(st.sampled_from([{Gate.RZ, Gate.RX, Gate.CX}, {Gate.RZ, Gate.RX, Gate.CZ}]))
+    directed = draw(st.booleans()) if (topo_type == "line" and Gate.CX in basis_choice) else False
 
     if topo_type == "line":
         edges = line_topology(n_qubits)
     else:
         edges = all_to_all_topology(n_qubits)
 
-    # Use a basis that supports full decomposition
-    basis = frozenset({Gate.RZ, Gate.RX, Gate.CX})
-
-    return Target(n_qubits=n_qubits, edges=edges, basis_gates=basis, name=f"test_{topo_type}_{n_qubits}")
+    basis = frozenset(basis_choice)
+    return Target(n_qubits=n_qubits, edges=edges, basis_gates=basis, directed=directed,
+                  name=f"test_{topo_type}_{n_qubits}")
 
 
 def permute_state(state: np.ndarray, tracker) -> np.ndarray:
@@ -225,4 +264,47 @@ def test_all_to_all_no_routing(circuit):
     # This is a soft check - just verify we didn't blow up
     assert compiled_2q <= original_2q * 3, (
         f"Too many 2Q gates: {original_2q} -> {compiled_2q}"
+    )
+
+
+@given(random_circuit_with_conditionals(max_qubits=4, max_ops=8))
+@settings(max_examples=30, deadline=None)
+def test_transpile_preserves_conditionals(circuit):
+    """Conditional gates survive transpilation and produce correct state."""
+    target = Target(
+        n_qubits=circuit.n_qubits,
+        edges=all_to_all_topology(circuit.n_qubits),
+        basis_gates=frozenset({Gate.RZ, Gate.RX, Gate.CX}),
+        name="test_cond"
+    )
+    compiled = transpile(circuit, target)
+
+    original_state, orig_cl = simulate(circuit, seed=42)
+    compiled_state, comp_cl = simulate(compiled, seed=42)
+
+    if hasattr(compiled, '_tracker') and compiled._tracker is not None:
+        compiled_state = permute_state(compiled_state, compiled._tracker)
+
+    assert states_equal(original_state, compiled_state), "Conditional circuit semantic mismatch"
+    assert orig_cl == comp_cl, f"Classical bits differ: {orig_cl} vs {comp_cl}"
+
+
+@given(data=st.data())
+@settings(max_examples=40, deadline=None)
+def test_transpile_varied_targets(data):
+    """Semantic preservation across varied bases, topologies, and gate sets."""
+    circuit = data.draw(random_circuit(min_qubits=3, max_qubits=5, max_ops=10, include_3q=True))
+    target = data.draw(random_target(n_qubits=circuit.n_qubits))
+
+    compiled = transpile(circuit, target)
+
+    original_state, _ = simulate(circuit)
+    compiled_state, _ = simulate(compiled)
+
+    if hasattr(compiled, '_tracker') and compiled._tracker is not None:
+        compiled_state = permute_state(compiled_state, compiled._tracker)
+
+    assert states_equal(original_state, compiled_state), (
+        f"Mismatch with basis={[g.name for g in target.basis_gates]}, "
+        f"directed={target.directed}, topo={target.name}"
     )
