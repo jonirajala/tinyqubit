@@ -20,6 +20,7 @@ from .info import state_fidelity, partial_trace, entanglement_entropy, concurren
 from .schedule import circuit_duration, idle_periods
 from .passes.fuse import fuse_1q_gates
 from .passes.dd import dynamic_decoupling
+from .library import qft, ghz, grover_oracle, hardware_efficient_ansatz, qaoa_mixer
 
 __all__ = [
     # Core IR
@@ -95,6 +96,12 @@ __all__ = [
     # Optimization
     "fuse_1q_gates",
     "dynamic_decoupling",
+    # Circuit library
+    "qft",
+    "ghz",
+    "grover_oracle",
+    "hardware_efficient_ansatz",
+    "qaoa_mixer",
     # Export
     "to_openqasm2",
     "to_openqasm3",

@@ -14,6 +14,7 @@ from tinyqubit.target import Target
 from tinyqubit.compile import transpile
 from tinyqubit.simulator import simulate, sample
 from tinyqubit.export import to_openqasm2
+from tinyqubit.library import grover_oracle
 
 # 2-qubit Grover searching for |11⟩
 grover = Circuit(2)
@@ -22,13 +23,13 @@ grover = Circuit(2)
 grover.h(0).h(1)
 
 # Oracle: mark |11⟩ with phase flip
-grover.cz(0, 1)
+for op in grover_oracle(2, [0b11]).ops:
+    grover.ops.append(op)
 
 # Diffusion operator
 grover.h(0).h(1)
-grover.x(0).x(1)
-grover.cz(0, 1)
-grover.x(0).x(1)
+for op in grover_oracle(2, [0b00]).ops:
+    grover.ops.append(op)
 grover.h(0).h(1)
 
 # Measure
