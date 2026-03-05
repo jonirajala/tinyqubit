@@ -8,19 +8,25 @@ from ..tracker import QubitTracker, PendingSwap
 
 def _score_swap(swap: tuple[int, int], front: list[int], extended: list[int],
                 dag: DAGCircuit, l2p: list[int], p2l: list[int],
-                dist: list[list[int | float]], decay: list[list[float]]) -> float:
+                dist: list[list[int | float]], decay: list[list[float]],
+                qubit_depth: list[int] | None = None) -> float:
     """Score a SWAP candidate. Lower is better."""
     p0, p1 = swap
     new_l2p = l2p.copy()
     if p2l[p0] != -1: new_l2p[p2l[p0]] = p1
     if p2l[p1] != -1: new_l2p[p2l[p1]] = p0
 
+    max_depth = (max(qubit_depth) or 1) if qubit_depth else 0
     score = decay[min(p0, p1)][max(p0, p1)]
     for nid, weight in [(g, 1.0) for g in front] + [(g, 0.5) for g in extended]:
         op = dag.op(nid)
         if op.gate.n_qubits == 2:
-            d = dist[new_l2p[op.qubits[0]]][new_l2p[op.qubits[1]]]
-            if 0 <= d < float('inf'): score += weight * d
+            pa, pb = new_l2p[op.qubits[0]], new_l2p[op.qubits[1]]
+            d = dist[pa][pb]
+            if 0 <= d < float('inf'):
+                if qubit_depth:
+                    weight *= 0.5 + 0.5 * (max(qubit_depth[pa], qubit_depth[pb]) / max_depth)
+                score += weight * d
     return score
 
 
@@ -58,6 +64,8 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
     dist = target.all_pairs_error_costs() if objective == "error" else target.all_pairs_distances()
     n = target.n_qubits
     decay = [[0.0] * n for _ in range(n)]
+    depth_aware = objective == "depth"
+    qubit_depth = [0] * n if depth_aware else None
     if initial_layout is not None:
         l2p = list(initial_layout)
         p2l = [-1] * n
@@ -99,13 +107,18 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
         for nid in front:
             op = dag.op(nid)
             if op.gate.n_qubits == 1:
-                tracker.add_gate(op.gate, (l2p[op.qubits[0]],), op.params)
+                pa = l2p[op.qubits[0]]
+                tracker.add_gate(op.gate, (pa,), op.params)
+                if depth_aware: qubit_depth[pa] += 1
                 mark_done(nid)
                 progress = True
             elif op.gate.n_qubits == 2:
                 pa, pb = l2p[op.qubits[0]], l2p[op.qubits[1]]
                 if target.are_connected(pa, pb):
                     tracker.add_gate(op.gate, (pa, pb), op.params)
+                    if depth_aware:
+                        d = max(qubit_depth[pa], qubit_depth[pb]) + 1
+                        qubit_depth[pa] = qubit_depth[pb] = d
                     mark_done(nid)
                     progress = True
         if progress: continue
@@ -137,7 +150,8 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
                         candidates.add((min(pq, nb), max(pq, nb)))
 
         # Pick SWAP with lowest score (sorted for determinism on ties)
-        best = min(sorted(candidates), key=lambda sw: _score_swap(sw, front, list(extended), dag, l2p, p2l, dist, decay))
+        qdep = qubit_depth if objective == "depth" else None
+        best = min(sorted(candidates), key=lambda sw: _score_swap(sw, front, list(extended), dag, l2p, p2l, dist, decay, qdep))
         p0, p1 = best
         tracker.record_swap(p0, p1, -1)
         swaps_inserted += 1
@@ -149,6 +163,9 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
         p2l[p0], p2l[p1] = l1, l0
         if l0 != -1: l2p[l0] = p1
         if l1 != -1: l2p[l1] = p0
+        if depth_aware:
+            sd = max(qubit_depth[p0], qubit_depth[p1]) + 3
+            qubit_depth[p0] = qubit_depth[p1] = sd
         decay[min(p0, p1)][max(p0, p1)] += 0.001
 
     flush()

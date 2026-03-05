@@ -35,7 +35,7 @@ class CompileConfig:
     max_opt_iterations: int = 1000
     fuse_2q: bool = True
     t_optimal: bool = False
-    objective: str = "2q"       # "2q" | "error"
+    objective: str = "2q"       # "2q" | "error" | "depth"
     dd: bool = False
     multi_trials: int = 1
 

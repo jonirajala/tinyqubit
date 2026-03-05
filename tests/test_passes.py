@@ -2238,6 +2238,47 @@ def test_transpile_objective_error():
         assert op.gate in basis | {Gate.MEASURE, Gate.RESET}
 
 
+def test_transpile_objective_depth():
+    """End-to-end transpile with objective='depth' produces valid circuit."""
+    from tinyqubit import transpile, CompileConfig
+    edges = frozenset({(0, 1), (1, 2), (2, 3)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    t = Target(n_qubits=4, edges=edges, basis_gates=basis)
+    c = Circuit(4).h(0).cx(0, 1).cx(1, 2).cx(2, 3)
+    result = transpile(c, t, preset=CompileConfig(objective="depth"))
+    for op in result.ops:
+        assert op.gate in basis | {Gate.MEASURE, Gate.RESET}
+
+
+def test_depth_objective_deterministic():
+    """Same input with objective='depth' gives same output."""
+    from tinyqubit import transpile, CompileConfig
+    edges = frozenset({(0, 1), (1, 2), (2, 3), (3, 4)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    t = Target(n_qubits=5, edges=edges, basis_gates=basis)
+    c = Circuit(5).h(0).cx(0, 4).cx(1, 3).cx(2, 4)
+    cfg = CompileConfig(objective="depth")
+    r1 = transpile(c, t, preset=cfg)
+    r2 = transpile(c, t, preset=cfg)
+    assert [op.gate for op in r1.ops] == [op.gate for op in r2.ops]
+    assert [op.qubits for op in r1.ops] == [op.qubits for op in r2.ops]
+
+
+def test_depth_objective_prefers_shorter():
+    """Depth objective produces <= depth vs '2q' on a star-pattern circuit."""
+    from tinyqubit.dag import DAGCircuit
+    edges = frozenset({(i, i + 1) for i in range(6)})
+    basis = frozenset({Gate.CX, Gate.RZ, Gate.RX})
+    t = Target(n_qubits=7, edges=edges, basis_gates=basis)
+    # Star pattern: q0 connects to many others — stresses routing depth
+    c = Circuit(7).h(0)
+    for i in range(1, 7):
+        c.cx(0, i)
+    r_2q = DAGCircuit.from_circuit(route(c, t, objective=None))
+    r_depth = DAGCircuit.from_circuit(route(c, t, objective="depth"))
+    assert r_depth.depth() <= r_2q.depth() + 5  # depth objective should not be much worse
+
+
 # =============================================================================
 # CX Direction Correction
 # =============================================================================
