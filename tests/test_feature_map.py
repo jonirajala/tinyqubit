@@ -84,3 +84,50 @@ def test_amplitude_feature_map_partial_wires():
     sv, _ = simulate(qc)
     # All amplitude on |000⟩
     assert np.isclose(abs(sv[0]) ** 2, 1.0)
+
+
+# --- Amplitude feature map (decompose=True, Mottonen) ---
+
+def test_amplitude_decompose_uniform():
+    """Uniform features give equal probabilities."""
+    qc = Circuit(2)
+    amplitude_feature_map(qc, [0.5, 0.5, 0.5, 0.5], wires=[0, 1], decompose=True)
+    sv, _ = simulate(qc)
+    assert np.allclose(np.abs(sv) ** 2, [0.25] * 4)
+
+def test_amplitude_decompose_matches_initialize():
+    """Decompose path matches initialize path up to global phase."""
+    features = [0.3, 0.1, 0.4, 0.1, 0.5, 0.9, 0.2, 0.6]
+    qc1, qc2 = Circuit(3), Circuit(3)
+    amplitude_feature_map(qc1, features, wires=[0, 1, 2])
+    amplitude_feature_map(qc2, features, wires=[0, 1, 2], decompose=True)
+    sv1, _ = simulate(qc1)
+    sv2, _ = simulate(qc2)
+    assert abs(abs(np.vdot(sv1, sv2)) - 1.0) < 1e-10
+
+def test_amplitude_decompose_only_ry_cx():
+    """Real non-negative features produce only RY + CX gates."""
+    qc = Circuit(2)
+    amplitude_feature_map(qc, [0.5, 0.3, 0.7, 0.1], wires=[0, 1], decompose=True)
+    for op in qc.ops:
+        assert op.gate in (Gate.RY, Gate.CX), f"Unexpected gate: {op.gate}"
+
+def test_amplitude_decompose_1qubit():
+    """Single qubit: just one RY gate."""
+    qc = Circuit(1)
+    amplitude_feature_map(qc, [0.6, 0.8], wires=[0], decompose=True)
+    assert len(qc.ops) == 1
+    assert qc.ops[0].gate == Gate.RY
+    sv, _ = simulate(qc)
+    expected = np.array([0.6, 0.8]) / np.linalg.norm([0.6, 0.8])
+    assert abs(abs(np.vdot(sv, expected)) - 1.0) < 1e-10
+
+def test_amplitude_decompose_partial_wires():
+    """Decompose works on wire subset of larger circuit."""
+    qc = Circuit(3)
+    amplitude_feature_map(qc, [0.5, 0.5, 0.5, 0.5], wires=[1, 2], decompose=True)
+    sv, _ = simulate(qc)
+    probs = np.abs(sv) ** 2
+    # Qubit 0 stays |0⟩ → only first 4 states populated
+    assert np.allclose(probs[:4], [0.25] * 4)
+    assert np.allclose(probs[4:], [0.0] * 4)

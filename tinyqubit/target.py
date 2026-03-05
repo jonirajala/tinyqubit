@@ -26,6 +26,7 @@ class Target:
     directed: bool = False
     edge_error: dict[tuple[int, int], float] | None = None
     virtual_gates: frozenset[Gate] = frozenset()
+    duration: dict[Gate, int] | None = None
     _adj: dict[int, list[int]] = field(default_factory=dict, repr=False, compare=False)
     _dist: dict[tuple[int, int], int] = field(default_factory=dict, repr=False, compare=False)
     _all_pairs: list[list[int]] | None = field(default=None, repr=False, compare=False)
@@ -233,7 +234,8 @@ _RIGETTI_ANKAA_EDGES = frozenset({
 
 # NOTE: These are offline reference topologies for testing. Brisbane/Osaka/Kyoto are retired.
 # For live backends, use ibm_target() from tinyqubit.export.backends.ibm_native.
-IBM_EAGLE_R3 = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_eagle_r3", directed=True)
+IBM_EAGLE_R3 = Target(n_qubits=127, edges=_IBM_EAGLE_EDGES, basis_gates=_IBM_BASIS, name="ibm_eagle_r3", directed=True,
+                       duration={Gate.SX: 32, Gate.RZ: 0, Gate.CX: 64, Gate.MEASURE: 1120, Gate.RESET: 1120})
 IBM_BRISBANE = IBM_EAGLE_R3  # retired 2025-11-03
 IBM_OSAKA = IBM_EAGLE_R3     # retired 2024-08-13
 IBM_KYOTO = IBM_EAGLE_R3     # retired 2024-09-05

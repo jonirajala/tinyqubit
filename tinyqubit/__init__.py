@@ -16,6 +16,7 @@ from .noise import (
 from .observable import Observable, X, Y, Z, expectation, expectation_batch, expectation_sweep
 from .gradient import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, gradient_landscape, quantum_fisher_information, cost_gradient
 from .info import state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
+from .schedule import circuit_duration, idle_periods
 from .passes.fuse import fuse_1q_gates
 
 __all__ = [
@@ -42,6 +43,8 @@ __all__ = [
     "transpile",
     "precompile",
     "realize",
+    "circuit_duration",
+    "idle_periods",
     # Simulation
     "simulate",
     "simulate_batch",

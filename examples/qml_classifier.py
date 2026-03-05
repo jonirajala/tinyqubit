@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import urllib.request
 import numpy as np
 from tinyqubit.qml import kernel_matrix
-from tinyqubit.qml.feature_map import zz_feature_map
+from tinyqubit.qml.feature_map import zz_feature_map, amplitude_feature_map
 
 # --- Fetch iris dataset from UCI ML Repository ---
 _UCI_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/iris/iris.data"
@@ -49,4 +49,17 @@ for i in range(len(X_test)):
     preds.append(np.argmax(sim))
 
 acc = np.mean(np.array(preds) == y_test) * 100
-print(f"\n  accuracy: {acc:.0f}% ({int(acc * len(y_test) / 100)}/{len(y_test)})")
+print(f"\n  ZZ kernel (4 qubits):        {acc:.0f}% ({int(acc * len(y_test) / 100)}/{len(y_test)})")
+
+# --- Amplitude encoding kernel (2 qubits for 4 features, hardware-compatible) ---
+amp_map = lambda c, x, w: amplitude_feature_map(c, x, w, decompose=True)
+K_train2 = kernel_matrix(amp_map, X_train, n_qubits=2, wires=[0, 1])
+K_test2 = kernel_matrix(amp_map, X_test, X_train, n_qubits=2, wires=[0, 1])
+
+preds2 = []
+for i in range(len(X_test)):
+    sim = [K_test2[i, y_train == c].mean() for c in [0, 1]]
+    preds2.append(np.argmax(sim))
+
+acc2 = np.mean(np.array(preds2) == y_test) * 100
+print(f"  Amplitude kernel (2 qubits): {acc2:.0f}% ({int(acc2 * len(y_test) / 100)}/{len(y_test)})")
