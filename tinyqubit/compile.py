@@ -11,7 +11,7 @@ separately to enable multi-target compilation from a single precompiled circuit.
 
 from dataclasses import dataclass
 
-from .ir import Circuit, Gate
+from .ir import Circuit, Gate, Operation
 from .dag import DAGCircuit
 from .target import Target
 from .passes.route import route
@@ -66,12 +66,38 @@ def _precompile_dag(dag: DAGCircuit, cfg: CompileConfig) -> DAGCircuit:
     return dag
 
 
+def _absorb_trailing_swaps(dag: DAGCircuit) -> DAGCircuit:
+    """Remove trailing SWAPs (only MEASURE/RESET/other trailing SWAPs follow), remap classical bits."""
+    trailing = {nid for nid, op in dag._ops.items() if op.gate in (Gate.MEASURE, Gate.RESET)}
+    changed = True
+    while changed:
+        changed = False
+        for nid, op in dag._ops.items():
+            if op.gate != Gate.SWAP or nid in trailing:
+                continue
+            if all((nxt := dag.next_on_qubit(nid, q)) is not None and nxt in trailing for q in op.qubits):
+                trailing.add(nid)
+                changed = True
+    # Remove trailing SWAPs back-to-front, swapping MEASURE classical bits
+    for nid in sorted((n for n in trailing if dag.op(n).gate == Gate.SWAP), reverse=True):
+        op = dag.op(nid)
+        qa, qb = op.qubits
+        ma, mb = dag.next_on_qubit(nid, qa), dag.next_on_qubit(nid, qb)
+        if ma is not None and mb is not None and dag.op(ma).gate == Gate.MEASURE and dag.op(mb).gate == Gate.MEASURE:
+            opa, opb = dag.op(ma), dag.op(mb)
+            dag.set_op(ma, Operation(Gate.MEASURE, opa.qubits, (), opb.classical_bit))
+            dag.set_op(mb, Operation(Gate.MEASURE, opb.qubits, (), opa.classical_bit))
+        dag.remove_node(nid)
+    return dag
+
+
 def _realize_dag(dag: DAGCircuit, target: Target, cfg: CompileConfig, _seed_offset: int = 0) -> DAGCircuit:
     """Target-specific: layout, route, decompose to native basis, re-optimize."""
     obj = _obj_to_route(cfg.objective)
     layout = select_layout(dag, target, objective=obj, sabre_trials=cfg.sabre_trials, seed_offset=_seed_offset)
     dag = route(dag, target, initial_layout=layout, objective=obj, lookahead_depth=cfg.lookahead_depth)
     tracker = getattr(dag, '_tracker', None)
+    dag = _absorb_trailing_swaps(dag)
     dag = decompose(dag, target.basis_gates, t_optimal=cfg.t_optimal)
     if cfg.fuse_2q:
         dag = fuse_2q_blocks(dag)

@@ -10,6 +10,8 @@ from tinyqubit.tracker import QubitTracker
 from tinyqubit.passes.route import route
 from tinyqubit.passes.optimize import optimize
 from tinyqubit.passes.decompose import decompose, _decompose_ccx_4t, _decompose_ccz_4t
+from tinyqubit.dag import DAGCircuit
+from tinyqubit.compile import _absorb_trailing_swaps
 
 from conftest import line_topology, all_to_all_topology
 
@@ -1823,7 +1825,6 @@ def test_fuse_2q_only_1q_gates():
 
 def test_fuse_2q_accepts_dag():
     """fuse_2q_blocks accepts DAGCircuit input."""
-    from tinyqubit.dag import DAGCircuit
     c = Circuit(2).cx(0, 1).cx(0, 1)
     dag = DAGCircuit.from_circuit(c)
     result = fuse_2q_blocks(dag)
@@ -2609,3 +2610,71 @@ def test_multi_trial_deterministic():
     r2 = transpile(c, target, preset=cfg)
     assert [op.gate for op in r1.ops] == [op.gate for op in r2.ops]
     assert [op.qubits for op in r1.ops] == [op.qubits for op in r2.ops]
+
+
+# =============================================================================
+# Absorb Trailing SWAPs Tests
+# =============================================================================
+
+def test_absorb_trailing_swap_before_measure():
+    """Trailing SWAP before MEASURE is absorbed, classical bits remapped."""
+    c = Circuit(3)
+    c.cx(0, 1)
+    c.swap(1, 2)
+    c.measure(0, 0)
+    c.measure(1, 1)
+    c.measure(2, 2)
+
+    dag = DAGCircuit.from_circuit(c)
+    dag = _absorb_trailing_swaps(dag)
+    result = dag.to_circuit()
+
+    assert not any(op.gate == Gate.SWAP for op in result.ops)
+    measures = {op.qubits[0]: op.classical_bit for op in result.ops if op.gate == Gate.MEASURE}
+    assert measures[1] == 2
+    assert measures[2] == 1
+
+
+def test_no_absorb_swap_with_gate_successor():
+    """SWAP followed by a computational gate is NOT removed."""
+    c = Circuit(3)
+    c.swap(0, 1)
+    c.cx(0, 1)
+    c.measure(0, 0)
+    c.measure(1, 1)
+
+    dag = DAGCircuit.from_circuit(c)
+    dag = _absorb_trailing_swaps(dag)
+    result = dag.to_circuit()
+
+    assert any(op.gate == Gate.SWAP for op in result.ops)
+
+
+def test_no_absorb_trailing_swap_no_measure():
+    """Trailing SWAP with no successors is NOT removed (no measurement to remap)."""
+    c = Circuit(2)
+    c.h(0)
+    c.swap(0, 1)
+
+    dag = DAGCircuit.from_circuit(c)
+    dag = _absorb_trailing_swaps(dag)
+    result = dag.to_circuit()
+
+    assert any(op.gate == Gate.SWAP for op in result.ops)
+
+
+def test_absorb_chained_trailing_swaps():
+    """Chain of trailing SWAPs is fully absorbed."""
+    c = Circuit(3)
+    c.h(0)
+    c.swap(0, 1)
+    c.swap(1, 2)
+    c.measure(0, 0)
+    c.measure(1, 1)
+    c.measure(2, 2)
+
+    dag = DAGCircuit.from_circuit(c)
+    dag = _absorb_trailing_swaps(dag)
+    result = dag.to_circuit()
+
+    assert not any(op.gate == Gate.SWAP for op in result.ops)
