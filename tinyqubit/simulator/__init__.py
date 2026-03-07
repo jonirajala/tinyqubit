@@ -1,0 +1,15 @@
+"""Simulator package — re-exports for backward compatibility."""
+from .statevector import (
+    simulate_statevector, _apply_single_qubit, _apply_two_qubit,
+    _apply_three_qubit, _apply_diagonal_1q, _build_gate_unitary,
+    _DIAG_PHASE, _apply_measure, _apply_reset, _apply_gate_noise,
+    _apply_batch_1q, _find_parallel_1q_groups,
+)
+from .density import simulate_density
+from .stabilizer import is_clifford, simulate_stabilizer
+from .mps import simulate_mps, mps_to_statevector
+from .simulator import simulate, states_equal, sample, probabilities, marginal_counts, simulate_batch, verify, to_unitary
+from .noise import (
+    NoiseModel, depolarizing, amplitude_damping, phase_damping,
+    readout_error, realistic_noise,
+)

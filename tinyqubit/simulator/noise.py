@@ -1,16 +1,10 @@
-"""
-Noise models for quantum simulation via Monte Carlo trajectories.
-
-Channels: depolarizing, amplitude_damping, phase_damping, readout_error
-Container: NoiseModel with add_* methods
-Factory: realistic_noise() for typical hardware parameters
-"""
+"""Noise models for quantum simulation via Monte Carlo trajectories."""
 from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Callable
-from .ir import Gate
-from .simulator import _get_gate_matrix, _apply_single_qubit
+from ..ir import Gate, _get_gate_matrix
+from .statevector import _apply_single_qubit
 
 NoiseFn = Callable[[np.ndarray, int, int, np.random.Generator], np.ndarray]
 

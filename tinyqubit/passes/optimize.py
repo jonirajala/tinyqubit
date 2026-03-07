@@ -1,20 +1,11 @@
-"""
-Pattern-based gate optimization (DAG-native).
+"""Pattern-based gate cancellation, merging, and conjugation until fixed point."""
 
-Contains:
-    - optimize(): Apply cancellation and merge rules until fixed point
-
-Rules applied in deterministic order:
-    - Cancellation: [X,X]->[], [H,H]->[], [CX,CX]->[], [SWAP,SWAP]->[]
-    - Merge: [RZ(a),RZ(b)]->[RZ(a+b)], [RX(a),RX(b)]->[RX(a+b)], [RY(a),RY(b)]->[RY(a+b)]
-    - Clifford: [S,S]->[Z], [T,T]->[S], [S†,S†]->[Z], [T†,T†]->[S†], [S,S†]->[], [T,T†]->[]
-    - Conjugation: [H,X,H]->[Z], [H,Z,H]->[X], [H,CX,H]->[CZ], [H,CZ,H]->[CX]
-    - Commutation-aware: cancel/merge gates through commuting intermediates
-"""
-
+import sys, os
 from math import pi
 from ..ir import Circuit, Operation, Gate, _has_parameter, Parameter
 from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
+
+_DEBUG = int(os.environ.get("TINYQUBIT_DEBUG", "0"))
 
 
 # Partner rules: (gate1, gate2, result) — find gate2 through commuting intermediates
@@ -134,6 +125,11 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
         match = _find_partner(dag, nid, pred)
         if match is None:
             continue
+        if _DEBUG >= 2:
+            op2 = dag.op(match)
+            if result is None: print(f"    opt: cancel {op.gate.name}+{op2.gate.name} on {op.qubits}", file=sys.stderr)
+            elif is_merge or is_cross: print(f"    opt: merge {op.gate.name}+{op2.gate.name} on {op.qubits}", file=sys.stderr)
+            else: print(f"    opt: {op.gate.name}+{partner_gate.name} -> {result.name} on {op.qubits}", file=sys.stderr)
         if result is None:
             dag.remove_node(match)
             dag.remove_node(nid)
@@ -183,6 +179,8 @@ def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = No
     # 1Q rules
     for bookend, inner, result in CONJUGATE_1Q:
         if op.gate == bookend and mid_op.gate == inner and mid_op.qubits == op.qubits:
+            if _DEBUG >= 2:
+                print(f"    opt: conjugate {bookend.name}*{inner.name}*{bookend.name} -> {result.name} on {op.qubits}", file=sys.stderr)
             dag.set_op(nid, Operation(result, op.qubits, condition=cond))
             dag.remove_node(mid)
             dag.remove_node(end)
@@ -192,6 +190,8 @@ def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = No
         if basis is not None and result not in basis:
             continue
         if op.gate == bookend and mid_op.gate == inner and mid_op.qubits[pos] == q:
+            if _DEBUG >= 2:
+                print(f"    opt: conjugate {bookend.name}*{inner.name}*{bookend.name} -> {result.name} on q{q}", file=sys.stderr)
             rq = mid_op.qubits if pos == result_pos else mid_op.qubits[::-1]
             dag.set_op(mid, Operation(result, rq, condition=cond))
             dag.remove_node(nid)
@@ -272,6 +272,9 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
             g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
             make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
 
+            if _DEBUG >= 2:
+                side = 'target' if on_target else 'control'
+                print(f"    opt: CX sandwich {pauli_op.gate.name} on {side} -> eliminate CX pair on ({c},{t})", file=sys.stderr)
             # Remove pauli; replace CX gates with single-qubit equivalents
             dag.remove_node(pauli_nid)
 

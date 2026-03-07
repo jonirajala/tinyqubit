@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..ir import Circuit, Gate, Operation
 from ..target import Target
-from ..schedule import idle_periods, asap_times
+from .schedule import idle_periods, asap_times
 from ..passes.decompose import decompose
 
 

@@ -13,7 +13,7 @@ from tinyqubit.ir import Circuit, Gate
 from tinyqubit.target import Target
 from tinyqubit.compile import transpile
 from tinyqubit.simulator import simulate, sample
-from tinyqubit.export import to_openqasm2
+from tinyqubit.qasm import to_openqasm2
 from tinyqubit.library import grover_oracle
 from tinyqubit.ftqc import resource_estimate
 

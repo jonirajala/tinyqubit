@@ -1,18 +1,13 @@
-"""
-Stabilizer (tableau) simulator for Clifford circuits.
-
-Uses the Aaronson-Gottesman CHP algorithm: O(n^2) per gate, supports 1000+ qubits.
-Only handles Clifford gates — non-Clifford circuits fall through to statevector sim.
-"""
+"""Stabilizer (tableau) simulator — CHP algorithm, O(n^2) per gate, Clifford-only."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit, Gate
+from ..ir import Circuit, Gate
 
 _CLIFFORD_GATES = frozenset({Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.SDG, Gate.SX,
                               Gate.CX, Gate.CZ, Gate.SWAP, Gate.MEASURE, Gate.RESET})
 
 
-def _is_clifford(circuit: Circuit) -> bool:
+def is_clifford(circuit: Circuit) -> bool:
     return all(op.gate in _CLIFFORD_GATES for op in circuit.ops)
 
 
@@ -210,7 +205,7 @@ class StabilizerState:
         return state
 
 
-def _simulate_stabilizer(circuit: Circuit, seed: int | None = None) -> tuple[np.ndarray, dict[int, int]]:
+def simulate_stabilizer(circuit: Circuit, seed: int | None = None) -> tuple[np.ndarray, dict[int, int]]:
     n = circuit.n_qubits
     rng = np.random.default_rng(seed)
     classical = {i: 0 for i in range(circuit.n_classical)}

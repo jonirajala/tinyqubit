@@ -1,9 +1,4 @@
-"""
-CX direction correction for directed-coupler hardware.
-
-CX reversal identity: CX(a,b) = H(a) H(b) CX(b,a) H(a) H(b)
-Inserted H gates get cleaned up by downstream fuse_1q + optimize passes.
-"""
+"""CX direction correction for directed-coupler hardware."""
 
 from ..ir import Circuit, Operation, Gate
 from ..dag import DAGCircuit

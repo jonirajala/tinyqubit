@@ -1,9 +1,4 @@
-"""
-Diagonal gate pushing pass.
-
-Moves diagonal gates backward through commuting gates for merge opportunities.
-Uses centralized commutation rules from dag.py.
-"""
+"""Push diagonal gates backward through commuting gates for merge opportunities."""
 from ..ir import Circuit, Operation, Gate
 from ..dag import DAGCircuit, commutes
 

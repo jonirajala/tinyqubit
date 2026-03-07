@@ -9,6 +9,7 @@ transpile() runs both phases. precompile() and realize() can be called
 separately to enable multi-target compilation from a single precompiled circuit.
 """
 
+import sys, os
 from dataclasses import dataclass
 
 from .ir import Circuit, Gate, Operation
@@ -21,10 +22,23 @@ from .passes.fuse import fuse_1q_gates, fuse_2q_blocks
 from .passes.optimize import optimize
 from .passes.push_diagonals import push_diagonals
 from .passes.direction import fix_direction_dag
-from .report import collect_metrics, build_report
+from .passes.report import collect_metrics, build_report
 
-# Routing basis: universal set that router understands
-# Keep SWAP so router can reason about it before expansion
+_DEBUG = int(os.environ.get("TINYQUBIT_DEBUG", "0"))
+
+
+def _trace(fn, name, dag, *args, **kwargs):
+    if not _DEBUG: return fn(dag, *args, **kwargs)
+    n0 = len(dag); q0 = sum(1 for op in dag._ops.values() if op.gate.n_qubits == 2)
+    dag = fn(dag, *args, **kwargs)
+    n1 = len(dag); q1 = sum(1 for op in dag._ops.values() if op.gate.n_qubits == 2)
+    print(f"  {name:20s}  gates {n0:4d} -> {n1:4d}  2q {q0:3d} -> {q1:3d}", file=sys.stderr)
+    if _DEBUG >= 3:
+        for op in dag.topological_ops(): print(f"    {op}", file=sys.stderr)
+    return dag
+
+
+# NOTE: includes SWAP so router can reason about it before expansion
 _ROUTING_BASIS = frozenset({Gate.RX, Gate.RZ, Gate.SX, Gate.CX, Gate.CZ, Gate.SWAP, Gate.H, Gate.MEASURE, Gate.RESET})
 
 
@@ -53,16 +67,13 @@ def _resolve_config(preset: str | CompileConfig) -> CompileConfig:
     return _PRESETS[preset]
 
 
-def _obj_to_route(objective: str) -> str | None:
-    return None if objective == "2q" else objective
-
-
 def _precompile_dag(dag: DAGCircuit, cfg: CompileConfig) -> DAGCircuit:
     """Target-independent: decompose to routing primitives, fuse, optimize."""
-    dag = decompose(dag, _ROUTING_BASIS, t_optimal=cfg.t_optimal)
-    dag = push_diagonals(dag)
-    dag = fuse_1q_gates(dag)
-    dag = optimize(dag, max_iterations=cfg.max_opt_iterations)
+    if _DEBUG >= 1: print("[tinyqubit] precompile", file=sys.stderr)
+    dag = _trace(decompose, "decompose", dag, _ROUTING_BASIS, t_optimal=cfg.t_optimal)
+    dag = _trace(push_diagonals, "push_diag", dag)
+    dag = _trace(fuse_1q_gates, "fuse_1q", dag)
+    dag = _trace(optimize, "optimize", dag, max_iterations=cfg.max_opt_iterations)
     return dag
 
 
@@ -93,20 +104,25 @@ def _absorb_trailing_swaps(dag: DAGCircuit) -> DAGCircuit:
 
 def _realize_dag(dag: DAGCircuit, target: Target, cfg: CompileConfig, _seed_offset: int = 0) -> DAGCircuit:
     """Target-specific: layout, route, decompose to native basis, re-optimize."""
-    obj = _obj_to_route(cfg.objective)
+    if _DEBUG >= 1: print("[tinyqubit] realize", file=sys.stderr)
+    obj = None if cfg.objective == "2q" else cfg.objective
     layout = select_layout(dag, target, objective=obj, sabre_trials=cfg.sabre_trials, seed_offset=_seed_offset)
+    if _DEBUG >= 1: print(f"  {'layout':20s}  {layout}", file=sys.stderr)
     dag = route(dag, target, initial_layout=layout, objective=obj, lookahead_depth=cfg.lookahead_depth)
     tracker = getattr(dag, '_tracker', None)
-    dag = _absorb_trailing_swaps(dag)
-    dag = decompose(dag, target.basis_gates, t_optimal=cfg.t_optimal)
+    if _DEBUG >= 1:
+        n = len(dag); q = sum(1 for op in dag._ops.values() if op.gate.n_qubits == 2)
+        print(f"  {'route':20s}  gates {n:4d}  2q {q:3d}", file=sys.stderr)
+    dag = _trace(_absorb_trailing_swaps, "absorb_swaps", dag)
+    dag = _trace(decompose, "decompose", dag, target.basis_gates, t_optimal=cfg.t_optimal)
     if cfg.fuse_2q:
-        dag = fuse_2q_blocks(dag)
-        dag = decompose(dag, target.basis_gates)
-    dag = fix_direction_dag(dag, target)
-    dag = push_diagonals(dag)
-    dag = fuse_1q_gates(dag)
-    dag = decompose(dag, target.basis_gates)  # Re-lower fused RX when basis uses SX
-    dag = optimize(dag, max_iterations=cfg.max_opt_iterations, basis=target.basis_gates)
+        dag = _trace(fuse_2q_blocks, "fuse_2q", dag)
+        dag = _trace(decompose, "decompose2", dag, target.basis_gates)
+    dag = _trace(fix_direction_dag, "fix_direction", dag, target)
+    dag = _trace(push_diagonals, "push_diag", dag)
+    dag = _trace(fuse_1q_gates, "fuse_1q", dag)
+    dag = _trace(decompose, "decompose_final", dag, target.basis_gates)
+    dag = _trace(optimize, "optimize", dag, max_iterations=cfg.max_opt_iterations, basis=target.basis_gates)
     dag._tracker = tracker
     return dag
 

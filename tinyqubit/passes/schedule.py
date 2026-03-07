@@ -1,8 +1,8 @@
 """ASAP scheduling and idle-period detection."""
 from __future__ import annotations
 
-from .ir import Gate, Circuit
-from .target import Target
+from ..ir import Gate, Circuit
+from ..target import Target
 
 
 def asap_times(circuit: Circuit, durations: dict[Gate, int]) -> list[int]:

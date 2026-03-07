@@ -1,16 +1,10 @@
-"""
-Core IR types - the single representation used throughout.
-
-Contains:
-    - Gate: Enum of supported gates (22 primitives)
-    - Operation: Dataclass (gate, qubits, params)
-    - Circuit: Lazy builder, just appends Operations
-"""
+"""Core IR types: Gate, Operation, Circuit."""
 from __future__ import annotations
 
 from enum import Enum, auto
 from dataclasses import dataclass
 import numpy as np
+from math import sqrt, cos, sin, pi as _pi
 
 
 class Parameter:
@@ -24,9 +18,7 @@ class Parameter:
     def __hash__(self): return hash(('Parameter', self.name))
 
 
-def _has_parameter(params: tuple) -> bool:
-    """Check if any param is a symbolic Parameter."""
-    return any(isinstance(p, Parameter) for p in params)
+def _has_parameter(params: tuple) -> bool: return any(isinstance(p, Parameter) for p in params)
 
 class Gate(Enum):
     """22 primitive quantum gates."""
@@ -85,12 +77,35 @@ class Operation:
     condition: tuple[int, int] | None = None  # (classical_bit, expected_value) for conditional
 
 
+_SQRT2_INV = 1 / sqrt(2)
+_T_PHASE = np.exp(1j * _pi / 4)
+_GATE_1Q_CACHE = {
+    Gate.X: np.array([[0, 1], [1, 0]], dtype=complex),
+    Gate.Y: np.array([[0, -1j], [1j, 0]], dtype=complex),
+    Gate.Z: np.array([[1, 0], [0, -1]], dtype=complex),
+    Gate.H: np.array([[1, 1], [1, -1]], dtype=complex) * _SQRT2_INV,
+    Gate.S: np.array([[1, 0], [0, 1j]], dtype=complex),
+    Gate.SDG: np.array([[1, 0], [0, -1j]], dtype=complex),
+    Gate.T: np.array([[1, 0], [0, _T_PHASE]], dtype=complex),
+    Gate.TDG: np.array([[1, 0], [0, np.conj(_T_PHASE)]], dtype=complex),
+    Gate.SX: 0.5 * np.array([[1+1j, 1-1j], [1-1j, 1+1j]], dtype=complex),
+}
+_GATE_1Q_PARAM = {
+    Gate.RX: lambda t: np.array([[cos(t/2), -1j*sin(t/2)], [-1j*sin(t/2), cos(t/2)]], dtype=complex),
+    Gate.RY: lambda t: np.array([[cos(t/2), -sin(t/2)], [sin(t/2), cos(t/2)]], dtype=complex),
+    Gate.RZ: lambda t: np.array([[np.exp(-1j*t/2), 0], [0, np.exp(1j*t/2)]], dtype=complex),
+}
+
+def _get_gate_matrix(gate: Gate, params: tuple = ()) -> np.ndarray:
+    return _GATE_1Q_CACHE[gate] if gate in _GATE_1Q_CACHE else _GATE_1Q_PARAM[gate](params[0])
+
+
 _GATE_ADJOINT = {Gate.S: Gate.SDG, Gate.SDG: Gate.S, Gate.T: Gate.TDG, Gate.TDG: Gate.T}
 _PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ})
+_2Q_DRAW_SYMS = {Gate.CX: ("●", "X"), Gate.CZ: ("●", "●"), Gate.SWAP: ("╳", "╳"),
+                 Gate.CP: ("●", "P"), Gate.ECR: ("ECR", "ECR"), Gate.RZZ: ("RZZ", "RZZ")}
 
-# Context manager for conditional operations
 class _ConditionalContext:
-    """Context manager for c_if conditional blocks."""
     def __init__(self, circuit: "Circuit", classical_bit: int, value: int):
         self._circuit = circuit
         self._classical_bit = classical_bit
@@ -104,7 +119,6 @@ class _ConditionalContext:
         self._circuit._current_condition = None
 
 
-# Circuit - lazy list of operations
 class Circuit:
     """Lazy circuit builder. Adds operations to a list."""
 
@@ -226,12 +240,12 @@ class Circuit:
         return self
 
     def to_json(self) -> str:
-        from .serialize import circuit_to_json
+        from .qasm import circuit_to_json
         return circuit_to_json(self)
 
     @classmethod
     def from_json(cls, s: str) -> "Circuit":
-        from .serialize import circuit_from_json
+        from .qasm import circuit_from_json
         return circuit_from_json(s)
 
     def to_unitary(self) -> np.ndarray:
@@ -298,9 +312,7 @@ class Circuit:
             for q in range(min(qs) + 1, max(qs)):
                 if q not in col: col[q] = "│"
             return col
-        _2q_syms = {Gate.CX: ("●", "X"), Gate.CZ: ("●", "●"), Gate.SWAP: ("╳", "╳"),
-                    Gate.CP: ("●", "P"), Gate.ECR: ("ECR", "ECR"), Gate.RZZ: ("RZZ", "RZZ")}
-        s0, s1 = _2q_syms.get(g, (g.name, g.name))
+        s0, s1 = _2Q_DRAW_SYMS.get(g, (g.name, g.name))
         col = {qs[0]: s0, qs[1]: s1}
         for q in range(min(qs) + 1, max(qs)): col[q] = "│"
         return col             

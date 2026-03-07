@@ -13,7 +13,7 @@ import numpy as np
 from tinyqubit import Circuit, NoiseModel, expectation, resource_estimate, zne
 from tinyqubit.observable import X, Y, Z, Observable
 from tinyqubit.qml import Adam
-from tinyqubit.qml.ansatz import strongly_entangling_layers
+from tinyqubit.qml.library import strongly_entangling_layers
 
 # H₂ Hamiltonian (STO-3G, Jordan-Wigner, R=0.735 Å)
 H = (-1.0523 * Observable([(1.0, {})]) + 0.3979 * Z(0) + -0.3979 * Z(1)

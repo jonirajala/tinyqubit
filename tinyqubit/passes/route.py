@@ -33,12 +33,7 @@ def _score_swap(swap: tuple[int, int], front: list[int], extended: list[int],
 def route(inp, target: Target, initial_layout: list[int] | None = None, objective: str | None = None, lookahead_depth: int = 20):
     """Route circuit using SABRE algorithm. Accepts Circuit or DAGCircuit.
 
-    SABRE processes gates in dependency order, inserting SWAPs when 2Q gates
-    need non-adjacent qubits. Uses lookahead scoring to pick SWAPs that help
-    both current and future gates.
-
-    Args:
-        initial_layout: Optional mapping logical->physical. layout[i] = physical qubit for logical i.
+    initial_layout: logical->physical mapping. layout[i] = physical qubit for logical i.
     """
     from_circuit = isinstance(inp, Circuit)
     dag = DAGCircuit.from_circuit(inp) if from_circuit else inp
@@ -49,14 +44,15 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
     tracker = QubitTracker(target.n_qubits, initial_layout=initial_layout)
     result = DAGCircuit(target.n_qubits, dag.n_classical)
 
-    if target.is_all_to_all() or not dag._ops:
-        for op in dag.topological_ops(): result.add_op(op)
+    def finalize():
         result._tracker = tracker
         if from_circuit:
-            c = result.to_circuit()
-            c._tracker = tracker
-            return c
+            c = result.to_circuit(); c._tracker = tracker; return c
         return result
+
+    if target.is_all_to_all() or not dag._ops:
+        for op in dag.topological_ops(): result.add_op(op)
+        return finalize()
 
     # Track in-degrees separately (we read from dag without modifying it)
     in_deg = {nid: len(dag.predecessors(nid)) for nid in dag._ops}
@@ -66,15 +62,9 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
     decay = [[0.0] * n for _ in range(n)]
     depth_aware = objective == "depth"
     qubit_depth = [0] * n if depth_aware else None
-    if initial_layout is not None:
-        l2p = list(initial_layout)
-        p2l = [-1] * n
-        for lq, pq in enumerate(initial_layout):
-            p2l[pq] = lq
-    else:
-        l2p = list(range(dag.n_qubits))
-        p2l = [-1] * n
-        for i in range(dag.n_qubits): p2l[i] = i
+    l2p = list(initial_layout) if initial_layout is not None else list(range(dag.n_qubits))
+    p2l = [-1] * n
+    for lq, pq in enumerate(l2p): p2l[pq] = lq
 
     def mark_done(nid: int):
         executed.add(nid)
@@ -85,8 +75,9 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
             if isinstance(p, PendingSwap): result.add_op(Operation(Gate.SWAP, (p.phys_a, p.phys_b)))
             else: result.add_op(Operation(p.gate, p.phys_qubits, p.params))
 
-    swap_budget = len(dag._ops) * 4  # prevent runaway SWAP oscillation
+    swap_budget = len(dag._ops) * n  # scale with both ops and qubits
     swaps_inserted = 0
+    stall = 0  # consecutive SWAPs without executing a 2Q gate
     while True:
         # Front layer: gates with all dependencies satisfied
         front = sorted(nid for nid in dag._ops if in_deg.get(nid, 0) == 0 and nid not in executed)
@@ -121,40 +112,39 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
                         qubit_depth[pa] = qubit_depth[pb] = d
                     mark_done(nid)
                     progress = True
+                    stall = 0
         if progress: continue
 
-        # Blocked: need SWAP. First check topology is connected.
+        # Blocked: collect candidate SWAPs and check connectivity
+        candidates: set[tuple[int, int]] = set()
         for nid in front:
             op = dag.op(nid)
             if op.gate.n_qubits == 2:
                 pa, pb = l2p[op.qubits[0]], l2p[op.qubits[1]]
                 if dist[pa][pb] < 0 or dist[pa][pb] == float('inf'):
                     raise ValueError(f"No path between qubits {pa} and {pb} - disconnected topology")
-
-        # Extended set: future gates for lookahead scoring
-        extended, layer = set(), set(front)
-        for _ in range(lookahead_depth):
-            nxt = {s for nid in layer for s in dag.successors(nid) if s not in executed and s not in extended}
-            if not nxt: break
-            extended |= nxt
-            layer = nxt
-
-        # Candidate SWAPs: edges touching qubits involved in blocked 2Q gates
-        candidates: set[tuple[int, int]] = set()
-        for nid in front:
-            op = dag.op(nid)
-            if op.gate.n_qubits == 2:
-                for q in op.qubits:
-                    pq = l2p[q]
+                for pq in (pa, pb):
                     for nb in target.neighbors(pq):
                         candidates.add((min(pq, nb), max(pq, nb)))
 
+        # Extended set: future gates for lookahead scoring
+        # NOTE: disable lookahead when stalled to prevent oscillation
+        if stall < n:
+            extended, layer = set(), set(front)
+            for _ in range(lookahead_depth):
+                nxt = {s for nid in layer for s in dag.successors(nid) if s not in executed and s not in extended}
+                if not nxt: break
+                extended |= nxt
+                layer = nxt
+        else:
+            extended = set()
+
         # Pick SWAP with lowest score (sorted for determinism on ties)
-        qdep = qubit_depth if objective == "depth" else None
-        best = min(sorted(candidates), key=lambda sw: _score_swap(sw, front, list(extended), dag, l2p, p2l, dist, decay, qdep))
+        best = min(sorted(candidates), key=lambda sw: _score_swap(sw, front, list(extended), dag, l2p, p2l, dist, decay, qubit_depth))
         p0, p1 = best
         tracker.record_swap(p0, p1, -1)
         swaps_inserted += 1
+        stall += 1
         if swaps_inserted > swap_budget:
             raise RuntimeError("SABRE routing exceeded swap budget")
 
@@ -169,9 +159,4 @@ def route(inp, target: Target, initial_layout: list[int] | None = None, objectiv
         decay[min(p0, p1)][max(p0, p1)] += 0.001
 
     flush()
-    result._tracker = tracker
-    if from_circuit:
-        c = result.to_circuit()
-        c._tracker = tracker
-        return c
-    return result
+    return finalize()

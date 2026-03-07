@@ -4,8 +4,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-from .ir import Circuit, Gate
-from .dag import DAGCircuit
+from ..ir import Circuit, Gate
+from ..dag import DAGCircuit
 
 
 @dataclass(frozen=True)

@@ -1,13 +1,13 @@
 """Error mitigation: ZNE (zero noise extrapolation) and readout mitigation."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit
-from .simulator import simulate, simulate_density, _apply_single_qubit
+from ..ir import Circuit
+from ..simulator import simulate, simulate_density, _apply_single_qubit
 from .observable import Observable, _PAULI_MATRIX
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .noise import NoiseModel
+    from ..simulator.noise import NoiseModel
 
 
 def _fold_circuit(circuit: Circuit, scale: int) -> Circuit:

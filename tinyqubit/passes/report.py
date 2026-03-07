@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .tracker import PendingSwap
+from ..tracker import PendingSwap
 
 if TYPE_CHECKING:
-    from .ir import Circuit, Operation
-    from .dag import DAGCircuit
-    from .tracker import QubitTracker
-    from .target import Target
+    from ..ir import Circuit, Operation
+    from ..dag import DAGCircuit
+    from ..tracker import QubitTracker
+    from ..target import Target
 
 
 @dataclass
@@ -83,15 +83,15 @@ class CompileReport:
 
 
 def _fmt(op: "Operation") -> str:
-    from .ir import Parameter
+    from ..ir import Parameter
     args = [str(q) for q in op.qubits] + [p.name if isinstance(p, Parameter) else f"{p:.2f}" for p in op.params]
     return f"{op.gate.name}({','.join(args)})"
 
 
 def collect_metrics(circuit_or_dag, name: str) -> PassMetrics:
     """Collect pass metrics from a Circuit or DAGCircuit."""
-    from .dag import DAGCircuit
-    from .ir import Gate
+    from ..dag import DAGCircuit
+    from ..ir import Gate
     if isinstance(circuit_or_dag, DAGCircuit):
         dag = circuit_or_dag
     else:

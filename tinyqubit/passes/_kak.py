@@ -1,10 +1,7 @@
 """KAK (Cartan) decomposition of 2-qubit unitaries.
 
 Decomposes any U ∈ U(4) as: U = g * kron(A1, A0) · Ud · kron(B1, B0)
-where Ud = exp(i(xx·XX + yy·YY + zz·ZZ)), with pi/4 >= xx >= yy >= |zz| >= 0.
-
-Uses SVD-based bidiagonalization (Cirq approach) for robust handling of
-degenerate cases. No scipy dependency — numpy only.
+where Ud = exp(i(xx·XX + yy·YY + zz·ZZ)). Uses SVD-based bidiagonalization.
 """
 from __future__ import annotations
 import numpy as np

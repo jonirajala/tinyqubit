@@ -1,21 +1,4 @@
-"""
-Gate decomposition to target basis.
-
-Contains:
-    - decompose(): Convert non-basis gates to basis gate sequences
-    - DECOMPOSITIONS: Default rules (CX-native, for IBM-like backends)
-    - DECOMPOSITIONS_CZ_NATIVE: Alternative rules for CZ-native backends
-
-Standard decompositions (all correct up to global phase):
-    - SWAP → CX CX CX
-    - H → RZ(π/2) RX(π/2) RZ(π/2)
-    - S → RZ(π/2), T → RZ(π/4)
-    - X → RX(π), Y → RX(π) RZ(π), Z → RZ(π)
-    - RX → H RZ(θ) H (when H is in basis but RX isn't)
-    - RY → RX(π/2) RZ(θ) RX(-π/2)
-    - CZ → H CX H (default) or CX → H CZ H (CZ-native)
-    - CP → RZ(θ/2)_c · CX · RZ(-θ/2)_t · CX · RZ(θ/2)_c
-"""
+"""Gate decomposition to target basis."""
 
 from math import pi
 from ..ir import Circuit, Operation, Gate, _has_parameter

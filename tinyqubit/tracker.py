@@ -1,13 +1,4 @@
-"""
-Symbolic qubit mapping tracker.
-
-Contains:
-    - QubitTracker: Track logical→physical qubit permutations
-    - Deferred SWAP materialization with automatic cancellation
-
-Note: SWAP cancellation is local (consecutive pairs only). Commutation-aware
-cancellation across intervening gates is not implemented.
-"""
+"""Symbolic qubit mapping tracker with deferred SWAP materialization."""
 
 from dataclasses import dataclass
 from .ir import Gate
@@ -15,7 +6,6 @@ from .ir import Gate
 
 @dataclass
 class PendingSwap:
-    """A SWAP that hasn't been materialized yet."""
     phys_a: int
     phys_b: int
     triggered_by: int = -1
@@ -23,57 +13,39 @@ class PendingSwap:
 
 @dataclass
 class PendingGate:
-    """A gate with its physical qubits."""
     gate: Gate
     phys_qubits: tuple[int, ...]
     params: tuple[float, ...] = ()
 
 
 class QubitTracker:
-    """
-    Track logical→physical qubit mapping symbolically.
-
-    SWAPs are not materialized immediately - they're recorded as pending.
-    At export time, consecutive SWAP-SWAP pairs are cancelled automatically.
-
-    For circuits with MEASURE/RESET/conditionals, caller must flush() before
-    these barriers to preserve correct semantics.
-    """
+    """Track logical→physical qubit mapping with deferred SWAP materialization."""
 
     def __init__(self, n_qubits: int, initial_layout: list[int] | None = None):
         self.n_qubits = n_qubits
         self.initial_layout = initial_layout
+        self.logical_to_physical = list(range(n_qubits))
+        self.physical_to_logical = list(range(n_qubits))
         if initial_layout is not None:
-            self.logical_to_physical = list(range(n_qubits))
-            self.physical_to_logical = list(range(n_qubits))
-            # Map circuit qubits according to layout
-            n_logical = len(initial_layout)
             used = set(initial_layout)
             remaining = [p for p in range(n_qubits) if p not in used]
             for lq, pq in enumerate(initial_layout):
                 self.logical_to_physical[lq] = pq
                 self.physical_to_logical[pq] = lq
-            # Fill remaining logical qubits into remaining physical slots
-            for i, lq in enumerate(range(n_logical, n_qubits)):
+            for i, lq in enumerate(range(len(initial_layout), n_qubits)):
                 self.logical_to_physical[lq] = remaining[i]
                 self.physical_to_logical[remaining[i]] = lq
-        else:
-            self.logical_to_physical = list(range(n_qubits))
-            self.physical_to_logical = list(range(n_qubits))
         self.pending: list[PendingSwap | PendingGate] = []
         self.swap_log: list[tuple[int, int, int]] = []
-        self.swap_cancel_log: list[tuple[int, int]] = []  # (cancelled_trigger1, cancelled_trigger2)
+        self.swap_cancel_log: list[tuple[int, int]] = []
 
     def logical_to_phys(self, logical: int) -> int:
-        """Get physical location of a logical qubit."""
         return self.logical_to_physical[logical]
 
     def phys_to_logical(self, physical: int) -> int:
-        """Get logical qubit at a physical location."""
         return self.physical_to_logical[physical]
 
     def record_swap(self, phys_a: int, phys_b: int, triggered_by: int = -1):
-        """Update mapping and record pending SWAP for later materialization."""
         if not (0 <= phys_a < self.n_qubits and 0 <= phys_b < self.n_qubits):
             raise ValueError(f"Invalid physical qubit index: ({phys_a}, {phys_b}) for {self.n_qubits}-qubit tracker")
         if phys_a == phys_b:
@@ -87,25 +59,18 @@ class QubitTracker:
         self.swap_log.append((phys_a, phys_b, triggered_by))
 
     def add_gate(self, gate: 'Gate', phys_qubits: tuple[int, ...], params: tuple[float, ...] = ()):
-        """Record a gate at current physical positions (caller must translate qubits)."""
+        """Caller must translate qubits to physical before calling."""
         self.pending.append(PendingGate(gate, phys_qubits, params))
 
-    def add_logical_gate(self, gate: 'Gate', logical_qubits: tuple[int, ...], params: tuple[float, ...] = ()):
-        """Record a gate, auto-translating logical to physical qubits."""
-        self.add_gate(gate, self.get_physical_qubits(logical_qubits), params)
-
-    def get_physical_qubits(self, logical_qubits: tuple[int, ...]) -> tuple[int, ...]:
-        """Convert logical qubits to their current physical locations."""
-        return tuple(self.logical_to_physical[q] for q in logical_qubits)
 
     def flush(self) -> list[PendingSwap | PendingGate]:
-        """Materialize and clear pending ops. Use before barriers (MEASURE/RESET/conditional)."""
+        """Use before barriers (MEASURE/RESET/conditional) to preserve semantics."""
         ops = self.materialize()
         self.pending.clear()
         return ops
 
     def materialize(self) -> list[PendingSwap | PendingGate]:
-        """Return pending ops with consecutive SWAP-SWAP pairs cancelled."""
+        """Return pending ops, cancelling consecutive SWAP-SWAP pairs."""
         result = []
         for op in self.pending:
             if (isinstance(op, PendingSwap) and result and

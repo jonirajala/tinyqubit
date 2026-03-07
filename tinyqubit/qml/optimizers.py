@@ -2,8 +2,8 @@
 from __future__ import annotations
 import numpy as np
 from ..ir import Circuit
-from ..observable import Observable, expectation
-from ..gradient import adjoint_gradient, quantum_fisher_information, _shot_expectation
+from ..analysis.observable import Observable, expectation
+from ..analysis.gradient import adjoint_gradient, quantum_fisher_information, _shot_expectation
 
 
 class GradientDescent:

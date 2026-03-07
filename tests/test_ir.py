@@ -9,7 +9,7 @@ Tests:
 """
 import pytest
 from tinyqubit.ir import Gate, Operation, Circuit
-from tinyqubit.export import to_openqasm2
+from tinyqubit.qasm import to_openqasm2
 
 
 # =============================================================================

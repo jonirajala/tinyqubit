@@ -1,13 +1,8 @@
-"""
-Matrix Product State (MPS) simulator for low-entanglement circuits.
-
-Uses O(n * chi^2) memory instead of O(2^n), enabling 50+ qubit simulation
-when bond dimension stays manageable. Truncates at max_bond_dim (approximation).
-"""
+"""MPS simulator — O(n * chi^2) memory, truncates at max_bond_dim."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit, Gate, _has_parameter
-from .simulator import _get_gate_matrix, _build_gate_unitary, _GATE_1Q_CACHE
+from ..ir import Circuit, Gate, _has_parameter, _get_gate_matrix, _GATE_1Q_CACHE
+from .statevector import _build_gate_unitary
 
 _SWAP4 = np.array([[1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]], dtype=complex)
 
@@ -168,9 +163,3 @@ def simulate_mps(circuit: Circuit, max_bond_dim: int = 256, seed: int | None = N
             _mps_apply_3q(tensors, op.qubits[0], op.qubits[1], op.qubits[2], U8, max_bond_dim)
 
     return tensors, classical
-
-
-def _simulate_mps_sv(circuit: Circuit, seed: int | None = None, max_bond_dim: int = 256) -> tuple[np.ndarray, dict[int, int]]:
-    tensors, classical = simulate_mps(circuit, max_bond_dim=max_bond_dim, seed=seed)
-    sv = mps_to_statevector(tensors)
-    return sv, classical

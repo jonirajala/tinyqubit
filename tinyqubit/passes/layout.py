@@ -68,11 +68,13 @@ def _greedy_path(start: int, adj: dict[int, set[int]]) -> list[int]:
 
 
 def _path_seeds(target: Target, n_logical: int) -> list[list[int]]:
-    """Generate unique initial layouts from greedy paths starting at each coupling graph node."""
+    """Generate layouts from greedy paths starting at lowest/highest degree nodes."""
     adj: dict[int, set[int]] = {i: set() for i in range(target.n_qubits)}
     for a, b in target.edges: adj[a].add(b)
+    starts = [min(range(target.n_qubits), key=lambda q: (len(adj[q]), q)),
+              max(range(target.n_qubits), key=lambda q: (len(adj[q]), -q))]
     seen, seeds = set(), []
-    for start in range(target.n_qubits):
+    for start in starts:
         path = _greedy_path(start, adj)
         layout = (path + [q for q in range(target.n_qubits) if q not in set(path)])[:n_logical]
         key = tuple(layout)
@@ -95,7 +97,7 @@ def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None,
     seeds = [None] + [random.Random(seed_offset + t).sample(range(target.n_qubits), dag.n_qubits) for t in range(1, sabre_trials)]
     seeds.extend(_path_seeds(target, dag.n_qubits))
 
-    best_layout, best_swaps = None, float('inf')
+    best_layout, best_swaps, stale = None, float('inf'), 0
     for init in seeds:
         try:
             fwd = route(dag, target, initial_layout=init, objective=objective)
@@ -106,7 +108,11 @@ def _sabre_layout(dag: DAGCircuit, target: Target, objective: str | None = None,
             continue
         n_swaps = sum(1 for op in scored.topological_ops() if op.gate == Gate.SWAP)
         if n_swaps < best_swaps:
-            best_swaps, best_layout = n_swaps, layout
+            best_swaps, best_layout, stale = n_swaps, layout, 0
+            if best_swaps == 0: break
+        else:
+            stale += 1
+            if stale >= 3: break
 
     return best_layout
 

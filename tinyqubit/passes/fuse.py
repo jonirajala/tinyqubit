@@ -3,9 +3,8 @@ from __future__ import annotations
 import numpy as np
 from math import pi, atan2, sqrt
 from collections import defaultdict
-from ..ir import Circuit, Operation, Gate, _has_parameter
+from ..ir import Circuit, Operation, Gate, _has_parameter, _get_gate_matrix
 from ..dag import DAGCircuit
-from ..simulator import _get_gate_matrix
 from ._kak import kak_decompose, cx_count, _extract_su2_pair
 
 

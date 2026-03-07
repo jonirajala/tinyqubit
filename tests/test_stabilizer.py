@@ -4,7 +4,7 @@ from math import sqrt
 
 from tinyqubit.ir import Circuit, Gate, Operation
 from tinyqubit.simulator import simulate, states_equal
-from tinyqubit.stabilizer import _is_clifford, _simulate_stabilizer
+from tinyqubit.simulator.stabilizer import is_clifford, simulate_stabilizer
 
 
 def _force_statevector(circuit, seed=None):
@@ -20,22 +20,22 @@ def _force_statevector(circuit, seed=None):
 
 def test_clifford_detection_hcx():
     c = Circuit(2).h(0).cx(0, 1)
-    assert _is_clifford(c)
+    assert is_clifford(c)
 
 def test_clifford_detection_t_gate():
     c = Circuit(1).t(0)
-    assert not _is_clifford(c)
+    assert not is_clifford(c)
 
 def test_clifford_detection_rx():
     c = Circuit(1).rx(0, 0.5)
-    assert not _is_clifford(c)
+    assert not is_clifford(c)
 
 def test_clifford_detection_all_cliffords():
     c = Circuit(3, 3)
     c.x(0).y(1).z(2).h(0).s(1).sdg(2).sx(0)
     c.cx(0, 1).cz(1, 2).swap(0, 2)
     c.measure(0, 0).reset(1)
-    assert _is_clifford(c)
+    assert is_clifford(c)
 
 
 # -- Agreement with statevector sim --
@@ -56,7 +56,7 @@ _GATE_CIRCUITS = [
 def test_gate_agreement():
     for name, make_circuit in _GATE_CIRCUITS:
         c = make_circuit()
-        sv_stab, _ = _simulate_stabilizer(c, seed=42)
+        sv_stab, _ = simulate_stabilizer(c, seed=42)
         sv_ref, _ = _force_statevector(c, seed=42)
         assert states_equal(sv_stab, sv_ref), f"{name} gate disagreed"
 
@@ -78,7 +78,7 @@ def test_random_clifford_agreement():
             if g in (Gate.CZ, Gate.SWAP):
                 q0, q1 = min(q0, q1), max(q0, q1)
             c.ops.append(Operation(g, (q0, q1)))
-    sv_stab, _ = _simulate_stabilizer(c, seed=42)
+    sv_stab, _ = simulate_stabilizer(c, seed=42)
     sv_ref, _ = _force_statevector(c, seed=42)
     assert states_equal(sv_stab, sv_ref)
 
@@ -174,7 +174,7 @@ def test_simulate_uses_stabilizer():
 
 def test_simulate_statevector_with_noise():
     """Noise model forces statevector path."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
     c = Circuit(1).h(0)
     nm = NoiseModel()
     nm.add_depolarizing(0.01, [Gate.H])

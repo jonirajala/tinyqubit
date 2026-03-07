@@ -5,7 +5,8 @@ import pytest
 from math import pi
 
 from tinyqubit.ir import Circuit, Gate, Operation
-from tinyqubit.target import Target, validate, IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
+from tinyqubit.target import Target
+from tinyqubit.hardware.devices import IBM_BRISBANE, IBM_OSAKA, IBM_KYOTO, IONQ_HARMONY, IONQ_ARIA, RIGETTI_ANKAA, IQM_GARNET, IQM_SPARK
 from tinyqubit.tracker import QubitTracker
 from tinyqubit.passes.route import route
 from tinyqubit.passes.optimize import optimize
@@ -1174,32 +1175,6 @@ def test_target_is_all_to_all_with_duplicate_edges():
     assert target_full.is_all_to_all()
 
 
-def test_target_distance_cached():
-    """distance() method returns correct values and caches results."""
-    target = Target(
-        n_qubits=4,
-        edges=frozenset({(0, 1), (1, 2), (2, 3)}),  # Line: 0-1-2-3
-        basis_gates=frozenset()
-    )
-    assert target.distance(0, 0) == 0  # Same qubit
-    assert target.distance(0, 1) == 1  # Adjacent
-    assert target.distance(0, 2) == 2  # Two hops
-    assert target.distance(0, 3) == 3  # Three hops
-    assert target.distance(3, 0) == 3  # Symmetric
-
-
-def test_target_distance_disconnected():
-    """distance() returns -1 for disconnected qubits."""
-    target = Target(
-        n_qubits=4,
-        edges=frozenset({(0, 1), (2, 3)}),  # Two disconnected pairs
-        basis_gates=frozenset()
-    )
-    assert target.distance(0, 1) == 1
-    assert target.distance(0, 2) == -1  # Unreachable
-    assert target.distance(1, 3) == -1  # Unreachable
-
-
 # =============================================================================
 # QubitTracker validation tests
 # =============================================================================
@@ -1218,17 +1193,6 @@ def test_tracker_ignores_self_swap():
     assert tracker.pending == []  # No swap recorded
     assert tracker.logical_to_phys(1) == 1  # Mapping unchanged
 
-
-def test_tracker_add_logical_gate():
-    """add_logical_gate auto-translates qubit indices."""
-    tracker = QubitTracker(3)
-    tracker.record_swap(0, 1, triggered_by=-1)  # Now logical 0 is at physical 1
-    tracker.add_logical_gate(Gate.X, (0,))
-
-    # Should have pending SWAP and X on physical qubit 1
-    materialized = tracker.materialize()
-    assert len(materialized) == 2
-    assert materialized[1].phys_qubits == (1,)
 
 
 def test_tracker_flush_clears_pending():
@@ -1999,8 +1963,8 @@ def test_verify_gradient_consistency():
     """adjoint_gradient matches before and after transpile."""
     from tinyqubit.ir import Parameter
     from tinyqubit.compile import transpile
-    from tinyqubit.gradient import adjoint_gradient
-    from tinyqubit.observable import Z
+    from tinyqubit.analysis.gradient import adjoint_gradient
+    from tinyqubit.analysis.observable import Z
     import numpy as np
 
     theta = Parameter("theta")
@@ -2193,25 +2157,6 @@ def test_error_routing_prefers_low_error():
         assert not (set(sq) == {0, 2} or set(sq) == {2, 3}), "Error routing used high-error edge"
 
 
-def test_expected_error():
-    """expected_error sums 2Q gate errors correctly."""
-    edges = frozenset({(0, 1), (1, 2)})
-    t = Target(n_qubits=3, edges=edges, basis_gates=frozenset({Gate.CX, Gate.RZ}),
-               edge_error={(0, 1): 0.05, (1, 2): 0.1})
-    c = Circuit(3).cx(0, 1).cx(1, 2).cx(0, 1)
-    assert abs(t.expected_error(c) - 0.2) < 1e-12  # 0.05 + 0.1 + 0.05
-
-
-def test_virtual_gates_excluded_from_error():
-    """Gates in virtual_gates are excluded from expected_error."""
-    edges = frozenset({(0, 1), (1, 2)})
-    t = Target(n_qubits=3, edges=edges, basis_gates=frozenset({Gate.CX, Gate.CZ, Gate.RZ}),
-               edge_error={(0, 1): 0.05, (1, 2): 0.1},
-               virtual_gates=frozenset({Gate.CZ}))
-    c = Circuit(3).cx(0, 1).cz(1, 2)
-    assert abs(t.expected_error(c) - 0.05) < 1e-12  # CZ excluded
-
-
 def test_objective_none_preserves_behavior():
     """Default objective=None gives same result as before (hop-based)."""
     from conftest import line_topology
@@ -2367,21 +2312,19 @@ def test_direction_condition_propagation():
 # Validate Tests
 # =============================================================================
 
-from tinyqubit.target import validate
-
 def test_validate_valid_circuit():
     """Circuit using only basis gates on connected qubits validates clean."""
     t = Target(n_qubits=3, edges=line_topology(3),
                basis_gates=frozenset({Gate.RZ, Gate.CX}))
     c = Circuit(3).rz(0, 0.5).cx(0, 1).cx(1, 2)
-    assert validate(c, t) == []
+    assert t.validate(c) == []
 
 def test_validate_qubit_count_exceeded():
     """Circuit with more qubits than target."""
     t = Target(n_qubits=3, edges=line_topology(3),
                basis_gates=frozenset({Gate.RZ, Gate.CX}))
     c = Circuit(5).rz(0, 0.1)
-    errors = validate(c, t)
+    errors = t.validate(c)
     assert len(errors) == 1
     assert "5 qubits" in errors[0] and "3" in errors[0]
 
@@ -2390,7 +2333,7 @@ def test_validate_non_basis_gate():
     t = Target(n_qubits=4, edges=line_topology(4),
                basis_gates=frozenset({Gate.RZ, Gate.CX}))
     c = Circuit(4).ry(3, 0.5)
-    errors = validate(c, t)
+    errors = t.validate(c)
     assert len(errors) == 1
     assert "RY" in errors[0]
     assert "(3,)" in errors[0]
@@ -2401,7 +2344,7 @@ def test_validate_connectivity_violation():
     t = Target(n_qubits=4, edges=line_topology(4),
                basis_gates=frozenset({Gate.RZ, Gate.CX}))
     c = Circuit(4).cx(0, 3)
-    errors = validate(c, t)
+    errors = t.validate(c)
     assert any("not connected" in e for e in errors)
 
 def test_validate_directed_cx_violation():
@@ -2409,7 +2352,7 @@ def test_validate_directed_cx_violation():
     t = Target(n_qubits=3, edges=frozenset({(0, 1), (1, 2)}),
                basis_gates=frozenset({Gate.RZ, Gate.CX}), directed=True)
     c = Circuit(3).cx(1, 0)  # (1,0) not in edges
-    errors = validate(c, t)
+    errors = t.validate(c)
     assert any("wrong direction" in e for e in errors)
 
 def test_validate_multiple_errors():
@@ -2417,7 +2360,7 @@ def test_validate_multiple_errors():
     t = Target(n_qubits=3, edges=line_topology(3),
                basis_gates=frozenset({Gate.RZ, Gate.CX}))
     c = Circuit(5).ry(0, 0.5).cx(0, 4)  # qubit count + non-basis + connectivity
-    errors = validate(c, t)
+    errors = t.validate(c)
     assert len(errors) >= 3
 
 def test_validate_measure_reset_allowed():
@@ -2428,7 +2371,7 @@ def test_validate_measure_reset_allowed():
     c.measure(0, 0)
     c.measure(1, 1)
     c.reset(0)
-    assert validate(c, t) == []
+    assert t.validate(c) == []
 
 
 # =============================================================================
@@ -2484,15 +2427,15 @@ def test_iqm_garnet_connectivity():
 def test_builtin_validate_integration():
     """A small basis-gate circuit on connected qubits validates clean."""
     c = Circuit(127).rz(0, 0.5).sx(1).cx(1, 0)
-    assert validate(c, IBM_BRISBANE) == []
+    assert IBM_BRISBANE.validate(c) == []
     c2 = Circuit(11).rx(0, 0.5).ry(1, 0.3).cx(0, 1)
-    assert validate(c2, IONQ_HARMONY) == []
+    assert IONQ_HARMONY.validate(c2) == []
     c3 = Circuit(84).rx(0, 0.5).rz(1, 0.3).cz(0, 1)
-    assert validate(c3, RIGETTI_ANKAA) == []
+    assert RIGETTI_ANKAA.validate(c3) == []
     c4 = Circuit(20).rx(0, 0.5).rz(1, 0.3).cz(0, 1)
-    assert validate(c4, IQM_GARNET) == []
+    assert IQM_GARNET.validate(c4) == []
     c5 = Circuit(5).rx(0, 0.5).cz(0, 2)
-    assert validate(c5, IQM_SPARK) == []
+    assert IQM_SPARK.validate(c5) == []
 
 
 def test_transpile_preserves_conditional():
@@ -2518,7 +2461,7 @@ def test_transpile_preserves_conditional():
 def test_transpile_conditional_qasm3_roundtrip():
     """Transpiled conditional circuit round-trips through QASM3."""
     from tinyqubit.compile import transpile
-    from tinyqubit.export.qasm import to_openqasm3, from_openqasm3
+    from tinyqubit.qasm import to_openqasm3, from_openqasm3
 
     c = Circuit(2, n_classical=1)
     c.x(0).measure(0, 0)

@@ -3,7 +3,7 @@ import math
 import numpy as np
 from tinyqubit import Circuit, Gate, simulate
 from tinyqubit.simulator import to_unitary
-from tinyqubit.library import qft, ghz, grover_oracle, hardware_efficient_ansatz, qaoa_mixer
+from tinyqubit.qml.library import qft, ghz, grover_oracle, hardware_efficient_ansatz, qaoa_mixer
 
 
 class TestQFT:

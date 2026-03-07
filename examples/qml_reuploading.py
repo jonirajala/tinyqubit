@@ -17,7 +17,7 @@ import numpy as np
 from tinyqubit import Circuit, Parameter, cost_gradient
 from tinyqubit.qml import Adam, cross_entropy_cost, predict
 from tinyqubit.qml.feature_map import angle_feature_map
-from tinyqubit.qml.ansatz import basic_entangler_layers
+from tinyqubit.qml.library import basic_entangler_layers
 
 # --- Fetch breast cancer Wisconsin dataset from UCI ---
 _UCI_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data"

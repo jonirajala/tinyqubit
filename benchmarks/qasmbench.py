@@ -18,7 +18,7 @@ from urllib.request import urlopen
 from urllib.error import URLError
 
 from tinyqubit.ir import Gate, Circuit
-from tinyqubit.export.qasm import from_openqasm2
+from tinyqubit.qasm import from_openqasm2
 from tinyqubit.target import Target
 from tinyqubit.compile import transpile
 from tinyqubit.simulator import verify

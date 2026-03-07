@@ -1,5 +1,5 @@
 """Tests for IBM calibration data parsing (_parse_edge_errors)."""
-from tinyqubit.export.backends.ibm_native import _parse_edge_errors
+from tinyqubit.hardware.ibm_native import _parse_edge_errors
 
 
 def _gate(qubits, error):

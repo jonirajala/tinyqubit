@@ -14,7 +14,7 @@ from collections import Counter
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tinyqubit import Circuit, transpile, to_openqasm3, IQM_GARNET
-from tinyqubit.export.backends import submit_to_braket, get_braket_results
+from tinyqubit.hardware import submit_to_braket, get_braket_results
 
 # Config — change these for your setup
 DEVICE_ARN = "arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet"

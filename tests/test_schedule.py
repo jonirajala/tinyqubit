@@ -1,7 +1,7 @@
 """Tests for ASAP scheduling and idle-period detection."""
 from tinyqubit import Circuit, Gate, Target, circuit_duration, idle_periods
-from tinyqubit.schedule import asap_times
-from tinyqubit.target import IBM_EAGLE_R3
+from tinyqubit.passes.schedule import asap_times
+from tinyqubit.hardware.devices import IBM_EAGLE_R3
 
 
 # Durations matching IBM Eagle r3

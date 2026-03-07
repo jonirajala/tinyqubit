@@ -14,7 +14,7 @@ from collections import Counter
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from tinyqubit import Circuit, transpile, to_openqasm3, submit_ibm, wait_ibm
-from tinyqubit.export.backends.ibm_native import list_ibm_backends, ibm_target
+from tinyqubit.hardware.ibm_native import list_ibm_backends, ibm_target
 from tinyqubit import CompileConfig
 
 

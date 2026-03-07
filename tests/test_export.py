@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 
 from tinyqubit import Circuit, Gate
-from tinyqubit.export import to_openqasm2, to_openqasm3, from_openqasm2, from_openqasm3, UnsupportedGateError
+from tinyqubit.qasm import to_openqasm2, to_openqasm3, from_openqasm2, from_openqasm3, UnsupportedGateError
 
 
 class TestOpenQASM2:
@@ -284,17 +284,17 @@ class TestPublicAPI:
         assert callable(to_openqasm3)
         assert issubclass(UnsupportedGateError, Exception)
 
-    def test_export_from_export_module(self):
-        """Export functions available from tinyqubit.export module."""
-        from tinyqubit.export import to_openqasm2, to_openqasm3, UnsupportedGateError
+    def test_export_from_qasm_module(self):
+        """Export functions available from tinyqubit.qasm module."""
+        from tinyqubit.qasm import to_openqasm2, to_openqasm3, UnsupportedGateError
         assert callable(to_openqasm2)
         assert callable(to_openqasm3)
         assert issubclass(UnsupportedGateError, Exception)
 
     def test_backends_importable(self):
         """Backend adapters are importable."""
-        from tinyqubit.export.backends import submit_ibm, wait_ibm, list_ibm_backends, ibm_target
-        from tinyqubit.export.backends import submit_to_braket, get_braket_results
+        from tinyqubit.hardware import submit_ibm, wait_ibm, list_ibm_backends, ibm_target
+        from tinyqubit.hardware import submit_to_braket, get_braket_results
         assert callable(submit_ibm)
         assert callable(wait_ibm)
         assert callable(list_ibm_backends)
@@ -699,7 +699,7 @@ class TestOpenQASM3Import:
     def test_export_physical_qubits_uses_routed_indices(self):
         """physical_qubits=True must emit op.qubits directly (already physical after routing)."""
         from tinyqubit import transpile, Target
-        from tinyqubit.export import to_openqasm3
+        from tinyqubit.qasm import to_openqasm3
         c = Circuit(3).h(0).cx(0, 1).cx(1, 2)
         target = Target(n_qubits=4, edges=frozenset({(0, 1), (1, 2), (2, 3)}),
                         basis_gates=frozenset({Gate.CX, Gate.RZ, Gate.RX}))

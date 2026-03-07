@@ -97,8 +97,8 @@ def _parse_edge_errors(props: dict, edges: frozenset) -> dict:
 
 def ibm_target(backend_name: str, api_key: str | None = None, crn: str | None = None, calibration: bool = False):
     """Query IBM backend config and return a tinyqubit Target with real coupling map."""
-    from ...ir import Gate
-    from ...target import Target
+    from ..ir import Gate
+    from ..target import Target
     api_key, crn = _resolve_creds(api_key, crn)
     auth = _IBMAuth(api_key, crn)
     req = Request(f"{_IBM_CLOUD}/backends/{backend_name}/configuration", headers=auth.headers())
@@ -129,8 +129,7 @@ def submit_ibm(circuit, backend: str = "ibm_brisbane", shots: int = 4096,
     """Submit a compiled circuit to IBM Quantum via REST. Returns IBMJob."""
     api_key, crn = _resolve_creds(api_key, crn)
     if target is not None:
-        from ...target import validate
-        errors = validate(circuit, target)
+        errors = target.validate(circuit)
         if errors:
             raise ValueError("Circuit validation failed:\n" + "\n".join(errors))
 

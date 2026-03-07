@@ -1,12 +1,1 @@
-"""
-Transpiler passes.
-
-Modules:
-    - layout: Initial qubit layout selection (VF2 + SabreLayout)
-    - decompose: Basis gate decomposition
-    - route: Routing with QubitTracker
-    - optimize: Pattern-based gate optimization
-    - fuse: Gate fusion optimization
-    - push_diagonals: Diagonal gate pushing for phase gathering
-    - direction: CX direction correction for directed-coupler hardware
-"""
+"""Transpiler passes."""

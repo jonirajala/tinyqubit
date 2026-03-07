@@ -1,9 +1,9 @@
 """Parameter-shift, finite-difference, and adjoint gradient computation."""
 from __future__ import annotations
 import numpy as np
-from .ir import Circuit, Gate, Parameter, _GATE_ADJOINT, _PARAM_GATES
+from ..ir import Circuit, Gate, Parameter, _GATE_ADJOINT, _PARAM_GATES, _get_gate_matrix
 from .observable import Observable, expectation, _PAULI_MATRIX
-from .simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _get_gate_matrix
+from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit
 
 _GENERATORS = {Gate.RX: 'X', Gate.RY: 'Y', Gate.RZ: 'Z'}
 

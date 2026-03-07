@@ -8,7 +8,7 @@ from tinyqubit.simulator import simulate
 from tinyqubit.passes.fuse import fuse_1q_gates
 from tinyqubit.passes.optimize import optimize
 from tinyqubit.passes.decompose import decompose
-from tinyqubit.export.qasm import to_openqasm2, to_openqasm3
+from tinyqubit.qasm import to_openqasm2, to_openqasm3
 
 
 # ── Parameter class ──

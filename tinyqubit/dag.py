@@ -1,10 +1,4 @@
-"""DAG-based circuit IR for compilation passes.
-
-Nodes are operations, edges are data dependencies on qubit/classical-bit wires.
-Gates on disjoint qubits are implicitly parallel (no edge between them).
-
-Also contains the centralized commutation rules used by all passes.
-"""
+"""DAG-based circuit IR for compilation passes."""
 from __future__ import annotations
 
 from bisect import insort
@@ -50,11 +44,7 @@ def commutes(op1: Operation, op2: Operation) -> bool:
 # DAG circuit -----------------------------------------------------------------
 
 class DAGCircuit:
-    """Dependency DAG over quantum operations.
-
-    Each node holds an Operation. Edges encode qubit/cbit data dependencies:
-    if two gates share a qubit wire, the earlier one is a predecessor of the later.
-    """
+    """Dependency DAG over quantum operations."""
 
     def __init__(self, n_qubits: int, n_classical: int = 0):
         self.n_qubits = n_qubits
@@ -75,12 +65,10 @@ class DAGCircuit:
     def predecessors(self, nid: int) -> list[int]: return self._pred[nid]
     def successors(self, nid: int) -> list[int]: return self._succ[nid]
 
-    def next_on_qubit(self, nid: int, q: int) -> int | None:
-        return self._qubit_succ[q].get(nid)
-    def prev_on_qubit(self, nid: int, q: int) -> int | None:
-        return self._qubit_pred[q].get(nid)
-    def first_on_qubit(self, q: int) -> int | None:
-        return self._qubit_first.get(q)
+    def next_on_qubit(self, nid: int, q: int) -> int | None: return self._qubit_succ[q].get(nid)
+    def prev_on_qubit(self, nid: int, q: int) -> int | None: return self._qubit_pred[q].get(nid)
+    def first_on_qubit(self, q: int) -> int | None: return self._qubit_first.get(q)
+    
     def set_op(self, nid: int, op: Operation):
         """In-place op update (same qubits, different gate/params)."""
         self._ops[nid] = op

@@ -587,7 +587,7 @@ def test_classical_dict_values():
 
 def test_depolarizing_modifies_state():
     """With high depolarizing noise, state differs from ideal."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).h(0)
 
@@ -606,7 +606,7 @@ def test_depolarizing_modifies_state():
 
 def test_readout_error_flips_result():
     """Readout error can flip measurement outcome."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).x(0).measure(0)  # Should always measure 1
 
@@ -621,7 +621,7 @@ def test_readout_error_flips_result():
 
 def test_noise_model_chaining():
     """NoiseModel methods return self for chaining."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     noise = NoiseModel().add_depolarizing(0.01).add_readout_error(0.01, 0.01)
     # Verify chaining works - noise functions are stored
@@ -801,7 +801,7 @@ from tinyqubit.ir import Gate  # Import Gate for test_fusion_preserves_2q_gates
 
 def test_amplitude_damping_decays_one_to_zero():
     """Amplitude damping causes |1⟩ to decay toward |0⟩."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).x(0)  # Prepare |1⟩
 
@@ -821,7 +821,7 @@ def test_amplitude_damping_decays_one_to_zero():
 
 def test_amplitude_damping_preserves_zero():
     """Amplitude damping doesn't affect |0⟩ state."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1)  # Already in |0⟩
 
@@ -838,7 +838,7 @@ def test_amplitude_damping_preserves_zero():
 
 def test_phase_damping_affects_superposition():
     """Phase damping destroys superposition (projects to computational basis)."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).h(0)  # |+⟩ state
 
@@ -862,7 +862,7 @@ def test_phase_damping_affects_superposition():
 
 def test_phase_damping_no_effect_on_basis():
     """Phase damping doesn't change |0⟩ or |1⟩ probabilities."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).x(0)  # |1⟩ state
 
@@ -875,7 +875,7 @@ def test_phase_damping_no_effect_on_basis():
 
 def test_phase_damping_preserves_populations():
     """Phase damping must preserve populations (key invariant)."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).h(0)  # |+⟩ state: P(|0⟩) = P(|1⟩) = 0.5
     noise = NoiseModel().add_phase_damping(0.5)
@@ -898,7 +898,7 @@ def test_phase_damping_coherence_decay():
     OLD (wrong) implementation gave ⟨X⟩ ≈ 0.71 for λ=0.5
     NEW (correct) implementation gives ⟨X⟩ ≈ 0.50 for λ=0.5
     """
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
     import numpy as np
 
     c = Circuit(1).h(0)  # |+⟩ state: ⟨X⟩ = 1
@@ -924,7 +924,7 @@ def test_phase_damping_coherence_decay():
 
 def test_realistic_noise_creates_valid_model():
     """realistic_noise() creates a NoiseModel with all components."""
-    from tinyqubit.noise import realistic_noise
+    from tinyqubit.simulator.noise import realistic_noise
 
     noise = realistic_noise()
 
@@ -935,7 +935,7 @@ def test_realistic_noise_creates_valid_model():
 
 def test_realistic_noise_customizable():
     """realistic_noise() parameters can be customized."""
-    from tinyqubit.noise import realistic_noise
+    from tinyqubit.simulator.noise import realistic_noise
 
     noise = realistic_noise(
         t1=200e-6,
@@ -951,7 +951,7 @@ def test_realistic_noise_customizable():
 
 def test_realistic_noise_simulation():
     """Circuit simulation with realistic noise produces valid results."""
-    from tinyqubit.noise import realistic_noise
+    from tinyqubit.simulator.noise import realistic_noise
 
     c = Circuit(2).h(0).cx(0, 1)
 
@@ -965,7 +965,7 @@ def test_realistic_noise_simulation():
 
 def test_noise_parameter_validation():
     """Noise functions reject invalid probability parameters."""
-    from tinyqubit.noise import (
+    from tinyqubit.simulator.noise import (
         depolarizing, amplitude_damping, phase_damping, readout_error
     )
     import pytest
@@ -1038,7 +1038,7 @@ def test_batch_ops_with_2q_gates():
 
 def test_batch_ops_disabled_with_noise():
     """batch_ops is disabled when noise model is present."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(2).h(0).h(1)
     noise = NoiseModel().add_depolarizing(0.01)
@@ -1054,7 +1054,7 @@ def test_batch_ops_disabled_with_noise():
 
 def test_combined_noise_channels():
     """Multiple noise channels can be combined."""
-    from tinyqubit.noise import NoiseModel
+    from tinyqubit.simulator.noise import NoiseModel
 
     c = Circuit(1).h(0).x(0).h(0)
 
