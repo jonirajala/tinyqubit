@@ -9,13 +9,8 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tinyqubit.ir import Circuit, Gate
-from tinyqubit.target import Target
-from tinyqubit.compile import transpile
-from tinyqubit.simulator import simulate, sample
-from tinyqubit.qasm import to_openqasm2
-from tinyqubit.library import grover_oracle
-from tinyqubit.ftqc import resource_estimate
+from tinyqubit import Circuit, Gate, Target, transpile, simulate, sample, to_openqasm2, resource_estimate
+from tinyqubit.qml.circuits import grover_oracle
 
 # 2-qubit Grover searching for |11⟩
 grover = Circuit(2)
@@ -24,13 +19,11 @@ grover = Circuit(2)
 grover.h(0).h(1)
 
 # Oracle: mark |11⟩ with phase flip
-for op in grover_oracle(2, [0b11]).ops:
-    grover.ops.append(op)
+grover.compose(grover_oracle(2, [0b11]))
 
 # Diffusion operator
 grover.h(0).h(1)
-for op in grover_oracle(2, [0b00]).ops:
-    grover.ops.append(op)
+grover.compose(grover_oracle(2, [0b00]))
 grover.h(0).h(1)
 
 # Measure

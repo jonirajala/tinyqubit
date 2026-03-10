@@ -1963,7 +1963,7 @@ def test_verify_gradient_consistency():
     """adjoint_gradient matches before and after transpile."""
     from tinyqubit.ir import Parameter
     from tinyqubit.compile import transpile
-    from tinyqubit.analysis.gradient import adjoint_gradient
+    from tinyqubit.qml.optim import adjoint_gradient
     from tinyqubit.analysis.observable import Z
     import numpy as np
 
@@ -2495,7 +2495,7 @@ def test_compile_config_frozen():
 
 
 def test_compile_config_defaults():
-    from tinyqubit import CompileConfig, PRESET_DEFAULT
+    from tinyqubit.compile import CompileConfig, PRESET_DEFAULT
     assert CompileConfig() == PRESET_DEFAULT
     assert PRESET_DEFAULT.sabre_trials == 5
     assert PRESET_DEFAULT.objective == "2q"

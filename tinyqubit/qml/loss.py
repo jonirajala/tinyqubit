@@ -1,4 +1,4 @@
-"""Cost functions for variational quantum circuits."""
+"""Loss functions for variational quantum circuits."""
 from __future__ import annotations
 import numpy as np
 from ..ir import Circuit
@@ -25,6 +25,12 @@ def mse_cost(circuit: Circuit, X: np.ndarray, y: np.ndarray,
              observable: Observable | None = None) -> float:
     """Mean squared error: mean((⟨O⟩ᵢ - yᵢ)²)."""
     return np.mean((predict(circuit, X, observable) - y) ** 2)
+
+
+def kl_divergence(p: np.ndarray, q: np.ndarray) -> float:
+    """KL(p || q) with clipping for numerical safety."""
+    mask = p > 1e-12
+    return float(np.sum(p[mask] * np.log(p[mask] / np.clip(q[mask], 1e-12, None))))
 
 
 def fidelity_cost(circuit: Circuit, target_state: np.ndarray) -> float:

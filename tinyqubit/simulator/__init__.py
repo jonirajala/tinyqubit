@@ -8,7 +8,7 @@ from .statevector import (
 from .density import simulate_density
 from .stabilizer import is_clifford, simulate_stabilizer
 from .mps import simulate_mps, mps_to_statevector
-from .simulator import simulate, states_equal, sample, probabilities, marginal_counts, simulate_batch, verify, to_unitary
+from .simulator import simulate, states_equal, sample, probabilities, marginal_counts, verify, to_unitary
 from .noise import (
     NoiseModel, depolarizing, amplitude_damping, phase_damping,
     readout_error, realistic_noise,

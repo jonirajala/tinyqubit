@@ -13,7 +13,8 @@ from collections import Counter
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tinyqubit import Circuit, transpile, to_openqasm3, IQM_GARNET
+from tinyqubit import Circuit, transpile, to_openqasm3
+from tinyqubit.hardware.devices import IQM_GARNET
 from tinyqubit.hardware import submit_to_braket, get_braket_results
 
 # Config — change these for your setup

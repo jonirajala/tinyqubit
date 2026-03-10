@@ -51,6 +51,7 @@ class Observable:
         return " + ".join(parts)
 
 
+def I() -> Observable: return Observable([(1.0, {})])
 def X(qubit: int) -> Observable: return Observable([(1.0, {qubit: 'X'})])
 def Y(qubit: int) -> Observable: return Observable([(1.0, {qubit: 'Y'})])
 def Z(qubit: int) -> Observable: return Observable([(1.0, {qubit: 'Z'})])

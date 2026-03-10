@@ -14,10 +14,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import urllib.request
 import numpy as np
-from tinyqubit import Circuit, Parameter, cost_gradient
-from tinyqubit.qml import Adam, cross_entropy_cost, predict
-from tinyqubit.qml.feature_map import angle_feature_map
-from tinyqubit.qml.library import basic_entangler_layers
+from tinyqubit import Circuit
+from tinyqubit.qml.optim import Adam, cost_gradient
+from tinyqubit.qml.loss import cross_entropy_cost, predict
+from tinyqubit.qml.layers import angle_feature_map, basic_entangler_layers
 
 # --- Fetch breast cancer Wisconsin dataset from UCI ---
 _UCI_URL = "https://archive.ics.uci.edu/ml/machine-learning-databases/breast-cancer-wisconsin/wdbc.data"
@@ -36,27 +36,28 @@ X = (X_raw - X_raw.min(0)) / (X_raw.max(0) - X_raw.min(0)) * np.pi
 y = _labels
 
 # --- Data-reuploading circuit: encode data n_layers times interleaved with trainable layers ---
-feature_params = [Parameter(f"x{i}", trainable=False) for i in range(n_features)]
 qc = Circuit(n_features)
 for layer in range(n_layers):
-    angle_feature_map(qc, feature_params, wires=list(range(n_features)))
-    basic_entangler_layers(qc, n_layers=1, prefix=f"l{layer}")
+    qc.compose(
+        angle_feature_map(n_features),
+        basic_entangler_layers(n_features, n_layers=1, prefix=f"l{layer}"),
+    )
 
-params = {p.name: 0.1 for p in qc.trainable_parameters}
+qc.init_params(0.1)
 opt = Adam(stepsize=0.05)
 
 # --- Train: batch Adam on cross-entropy ---
 print("=== Quantum Classifier (breast cancer, data reuploading) ===\n")
 for epoch in range(80):
-    grad = cost_gradient(qc, cross_entropy_cost, params, X, y)
-    params = opt.step(params, grad=grad)
+    grad = cost_gradient(qc, cross_entropy_cost, X, y)
+    opt.step(qc, grad=grad)
     if epoch % 10 == 0 or epoch == 79:
-        trained = qc.bind(params)
+        trained = qc.bind()
         acc = np.mean(np.sign(predict(trained, X)) == y) * 100
         loss = cross_entropy_cost(trained, X, y)
         print(f"  epoch {epoch:2d}: acc={acc:.0f}%  loss={loss:.4f}")
 
-trained = qc.bind(params)
+trained = qc.bind()
 preds = np.sign(predict(trained, X))
 acc = np.mean(preds == y) * 100
 print(f"\n  final: {int(acc)}% ({int(np.sum(preds == y))}/{len(y)})")

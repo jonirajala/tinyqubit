@@ -1,7 +1,7 @@
 """Tests for batch simulation and parameter broadcasting."""
 import numpy as np
 from tinyqubit import (
-    Circuit, Parameter, simulate, simulate_batch,
+    Circuit, Parameter, simulate,
     expectation, expectation_batch, expectation_sweep, gradient_landscape,
 )
 from tinyqubit.analysis.observable import Z, X
@@ -13,7 +13,7 @@ def test_simulate_batch():
         c = Circuit(1)
         gate_fn(c)
         circuits.append(c)
-    batch = simulate_batch(circuits)
+    batch = [simulate(c) for c in circuits]
     for i, c in enumerate(circuits):
         state, bits = simulate(c)
         np.testing.assert_allclose(batch[i][0], state)

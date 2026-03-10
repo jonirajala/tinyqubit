@@ -79,11 +79,6 @@ def marginal_counts(counts: dict[str, int], wires: list[int]) -> dict[str, int]:
         result[key] = result.get(key, 0) + count
     return result
 
-def simulate_batch(circuits: list[Circuit]) -> list[tuple[np.ndarray, dict[int, int]]]:
-    """Simulate multiple circuits. Returns list of (statevector, classical_bits)."""
-    return [simulate(c) for c in circuits]
-
-
 def verify(original: Circuit, compiled: Circuit, tracker=None, tol: float = 1e-9, n_samples: int = 5) -> bool:
     """Check circuit equivalence, including across random parameter values for parametric circuits."""
 

@@ -126,6 +126,7 @@ class Circuit:
         self.n_qubits = n_qubits
         self.n_classical = n_classical if n_classical is not None else n_qubits
         self.ops: list[Operation] = []
+        self.param_values: dict[str, float] = {}
         self._current_condition: tuple[int, int] | None = None  # For c_if context manager
         self._initial_state: np.ndarray | None = None
 
@@ -164,6 +165,10 @@ class Circuit:
         """Measure qubit q, store result in classical bit c (defaults to q)."""
         return self._add(Gate.MEASURE, (q,), (), classical_bit=c if c is not None else q)
 
+    def measure_all(self) -> "Circuit":
+        for q in range(self.n_qubits): self.measure(q)
+        return self
+
     def reset(self, q: int) -> "Circuit":
         """Reset qubit to |0>."""
         return self._add(Gate.RESET, (q,))
@@ -187,8 +192,21 @@ class Circuit:
         """True if any operation has an unbound Parameter."""
         return any(_has_parameter(op.params) for op in self.ops)
 
-    def bind(self, values: dict[str, float]) -> "Circuit":
-        """Return new Circuit with Parameters substituted. Missing params left unbound."""
+    def init_params(self, value: float = 0.0, seed: int | None = None, trainable_only: bool = True) -> dict[str, float]:
+        """Initialize parameter values (stored in circuit). Returns dict for backward compat."""
+        params = self.trainable_parameters if trainable_only else self.parameters
+        names = sorted(p.name for p in params)
+        if seed is not None:
+            rng = np.random.default_rng(seed)
+            vals = dict(zip(names, rng.uniform(0, 2 * np.pi, len(names))))
+        else:
+            vals = {n: value for n in names}
+        self.param_values.update(vals)
+        return vals
+
+    def bind(self, values: dict[str, float] | None = None) -> "Circuit":
+        """Return new Circuit with Parameters substituted. Defaults to stored param_values."""
+        values = values if values is not None else self.param_values
         c = Circuit(self.n_qubits, self.n_classical)
         c._initial_state = self._initial_state
         for op in self.ops:
@@ -212,6 +230,19 @@ class Circuit:
     def _structure_key(self) -> tuple:
         """Hashable key capturing circuit structure, ignoring parameter values."""
         return (self.n_qubits, tuple((op.gate, op.qubits) for op in self.ops))
+
+    def compose(self, *others: "Circuit", qubit_map: dict[int, int] | None = None) -> "Circuit":
+        """Append operations from other circuits onto this one."""
+        for other in others:
+            if other._initial_state is not None:
+                if self._initial_state is not None or self.ops:
+                    raise ValueError("cannot compose initialized circuit onto non-empty circuit")
+                self._initial_state = other._initial_state
+            for op in other.ops:
+                qubits = tuple(qubit_map[q] for q in op.qubits) if qubit_map else op.qubits
+                self.ops.append(Operation(op.gate, qubits, op.params, op.classical_bit, op.condition))
+            self.param_values.update(other.param_values)
+        return self
 
     def inverse(self) -> Circuit:
         """Return the adjoint (inverse) circuit."""

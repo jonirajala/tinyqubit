@@ -1,6 +1,7 @@
 """Tests for dynamic decoupling pass."""
 import numpy as np
-from tinyqubit import Circuit, Gate, Operation, Target, dynamic_decoupling, transpile, to_unitary
+from tinyqubit import Circuit, Gate, Operation, Target, transpile, to_unitary
+from tinyqubit.passes.dd import dynamic_decoupling
 
 
 def _small_ibm_target():

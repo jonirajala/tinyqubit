@@ -59,18 +59,6 @@ def grover_oracle(n_qubits: int, marked_states: list[int]) -> Circuit:
     return c
 
 
-def hardware_efficient_ansatz(n_qubits: int, depth: int) -> Circuit:
-    """Hardware-efficient ansatz: RY+RZ layers with linear CX entanglement."""
-    c = Circuit(n_qubits)
-    for l in range(depth):
-        for q in range(n_qubits):
-            c.ry(q, Parameter(f"hea_{l}_{q}_y"))
-            c.rz(q, Parameter(f"hea_{l}_{q}_z"))
-        for q in range(n_qubits - 1):
-            c.cx(q, q + 1)
-    return c
-
-
 def qaoa_mixer(graph: list[tuple[int, ...]], p: int = 1) -> Circuit:
     """QAOA circuit with cost (RZZ) and mixer (RX) layers."""
     n_qubits = max(v for e in graph for v in e[:2]) + 1
@@ -86,30 +74,6 @@ def qaoa_mixer(graph: list[tuple[int, ...]], p: int = 1) -> Circuit:
         for q in range(n_qubits):
             c.rx(q, beta)
     return c
-
-
-def strongly_entangling_layers(circuit: Circuit, n_layers: int, wires: list[int] | None = None, prefix: str = "sel") -> None:
-    """RY + RZ per qubit, CX with layer-dependent offset for full connectivity."""
-    wires = wires or list(range(circuit.n_qubits))
-    n = len(wires)
-    for l in range(n_layers):
-        for i, w in enumerate(wires):
-            circuit.ry(w, Parameter(f"{prefix}_{l}_{i}_y"))
-            circuit.rz(w, Parameter(f"{prefix}_{l}_{i}_z"))
-        for i in range(n):
-            t = (i + l + 1) % n
-            if t != i:
-                circuit.cx(wires[i], wires[t])
-
-
-def basic_entangler_layers(circuit: Circuit, n_layers: int, wires: list[int] | None = None, prefix: str = "bel") -> None:
-    """RY only, linear CX ladder."""
-    wires = wires or list(range(circuit.n_qubits))
-    for l in range(n_layers):
-        for i, w in enumerate(wires):
-            circuit.ry(w, Parameter(f"{prefix}_{l}_{i}"))
-        for i in range(len(wires) - 1):
-            circuit.cx(wires[i], wires[i + 1])
 
 
 def maxcut_hamiltonian(edges: list[tuple[int, ...]]) -> Observable:
