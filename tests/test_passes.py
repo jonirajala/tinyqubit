@@ -1964,7 +1964,7 @@ def test_verify_gradient_consistency():
     from tinyqubit.ir import Parameter
     from tinyqubit.compile import transpile
     from tinyqubit.qml.optim import adjoint_gradient
-    from tinyqubit.analysis.observable import Z
+    from tinyqubit.measurement.observable import Z
     import numpy as np
 
     theta = Parameter("theta")

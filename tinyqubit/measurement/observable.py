@@ -61,6 +61,8 @@ _PAULI_MATRIX = {'X': _GATE_1Q_CACHE[_Gate.X], 'Y': _GATE_1Q_CACHE[_Gate.Y], 'Z'
 
 def expectation(circuit: Circuit, observable: Observable) -> float:
     """Compute ⟨ψ|O|ψ⟩ for a Pauli observable."""
+    if circuit.backend is not None:
+        return circuit.backend(circuit, observable)
     state, _ = simulate(circuit)
     n = circuit.n_qubits
     result = 0.0

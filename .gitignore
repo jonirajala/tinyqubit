@@ -12,4 +12,5 @@ venv/
 .env
 
 docs/
+comparison/
 CLAUDE.md

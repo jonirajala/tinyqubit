@@ -2,7 +2,7 @@
 from __future__ import annotations
 import numpy as np
 from ..ir import Circuit
-from ..analysis.observable import Observable, state_fidelity
+from ..measurement.observable import Observable, state_fidelity
 from .optim import parameter_shift_gradient
 from ..simulator import simulate
 

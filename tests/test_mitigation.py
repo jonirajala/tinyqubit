@@ -1,7 +1,7 @@
 """Tests for error mitigation: ZNE and readout mitigation."""
 import numpy as np
 from tinyqubit import Circuit, NoiseModel, Observable, Z, sample, simulate, zne, calibration_matrix, mitigate_readout
-from tinyqubit.analysis.mitigation import _fold_circuit
+from tinyqubit.measurement.mitigation import _fold_circuit
 
 
 def test_fold_circuit_lengths():

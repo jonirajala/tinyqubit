@@ -4,7 +4,7 @@ Quantum Circuit Born Machine (QCBM) for learning a probability distribution.
 Target: bars-and-stripes patterns on a 2x2 grid (4 qubits).
 Valid patterns: 0000, 0101, 1010, 1111, 0011, 1100 (6 of 16).
 Cost: KL divergence between circuit output probabilities and target distribution.
-Training: Adam with finite-difference gradient on KL divergence.
+Training: Adam with backprop gradient on KL divergence.
 
 Ref: Benedetti et al., "A generative modeling approach for benchmarking and
      training shallow quantum circuits", npj Quantum Inf. 5, 45 (2019).
@@ -14,9 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
-from tinyqubit import Circuit, probabilities
-from tinyqubit.qml.optim import Adam, cost_gradient
-from tinyqubit.qml.loss import kl_divergence
+from tinyqubit import Circuit, probabilities, kl_divergence
+from tinyqubit.qml.optim import Adam
 from tinyqubit.qml.layers import hardware_efficient_ansatz
 
 # --- Target distribution: bars-and-stripes 2x2 ---
@@ -38,12 +37,12 @@ print(f"  circuit: {n_qubits} qubits, {len(qc.parameters)} parameters, 5 layers\
 
 qc.init_params(seed=42, trainable_only=False)
 opt = Adam(stepsize=0.05)
+loss = kl_divergence(target)
 
 for step in range(200):
-    grad = cost_gradient(qc, lambda c: kl_divergence(target, probabilities(c)))
-    opt.step(qc, grad=grad)
+    opt.step(qc, loss)
     if step % 25 == 0 or step == 199:
-        kl = kl_divergence(target, probabilities(qc.bind()))
+        kl = loss(probabilities(qc.bind()))
         print(f"  step {step:3d}: KL = {kl:.4f}")
 
 # --- Results ---

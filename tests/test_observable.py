@@ -2,7 +2,7 @@
 import numpy as np
 from math import pi
 from tinyqubit import Circuit
-from tinyqubit.analysis.observable import Observable, X, Y, Z, expectation
+from tinyqubit.measurement.observable import Observable, X, Y, Z, expectation
 
 
 # --- Observable algebra ---

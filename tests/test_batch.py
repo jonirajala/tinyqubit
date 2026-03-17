@@ -4,7 +4,7 @@ from tinyqubit import (
     Circuit, Parameter, simulate,
     expectation, expectation_batch, expectation_sweep, gradient_landscape,
 )
-from tinyqubit.analysis.observable import Z, X
+from tinyqubit.measurement.observable import Z, X
 
 
 def test_simulate_batch():

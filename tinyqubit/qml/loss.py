@@ -2,7 +2,7 @@
 from __future__ import annotations
 import numpy as np
 from ..ir import Circuit
-from ..analysis.observable import Observable, Z, expectation, state_fidelity
+from ..measurement.observable import Observable, Z, expectation, state_fidelity
 from ..simulator import simulate
 
 
@@ -27,10 +27,20 @@ def mse_cost(circuit: Circuit, X: np.ndarray, y: np.ndarray,
     return np.mean((predict(circuit, X, observable) - y) ** 2)
 
 
-def kl_divergence(p: np.ndarray, q: np.ndarray) -> float:
-    """KL(p || q) with clipping for numerical safety."""
+def _kl(p, q):
     mask = p > 1e-12
     return float(np.sum(p[mask] * np.log(p[mask] / np.clip(q[mask], 1e-12, None))))
+
+
+def kl_divergence(target: np.ndarray, q: np.ndarray | None = None):
+    """KL(target || q). With one arg, returns a loss function for use with backprop_gradient."""
+    if q is not None: return _kl(target, q)
+    return lambda q: _kl(target, q)
+
+
+def mse(target: np.ndarray):
+    """MSE loss factory: returns loss(probs) -> float."""
+    return lambda p: float(np.sum((p - target) ** 2))
 
 
 def fidelity_cost(circuit: Circuit, target_state: np.ndarray) -> float:

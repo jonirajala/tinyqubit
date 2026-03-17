@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+import numpy as np
+
 from ..qasm import to_openqasm3
 
 
@@ -41,3 +43,35 @@ def get_braket_results(task, timeout: float = 600, n_qubits: int | None = None, 
         key = ''.join(bits)
         result[key] = result.get(key, 0) + count
     return result
+
+
+class BraketBackend:
+    """AWS Braket backend. Use as circuit.backend = BraketBackend(...)."""
+    def __init__(self, device_arn: str, s3_bucket: str, s3_prefix: str = "tinyqubit-results",
+                 target=None, shots: int = 4096, preset: str = "fast"):
+        self.device_arn, self.s3_bucket, self.s3_prefix = device_arn, s3_bucket, s3_prefix
+        self.target, self.shots, self.preset = target, shots, preset
+
+    def __call__(self, circuit, observable) -> float:
+        from ..ir import Circuit
+        from ..compile import transpile
+        result = 0.0
+        for coeff, paulis in observable.terms:
+            if not paulis:
+                result += coeff
+                continue
+            rc = Circuit(circuit.n_qubits)
+            rc._initial_state, rc.ops = circuit._initial_state, list(circuit.ops)
+            for q, p in paulis.items():
+                if p == 'X': rc.h(q)
+                elif p == 'Y': rc.rz(q, -np.pi / 2); rc.h(q)
+            rc.measure_all()
+            compiled = transpile(rc, self.target, preset=self.preset) if self.target else rc
+            task = submit_to_braket(compiled, self.device_arn, self.s3_bucket, self.s3_prefix, self.shots)
+            counts = get_braket_results(task, n_qubits=circuit.n_qubits)
+            ev = 0.0
+            for bs, cnt in counts.items():
+                parity = sum(int(bs[q]) for q in paulis)
+                ev += (-1) ** (parity % 2) * cnt
+            result += coeff * ev / self.shots
+        return result

@@ -1,14 +1,12 @@
 """Optimizers and gradient computation for variational circuits."""
 from __future__ import annotations
 import numpy as np
-from ..ir import Circuit, Gate, Parameter, _GATE_ADJOINT, _PARAM_GATES, _get_gate_matrix
-from ..analysis.observable import Observable, expectation, _PAULI_MATRIX
-from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit
+from ..ir import Circuit, Gate, Parameter, _GATE_ADJOINT, _PARAM_GATES, _get_gate_matrix, _SQRT2_INV
+from ..measurement.observable import Observable, expectation, _PAULI_MATRIX
+from ..simulator import simulate, sample, _apply_single_qubit, _apply_three_qubit, _DIAG_PHASE
 
 
 # Gradient computation -------
-
-_GENERATORS = {Gate.RX: 'X', Gate.RY: 'Y', Gate.RZ: 'Z'}
 
 
 def _shot_expectation(circuit: Circuit, observable: Observable, shots: int, seed: int | None = None) -> float:
@@ -60,52 +58,173 @@ def finite_difference_gradient(circuit: Circuit, observable: Observable,
     return grad
 
 
-def _unapply_op(state, op, n):
-    gate = _GATE_ADJOINT.get(op.gate, op.gate)
-    params = tuple(-p for p in op.params) if op.gate in _PARAM_GATES else op.params
-    if gate.n_qubits == 1:
-        return _apply_single_qubit(state, _get_gate_matrix(gate, params), op.qubits[0], n)
-    if gate.n_qubits == 2:
-        return _apply_two_qubit(state, gate, op.qubits[0], op.qubits[1], n, params)
-    return _apply_three_qubit(state, gate, *op.qubits, n)
+def _make_2q_idx(q0: int, q1: int, n: int):
+    def idx(v0, v1):
+        i = [slice(None)] * n; i[q0], i[q1] = v0, v1
+        return tuple(i)
+    return idx(0, 0), idx(0, 1), idx(1, 0), idx(1, 1)
+
+
+def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: np.ndarray) -> dict[str, float]:
+    """Shared backward pass: given forward state and seed λ, extract all parameter gradients."""
+    n = bound.n_qubits
+    param_map = {}
+    for i, op in enumerate(circuit.ops):
+        if op.params and isinstance(op.params[0], Parameter):
+            param_map[i] = op.params[0].name
+    grad = {p.name: 0.0 for p in circuit.parameters}
+
+    adjoint_info = []
+    for op in bound.ops:
+        gate = _GATE_ADJOINT.get(op.gate, op.gate)
+        params = tuple(-p for p in op.params) if op.gate in _PARAM_GATES else op.params
+        nq = gate.n_qubits
+        if nq == 1:
+            q = op.qubits[0]
+            i0 = [slice(None)] * n; i0[q] = 0
+            i1 = [slice(None)] * n; i1[q] = 1
+            i0t, i1t = tuple(i0), tuple(i1)
+            if gate == Gate.RZ:
+                t = params[0]
+                adjoint_info.append((gate, params, 1, (np.exp(-1j * t / 2), np.exp(1j * t / 2)), (i0t, i1t)))
+            elif gate in _DIAG_PHASE:
+                adjoint_info.append((gate, params, 1, _DIAG_PHASE[gate], (i0t, i1t)))
+            else:
+                adjoint_info.append((gate, params, 1, _get_gate_matrix(gate, params), (i0t, i1t)))
+        elif nq == 2:
+            adjoint_info.append((gate, params, 2, None, _make_2q_idx(op.qubits[0], op.qubits[1], n)))
+        else:
+            adjoint_info.append((gate, params, 3, None, op.qubits))
+
+    state = state.reshape([2] * n)
+    lam = lam.reshape([2] * n)
+    buf_s = np.empty_like(state)
+    buf_l = np.empty_like(lam)
+
+    for k in range(len(bound.ops) - 1, -1, -1):
+        op = bound.ops[k]
+        agate, aparams, anq, mat_or_phase, idxs = adjoint_info[k]
+
+        if k in param_map:
+            name = param_map[k]
+            if op.gate == Gate.RY:
+                i0, i1 = idxs
+                # ⟨λ|Y|ψ⟩ = i(⟨l1|s0⟩ - ⟨l0|s1⟩), .imag = Re(⟨l1|s0⟩ - ⟨l0|s1⟩)
+                grad[name] += (np.vdot(lam[i1], state[i0]) - np.vdot(lam[i0], state[i1])).real
+            elif op.gate == Gate.RX:
+                i0, i1 = idxs
+                # ⟨λ|X|ψ⟩ = ⟨l0|s1⟩ + ⟨l1|s0⟩
+                grad[name] += (np.vdot(lam[i0], state[i1]) + np.vdot(lam[i1], state[i0])).imag
+            elif op.gate == Gate.RZ:
+                i0, i1 = idxs
+                # ⟨λ|Z|ψ⟩ = ⟨l0|s0⟩ - ⟨l1|s1⟩
+                grad[name] += (np.vdot(lam[i0], state[i0]) - np.vdot(lam[i1], state[i1])).imag
+            elif op.gate == Gate.CP:
+                _, _, _, _, (_, _, _, i11) = adjoint_info[k]
+                grad[name] += -2 * np.vdot(lam[i11], state[i11]).imag
+
+        if anq == 1:
+            i0, i1 = idxs
+            if agate == Gate.RZ:
+                e0, e1 = mat_or_phase
+                state[i0] *= e0; state[i1] *= e1
+                lam[i0] *= e0; lam[i1] *= e1
+            elif agate in _DIAG_PHASE:
+                state[i1] *= mat_or_phase; lam[i1] *= mat_or_phase
+            else:
+                mat = mat_or_phase
+                ss0, ss1 = state[i0], state[i1]
+                buf_s[i0] = mat[0, 0] * ss0 + mat[0, 1] * ss1
+                buf_s[i1] = mat[1, 0] * ss0 + mat[1, 1] * ss1
+                ls0, ls1 = lam[i0], lam[i1]
+                buf_l[i0] = mat[0, 0] * ls0 + mat[0, 1] * ls1
+                buf_l[i1] = mat[1, 0] * ls0 + mat[1, 1] * ls1
+                state, buf_s = buf_s, state
+                lam, buf_l = buf_l, lam
+        elif anq == 2:
+            i00, i01, i10, i11 = idxs
+            if agate == Gate.CX:
+                tmp = state[i10].copy(); state[i10] = state[i11]; state[i11] = tmp
+                tmp = lam[i10].copy(); lam[i10] = lam[i11]; lam[i11] = tmp
+            elif agate == Gate.CZ:
+                state[i11] *= -1; lam[i11] *= -1
+            elif agate == Gate.SWAP:
+                tmp = state[i01].copy(); state[i01] = state[i10]; state[i10] = tmp
+                tmp = lam[i01].copy(); lam[i01] = lam[i10]; lam[i10] = tmp
+            elif agate == Gate.CP:
+                phase = np.exp(1j * aparams[0])
+                state[i11] *= phase; lam[i11] *= phase
+            elif agate == Gate.RZZ:
+                t = aparams[0]
+                em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
+                state[i00] *= em; state[i01] *= ep; state[i10] *= ep; state[i11] *= em
+                lam[i00] *= em; lam[i01] *= ep; lam[i10] *= ep; lam[i11] *= em
+            elif agate == Gate.ECR:
+                s00, s01, s10, s11 = state[i00].copy(), state[i01].copy(), state[i10].copy(), state[i11].copy()
+                state[i00] = _SQRT2_INV * (s10 + 1j * s11); state[i01] = _SQRT2_INV * (1j * s10 + s11)
+                state[i10] = _SQRT2_INV * (s00 - 1j * s01); state[i11] = _SQRT2_INV * (-1j * s00 + s01)
+                l00, l01, l10, l11 = lam[i00].copy(), lam[i01].copy(), lam[i10].copy(), lam[i11].copy()
+                lam[i00] = _SQRT2_INV * (l10 + 1j * l11); lam[i01] = _SQRT2_INV * (1j * l10 + l11)
+                lam[i10] = _SQRT2_INV * (l00 - 1j * l01); lam[i11] = _SQRT2_INV * (-1j * l00 + l01)
+        else:
+            state = _apply_three_qubit(state.reshape(-1), agate, *op.qubits, n).reshape([2] * n)
+            lam = _apply_three_qubit(lam.reshape(-1), agate, *op.qubits, n).reshape([2] * n)
+            buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+    return grad
 
 
 def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float] | None = None) -> dict[str, float]:
     """Compute all gradients in one forward + backward pass (adjoint differentiation)."""
     if params is None: params = circuit.param_values
     bound = circuit.bind(params)
-    n = bound.n_qubits
     state, _ = simulate(bound)
-    # |λ⟩ = O|ψ⟩
-    lam = np.zeros_like(state)
+    n = bound.n_qubits
+    lam_t = np.zeros(([2] * n), dtype=state.dtype)
+    state_t = state.reshape([2] * n)
     for coeff, paulis in observable.terms:
-        tmp = state.copy()
-        for qubit, pauli in paulis.items():
-            tmp = _apply_single_qubit(tmp, _PAULI_MATRIX[pauli], qubit, n)
-        lam += coeff * tmp
-    # Map op indices to parameter names (from unbound circuit)
-    param_map = {}
-    for i, op in enumerate(circuit.ops):
-        if op.params and isinstance(op.params[0], Parameter):
-            param_map[i] = op.params[0].name
-    grad = {p.name: 0.0 for p in circuit.parameters}
-    # Backward pass: at step k, state = |ψ_k⟩, lam = |λ_k⟩
-    for k in range(len(bound.ops) - 1, -1, -1):
-        op = bound.ops[k]
-        if k in param_map:
-            name = param_map[k]
-            if op.gate in _GENERATORS:
-                g_psi = _apply_single_qubit(state, _PAULI_MATRIX[_GENERATORS[op.gate]], op.qubits[0], n)
-                grad[name] += np.vdot(lam, g_psi).imag
-            elif op.gate == Gate.CP:
-                q0, q1 = op.qubits
-                idx = [slice(None)] * n
-                idx[q0], idx[q1] = 1, 1
-                idx = tuple(idx)
-                grad[name] += -2 * np.vdot(lam.reshape([2] * n)[idx], state.reshape([2] * n)[idx]).imag
-        state = _unapply_op(state, op, n)
-        lam = _unapply_op(lam, op, n)
-    return grad
+        types = set(paulis.values())
+        qubits = tuple(paulis.keys())
+        if types <= {'Z'}:
+            t = state_t.copy()
+            for q in qubits:
+                idx1 = [slice(None)] * n; idx1[q] = 1
+                t[tuple(idx1)] *= -1
+            lam_t += coeff * t
+        elif types <= {'X'}:
+            lam_t += coeff * np.flip(state_t, axis=qubits)
+        elif types <= {'Y'}:
+            flipped = np.flip(state_t, axis=qubits)
+            t = flipped.copy()
+            # Y|0⟩=i|1⟩, Y|1⟩=-i|0⟩ → after flip, position 0 came from |1⟩ (coeff -i), position 1 from |0⟩ (coeff i)
+            for q in qubits:
+                i0 = [slice(None)] * n; i0[q] = 0
+                i1 = [slice(None)] * n; i1[q] = 1
+                t[tuple(i0)] *= -1j; t[tuple(i1)] *= 1j
+            lam_t += coeff * t
+        else:
+            tmp = state.copy()
+            for qubit, pauli in paulis.items():
+                tmp = _apply_single_qubit(tmp, _PAULI_MATRIX[pauli], qubit, n)
+            lam_t += tmp.reshape([2] * n) * coeff
+    lam = lam_t.reshape(-1)
+    return _adjoint_backward(circuit, bound, state, lam)
+
+
+def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None = None, eps: float = 1e-7) -> dict[str, float]:
+    """Backprop gradient for loss(probabilities). One forward + one backward pass."""
+    if params is None: params = circuit.param_values
+    bound = circuit.bind(params)
+    state, _ = simulate(bound)
+    probs = np.abs(state) ** 2
+    # dloss/dp via finite differences on the small 2^n classical vector
+    loss0 = loss_fn(probs)
+    dloss_dp = np.empty_like(probs)
+    for i in range(len(probs)):
+        probs[i] += eps
+        dloss_dp[i] = (loss_fn(probs) - loss0) / eps
+        probs[i] -= eps
+    # Seed: λ_i = (dloss/dp_i) · ψ_i  (chain rule through |ψ_i|²)
+    return _adjoint_backward(circuit, bound, state, dloss_dp * state)
 
 
 def quantum_fisher_information(circuit: Circuit, params: dict[str, float] | None = None) -> np.ndarray:
@@ -161,6 +280,13 @@ def cost_gradient(circuit: Circuit, cost_fn, params=None, *args, eps: float = 0.
 
 # Optimizers -------
 
+def _compute_grad(circuit, objective, params, default_grad_fn):
+    """Dispatch gradient: Observable → adjoint, callable → backprop."""
+    if callable(objective) and not isinstance(objective, Observable):
+        return backprop_gradient(circuit, objective, params)
+    return default_grad_fn(circuit, objective, params)
+
+
 class GradientDescent:
     """Vanilla gradient descent."""
     def __init__(self, stepsize: float = 0.1, grad_fn=None):
@@ -176,7 +302,7 @@ class GradientDescent:
             params = circuit.param_values
         else:
             params = params_or_circuit
-        if grad is None: grad = self._grad_fn(circuit, observable, params)
+        if grad is None: grad = _compute_grad(circuit, observable, params, self._grad_fn)
         result = self._update(params, grad)
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result
@@ -209,7 +335,7 @@ class Adam:
             params = circuit.param_values
         else:
             params = params_or_circuit
-        if grad is None: grad = self._grad_fn(circuit, observable, params)
+        if grad is None: grad = _compute_grad(circuit, observable, params, self._grad_fn)
         result = self._update(params, grad)
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result

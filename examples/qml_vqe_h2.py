@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import numpy as np
 from tinyqubit import Circuit, NoiseModel, expectation, resource_estimate, zne
-from tinyqubit.analysis.observable import I, X, Y, Z, Observable
+from tinyqubit.measurement.observable import I, X, Y, Z, Observable
 from tinyqubit.qml.optim import Adam
 from tinyqubit.qml.layers import strongly_entangling_layers
 

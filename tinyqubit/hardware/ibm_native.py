@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+import numpy as np
+
 _IBM_CLOUD = "https://quantum.cloud.ibm.com/api/v1"
 _IAM_URL = "https://iam.cloud.ibm.com/identity/token"
 _API_VERSION = "2025-01-01"
@@ -177,3 +179,41 @@ def wait_ibm(job: IBMJob, timeout: float = 600, poll_interval: float = 2, n_bits
             bits = bin(int(hex_val, 16))[2:].zfill(n_bits)
             counts[bits] = counts.get(bits, 0) + 1
     return counts
+
+
+class IBMBackend:
+    """IBM Quantum backend. Use as circuit.backend = IBMBackend(...)."""
+    def __init__(self, backend: str, target=None, shots: int = 4096,
+                 api_key: str | None = None, crn: str | None = None, preset: str = "fast",
+                 timeout: float = 3600):
+        self.backend_name, self.target, self.shots, self.preset = backend, target, shots, preset
+        self.timeout = timeout
+        self._api_key, self._crn = _resolve_creds(api_key, crn)
+
+    def __call__(self, circuit, observable) -> float:
+        from ..ir import Circuit
+        from ..compile import transpile
+        n_qubits = circuit.n_qubits
+        result = 0.0
+        for coeff, paulis in observable.terms:
+            if not paulis:
+                result += coeff
+                continue
+            rc = Circuit(n_qubits)
+            rc._initial_state, rc.ops = circuit._initial_state, list(circuit.ops)
+            for q, p in paulis.items():
+                if p == 'X': rc.h(q)
+                elif p == 'Y': rc.rz(q, -np.pi / 2); rc.h(q)
+            rc.measure_all()
+            compiled = transpile(rc, self.target, preset=self.preset) if self.target else rc
+            job = submit_ibm(compiled, backend=self.backend_name, shots=self.shots,
+                             api_key=self._api_key, crn=self._crn)
+            # NOTE: n_bits=n_qubits (logical), not compiled.n_qubits (physical device size).
+            # IBM returns classical bits indexed by measure order, not physical qubit index.
+            counts = wait_ibm(job, timeout=self.timeout, n_bits=n_qubits)
+            ev = 0.0
+            for bs, cnt in counts.items():
+                parity = sum(int(bs[q]) for q in paulis)
+                ev += (-1) ** (parity % 2) * cnt
+            result += coeff * ev / self.shots
+        return result

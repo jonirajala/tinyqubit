@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 from ..ir import Circuit, Gate, Parameter
-from ..analysis.observable import Observable, Z
+from ..measurement.observable import Observable, Z
 
 
 def qft(n_qubits: int) -> Circuit:

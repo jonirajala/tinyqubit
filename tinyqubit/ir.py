@@ -129,6 +129,7 @@ class Circuit:
         self.param_values: dict[str, float] = {}
         self._current_condition: tuple[int, int] | None = None  # For c_if context manager
         self._initial_state: np.ndarray | None = None
+        self.backend = None  # Callable[[Circuit, Observable], float] | None
 
     def _add(self, gate: Gate, qubits: tuple, params: tuple = (),
              classical_bit: int | None = None) -> "Circuit":
@@ -193,7 +194,7 @@ class Circuit:
         return any(_has_parameter(op.params) for op in self.ops)
 
     def init_params(self, value: float = 0.0, seed: int | None = None, trainable_only: bool = True) -> dict[str, float]:
-        """Initialize parameter values (stored in circuit). Returns dict for backward compat."""
+        """Initialize parameter values (stored in circuit)."""
         params = self.trainable_parameters if trainable_only else self.parameters
         names = sorted(p.name for p in params)
         if seed is not None:
@@ -209,6 +210,7 @@ class Circuit:
         values = values if values is not None else self.param_values
         c = Circuit(self.n_qubits, self.n_classical)
         c._initial_state = self._initial_state
+        c.backend = self.backend
         for op in self.ops:
             if _has_parameter(op.params):
                 new_params = tuple(values[p.name] if isinstance(p, Parameter) and p.name in values else p
@@ -242,6 +244,8 @@ class Circuit:
                 qubits = tuple(qubit_map[q] for q in op.qubits) if qubit_map else op.qubits
                 self.ops.append(Operation(op.gate, qubits, op.params, op.classical_bit, op.condition))
             self.param_values.update(other.param_values)
+            if other.backend is not None:
+                self.backend = other.backend
         return self
 
     def inverse(self) -> Circuit:

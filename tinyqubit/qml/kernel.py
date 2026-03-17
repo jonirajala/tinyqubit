@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ..ir import Circuit
 from ..simulator import simulate
-from ..analysis.observable import state_fidelity
+from ..measurement.observable import state_fidelity
 
 
 def quantum_kernel(feature_map_fn, x1, x2, qubits=None) -> float:

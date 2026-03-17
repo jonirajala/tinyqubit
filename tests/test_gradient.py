@@ -2,8 +2,9 @@
 import numpy as np
 import pytest
 from tinyqubit import (
-    Circuit, Parameter, Z, Observable,
+    Circuit, Parameter, Z, Observable, probabilities,
     parameter_shift_gradient, finite_difference_gradient, adjoint_gradient,
+    backprop_gradient, cost_gradient,
 )
 
 
@@ -138,3 +139,54 @@ def test_adjoint_bell_state():
     adj = adjoint_gradient(c, Z(0) @ Z(1), vals)
     ps = parameter_shift_gradient(c, Z(0) @ Z(1), vals)
     assert abs(adj["theta"] - ps["theta"]) < 1e-10
+
+
+# --- Backprop gradient tests ---
+
+def _kl_divergence(target, p):
+    mask = target > 1e-12
+    return float(np.sum(target[mask] * np.log(target[mask] / np.clip(p[mask], 1e-12, None))))
+
+
+def test_backprop_matches_finite_diff():
+    """Backprop gradient matches cost_gradient (finite diff) for a probability-based loss."""
+    c = Circuit(2)
+    c.ry(0, Parameter("a"))
+    c.ry(1, Parameter("b"))
+    c.cx(0, 1)
+    c.init_params(seed=42, trainable_only=False)
+    target = np.array([0.25, 0.25, 0.25, 0.25])
+    loss = lambda p: _kl_divergence(target, p)
+    g_bp = backprop_gradient(c, loss)
+    g_fd = cost_gradient(c, lambda circ: loss(probabilities(circ)))
+    for k in g_bp:
+        assert abs(g_bp[k] - g_fd[k]) < 1e-3, f"{k}: backprop={g_bp[k]:.6f}, fd={g_fd[k]:.6f}"
+
+
+def test_backprop_multi_layer():
+    """Backprop on a deeper circuit with shared structure."""
+    c = Circuit(2)
+    for l in range(3):
+        c.ry(0, Parameter(f"y0_{l}"))
+        c.ry(1, Parameter(f"y1_{l}"))
+        c.rz(0, Parameter(f"z0_{l}"))
+        c.rz(1, Parameter(f"z1_{l}"))
+        c.cx(0, 1)
+    c.init_params(seed=7, trainable_only=False)
+    target = np.array([0.5, 0.0, 0.0, 0.5])
+    loss = lambda p: _kl_divergence(target, p)
+    g_bp = backprop_gradient(c, loss)
+    g_fd = cost_gradient(c, lambda circ: loss(probabilities(circ)))
+    for k in g_bp:
+        assert abs(g_bp[k] - g_fd[k]) < 1e-3, f"{k}: backprop={g_bp[k]:.6f}, fd={g_fd[k]:.6f}"
+
+
+def test_backprop_mse_loss():
+    """Backprop works with non-KL loss functions too."""
+    c = Circuit(1)
+    c.ry(0, Parameter("theta"))
+    target = np.array([0.0, 1.0])
+    loss = lambda p: float(np.sum((p - target) ** 2))
+    g_bp = backprop_gradient(c, loss, {"theta": 1.0})
+    g_fd = cost_gradient(c, lambda circ: loss(probabilities(circ)), {"theta": 1.0})
+    assert abs(g_bp["theta"] - g_fd["theta"]) < 1e-3
