@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ..ir import Circuit, Gate, Parameter, _GATE_ADJOINT, _PARAM_GATES, _get_gate_matrix, _SQRT2_INV
 from ..measurement.observable import Observable, expectation, _PAULI_MATRIX
-from ..simulator import simulate, sample, _apply_single_qubit, _apply_three_qubit, _DIAG_PHASE
+from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _DIAG_PHASE, _get_cx_perm
 
 
 # Gradient computation -------
@@ -66,12 +66,8 @@ def _make_2q_idx(q0: int, q1: int, n: int):
 
 
 def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: np.ndarray) -> dict[str, float]:
-    """Shared backward pass: given forward state and seed λ, extract all parameter gradients.
-
-    NOTE: Diagonal 1Q gates (RZ, S, T, Z, SDG, TDG) are accumulated into a combined phase vector
-    and flushed in one pass, reducing memory traffic from O(n_diag) to O(1) passes per block.
-    This is safe because diagonal phases are unit-magnitude: |e^{iφ}|² = 1, so vdot(e·λ, e·ψ) = vdot(λ, ψ).
-    """
+    # NOTE: Diagonal 1Q gates are accumulated into a combined phase vector and flushed in one
+    # pass. Safe because phases are unit-magnitude: vdot(e·λ, e·ψ) = vdot(λ, ψ).
     n = bound.n_qubits
     param_map = {}
     for i, op in enumerate(circuit.ops):
@@ -116,7 +112,23 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
         diag_phase[:] = 1.0
         diag_dirty = False
 
-    for k in range(len(bound.ops) - 1, -1, -1):
+    # Precompute CX block boundaries for batch permutation in backward traversal
+    cx_block_start = {}  # block_end_k -> (block_start_k, perm_inv)
+    if n >= 10:
+        j = len(bound.ops) - 1
+        while j >= 0:
+            if bound.ops[j].gate == Gate.CX and j not in param_map:
+                end = j
+                while j > 0 and bound.ops[j - 1].gate == Gate.CX and (j - 1) not in param_map:
+                    j -= 1
+                start = j
+                if end > start:
+                    cx_rev = tuple((bound.ops[i].qubits[0], bound.ops[i].qubits[1]) for i in range(end, start - 1, -1))
+                    cx_block_start[end] = (start, _get_cx_perm(cx_rev, n))
+            j -= 1
+
+    k = len(bound.ops) - 1
+    while k >= 0:
         op = bound.ops[k]
         agate, aparams, anq, mat_or_phase, idxs = adjoint_info[k]
         is_diag_1q = anq == 1 and (agate == Gate.RZ or agate in _DIAG_PHASE)
@@ -139,6 +151,12 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
             else:
                 dp[idxs[1]] *= mat_or_phase
             diag_dirty = True
+        elif k in cx_block_start:
+            _flush_diag()
+            start, perm_inv = cx_block_start[k]
+            state = state[perm_inv]
+            lam = lam[perm_inv]
+            k = start - 1; continue
         else:
             _flush_diag()
 
@@ -154,6 +172,10 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 elif op.gate == Gate.CP:
                     _, _, _, _, (_, _, _, i11) = adjoint_info[k]
                     grad[name] += -2 * np.vdot(la[i11], st[i11]).imag
+                elif op.gate == Gate.RZZ:
+                    i00, i01, i10, i11 = idxs
+                    grad[name] += (np.vdot(la[i00], st[i00]) - np.vdot(la[i01], st[i01])
+                                   - np.vdot(la[i10], st[i10]) + np.vdot(la[i11], st[i11])).imag
 
             if anq == 1:
                 mat = mat_or_phase
@@ -175,36 +197,15 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 state, buf_s = buf_s, state
                 lam, buf_l = buf_l, lam
             elif anq == 2:
-                st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                i00, i01, i10, i11 = idxs
-                if agate == Gate.CX:
-                    tmp = st[i10].copy(); st[i10] = st[i11]; st[i11] = tmp
-                    tmp = la[i10].copy(); la[i10] = la[i11]; la[i11] = tmp
-                elif agate == Gate.CZ:
-                    st[i11] *= -1; la[i11] *= -1
-                elif agate == Gate.SWAP:
-                    tmp = st[i01].copy(); st[i01] = st[i10]; st[i10] = tmp
-                    tmp = la[i01].copy(); la[i01] = la[i10]; la[i10] = tmp
-                elif agate == Gate.CP:
-                    phase = np.exp(1j * aparams[0])
-                    st[i11] *= phase; la[i11] *= phase
-                elif agate == Gate.RZZ:
-                    t = aparams[0]
-                    em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
-                    st[i00] *= em; st[i01] *= ep; st[i10] *= ep; st[i11] *= em
-                    la[i00] *= em; la[i01] *= ep; la[i10] *= ep; la[i11] *= em
-                elif agate == Gate.ECR:
-                    s00, s01, s10, s11 = st[i00].copy(), st[i01].copy(), st[i10].copy(), st[i11].copy()
-                    st[i00] = _SQRT2_INV * (s10 + 1j * s11); st[i01] = _SQRT2_INV * (1j * s10 + s11)
-                    st[i10] = _SQRT2_INV * (s00 - 1j * s01); st[i11] = _SQRT2_INV * (-1j * s00 + s01)
-                    l00, l01, l10, l11 = la[i00].copy(), la[i01].copy(), la[i10].copy(), la[i11].copy()
-                    la[i00] = _SQRT2_INV * (l10 + 1j * l11); la[i01] = _SQRT2_INV * (1j * l10 + l11)
-                    la[i10] = _SQRT2_INV * (l00 - 1j * l01); la[i11] = _SQRT2_INV * (-1j * l00 + l01)
+                q0, q1 = op.qubits[0], op.qubits[1]
+                state = _apply_two_qubit(state, agate, q0, q1, n, aparams)
+                lam = _apply_two_qubit(lam, agate, q0, q1, n, aparams)
             else:
                 state = _apply_three_qubit(state, agate, *op.qubits, n)
                 lam = _apply_three_qubit(lam, agate, *op.qubits, n)
                 buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
 
+        k -= 1
     _flush_diag()
     return grad
 
@@ -252,13 +253,16 @@ def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None
     bound = circuit.bind(params)
     state, _ = simulate(bound)
     probs = np.abs(state) ** 2
-    # dloss/dp via finite differences on the small 2^n classical vector
-    loss0 = loss_fn(probs)
-    dloss_dp = np.empty_like(probs)
-    for i in range(len(probs)):
-        probs[i] += eps
-        dloss_dp[i] = (loss_fn(probs) - loss0) / eps
-        probs[i] -= eps
+    if hasattr(loss_fn, 'grad'):
+        dloss_dp = loss_fn.grad(probs)
+    else:
+        loss0 = loss_fn(probs)
+        dloss_dp = np.empty_like(probs)
+        for i in range(len(probs)):
+            orig = probs[i]
+            probs[i] = orig + eps
+            dloss_dp[i] = (loss_fn(probs) - loss0) / eps
+            probs[i] = orig
     # Seed: λ_i = (dloss/dp_i) · ψ_i  (chain rule through |ψ_i|²)
     return _adjoint_backward(circuit, bound, state, dloss_dp * state)
 
@@ -347,7 +351,7 @@ class GradientDescent:
 class Adam:
     """Adam optimizer with bias-corrected moments."""
     def __init__(self, stepsize: float = 0.01, grad_fn=None,
-                 beta1: float = 0.9, beta2: float = 0.999, eps: float = 1e-8):
+                 beta1: float = 0.9, beta2: float = 0.99, eps: float = 1e-8):
         self.stepsize, self.beta1, self.beta2, self.eps = stepsize, beta1, beta2, eps
         self._grad_fn = grad_fn or adjoint_gradient
         self._m: dict[str, float] = {}

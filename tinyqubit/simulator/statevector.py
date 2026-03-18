@@ -98,6 +98,38 @@ def _apply_reset(state: np.ndarray, qubit: int, n: int, rng) -> np.ndarray:
     state, outcome = _apply_measure(state, qubit, n, rng)
     return _apply_single_qubit(state, _GATE_1Q_CACHE[Gate.X], qubit, n) if outcome == 1 else state
 
+def _build_cx_perm(cx_pairs: tuple[tuple[int, int], ...], n: int) -> np.ndarray:
+    N = 1 << n
+    identity = np.arange(N, dtype=np.int64)
+    perm = identity.copy()
+    single = np.empty(N, dtype=np.int64)
+    for q0, q1 in cx_pairs:
+        np.copyto(single, identity)
+        single[(single & (1 << (n - 1 - q0))) != 0] ^= (1 << (n - 1 - q1))
+        perm = perm[single]
+    return perm
+
+_cx_perm_cache: dict[tuple, np.ndarray] = {}
+_CX_PERM_CACHE_MAX = 64
+
+def _get_cx_perm(cx_pairs: tuple[tuple[int, int], ...], n: int) -> np.ndarray:
+    key = (cx_pairs, n)
+    if key not in _cx_perm_cache:
+        if len(_cx_perm_cache) >= _CX_PERM_CACHE_MAX:
+            _cx_perm_cache.pop(next(iter(_cx_perm_cache)))
+        _cx_perm_cache[key] = _build_cx_perm(cx_pairs, n)
+    return _cx_perm_cache[key]
+
+def _collect_cx_block(ops: list, start: int) -> tuple[tuple[tuple[int, int], ...] | None, int]:
+    i, pairs = start, []
+    while i < len(ops):
+        op = ops[i]
+        if op.gate != Gate.CX or op.condition is not None: break
+        pairs.append((op.qubits[0], op.qubits[1]))
+        i += 1
+    return (tuple(pairs), i) if len(pairs) >= 2 else (None, start)
+
+
 def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], int]:
     fused, i = {}, start
     while i < len(ops):
@@ -171,6 +203,12 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif op.gate.n_qubits == 2:
+            if buf is not None and op.gate == Gate.CX and noise_model is None:
+                cx_pairs, end_i = _collect_cx_block(ops, i)
+                if cx_pairs is not None:
+                    state = state[_get_cx_perm(cx_pairs, n)]
+                    for _ in range(end_i - i - 1): next(ops_iter)
+                    continue
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
         else:  # 3Q

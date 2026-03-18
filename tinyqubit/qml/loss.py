@@ -27,6 +27,13 @@ def mse_cost(circuit: Circuit, X: np.ndarray, y: np.ndarray,
     return np.mean((predict(circuit, X, observable) - y) ** 2)
 
 
+class _DiffLoss:
+    """Callable loss with analytical gradient for use with backprop_gradient."""
+    __slots__ = ('_fn', 'grad')
+    def __init__(self, fn, grad): self._fn, self.grad = fn, grad
+    def __call__(self, *args): return self._fn(*args)
+
+
 def _kl(p, q):
     mask = p > 1e-12
     return float(np.sum(p[mask] * np.log(p[mask] / np.clip(q[mask], 1e-12, None))))
@@ -35,12 +42,14 @@ def _kl(p, q):
 def kl_divergence(target: np.ndarray, q: np.ndarray | None = None):
     """KL(target || q). With one arg, returns a loss function for use with backprop_gradient."""
     if q is not None: return _kl(target, q)
-    return lambda q: _kl(target, q)
+    return _DiffLoss(lambda q: _kl(target, q),
+                     lambda q: np.where(target > 1e-12, -target / np.clip(q, 1e-12, None), 0.0))
 
 
 def mse(target: np.ndarray):
     """MSE loss factory: returns loss(probs) -> float."""
-    return lambda p: float(np.sum((p - target) ** 2))
+    return _DiffLoss(lambda p: float(np.sum((p - target) ** 2)),
+                     lambda p: 2 * (p - target))
 
 
 def fidelity_cost(circuit: Circuit, target_state: np.ndarray) -> float:
