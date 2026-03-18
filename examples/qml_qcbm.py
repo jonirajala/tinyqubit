@@ -40,9 +40,8 @@ opt = Adam(stepsize=0.05)
 loss = kl_divergence(target)
 
 for step in range(200):
-    opt.step(qc, loss)
+    _, kl = opt.step_and_cost(qc, loss)
     if step % 25 == 0 or step == 199:
-        kl = loss(probabilities(qc.bind()))
         print(f"  step {step:3d}: KL = {kl:.4f}")
 
 # --- Results ---

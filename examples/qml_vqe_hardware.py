@@ -70,8 +70,7 @@ print(f"  exact ground state: {exact_gs:+.4f} Ha\n")
 
 # --- VQE loop ---
 for step in range(n_steps):
-    opt.step(ansatz, H)
-    e = expectation(ansatz.bind(), H)
+    _, e = opt.step_and_cost(ansatz, H)
     print(f"  step {step:2d}: E = {e:+.6f} Ha  (error: {abs(e - exact_gs):.4f})")
 
 print(f"\n  exact: {exact_gs:+.6f} Ha")

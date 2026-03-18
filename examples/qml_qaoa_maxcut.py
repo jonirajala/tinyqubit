@@ -33,12 +33,11 @@ circuit.init_params(seed=42, trainable_only=False)
 opt = Adam(stepsize=0.1)
 
 for step in range(150):
-    opt.step(circuit, -H)
+    _, neg_cost = opt.step_and_cost(circuit, -H)
     if step % 25 == 0:
-        cost = expectation(circuit.bind(), H)
-        print(f"  step {step:3d}: ⟨C⟩ = {cost:.4f}")
+        print(f"  step {step:3d}: ⟨C⟩ = {-neg_cost:.4f}")
 
-cost_final = expectation(circuit.bind(), H)
+cost_final = -neg_cost
 print(f"\n  converged: ⟨C⟩ = {cost_final:.4f}")
 print(f"  exact max:       {len(edges):.4f}")
 

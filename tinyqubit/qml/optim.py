@@ -210,7 +210,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
     return grad
 
 
-def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float] | None = None, _return_cost: bool = False):
+def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float] | None = None, return_cost: bool = False):
     """Compute all gradients in one forward + backward pass (adjoint differentiation)."""
     if params is None: params = circuit.param_values
     bound = circuit.bind(params)
@@ -245,22 +245,22 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str,
             lam_t += tmp.reshape([2] * n) * coeff
     lam = lam_t.reshape(-1)
     grad = _adjoint_backward(circuit, bound, state, lam)
-    if _return_cost:
+    if return_cost:
         return grad, np.vdot(state, lam).real
     return grad
 
 
-def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None = None, eps: float = 1e-7, _return_cost: bool = False):
+def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None = None, eps: float = 1e-7, return_cost: bool = False):
     """Backprop gradient for loss(probabilities). One forward + one backward pass."""
     if params is None: params = circuit.param_values
     bound = circuit.bind(params)
     state, _ = simulate(bound)
     probs = np.abs(state) ** 2
-    cost = float(loss_fn(probs)) if _return_cost else None
+    cost = float(loss_fn(probs)) if return_cost else None
     if hasattr(loss_fn, 'grad'):
         dloss_dp = loss_fn.grad(probs)
     else:
-        loss0 = cost if _return_cost else loss_fn(probs)
+        loss0 = cost if return_cost else loss_fn(probs)
         dloss_dp = np.empty_like(probs)
         for i in range(len(probs)):
             orig = probs[i]
@@ -269,7 +269,7 @@ def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None
             probs[i] = orig
     # Seed: λ_i = (dloss/dp_i) · ψ_i  (chain rule through |ψ_i|²)
     grad = _adjoint_backward(circuit, bound, state, dloss_dp * state)
-    return (grad, cost) if _return_cost else grad
+    return (grad, cost) if return_cost else grad
 
 
 def quantum_fisher_information(circuit: Circuit, params: dict[str, float] | None = None) -> np.ndarray:
@@ -351,8 +351,13 @@ class _GradOptimizer:
             params = circuit.param_values
         else:
             params = params_or_circuit
-        grad_fn = backprop_gradient if callable(observable) and not isinstance(observable, Observable) else adjoint_gradient
-        grad, cost = grad_fn(circuit, observable, params, _return_cost=True)
+        if callable(observable) and not isinstance(observable, Observable):
+            grad, cost = backprop_gradient(circuit, observable, params, return_cost=True)
+        elif self._grad_fn is adjoint_gradient:
+            grad, cost = adjoint_gradient(circuit, observable, params, return_cost=True)
+        else:
+            grad = self._grad_fn(circuit, observable, params)
+            cost = expectation(circuit.bind(params), observable)
         result = self._update(params, grad)
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result, cost
@@ -419,6 +424,17 @@ class SPSA:
         result = self._perturb_and_step(params, lambda p: self._eval(circuit.bind(p), observable))
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result
+
+    def step_and_cost(self, params_or_circuit, circuit=None, observable=None):
+        if isinstance(params_or_circuit, Circuit):
+            circuit, observable = params_or_circuit, circuit
+            params = circuit.param_values
+        else:
+            params = params_or_circuit
+        cost = self._eval(circuit.bind(params), observable)
+        result = self._perturb_and_step(params, lambda p: self._eval(circuit.bind(p), observable))
+        if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
+        return result, cost
 
 
 class QNG:

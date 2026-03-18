@@ -29,12 +29,11 @@ ansatz.init_params(seed=0)
 opt = Adam(stepsize=0.15)
 
 for step in range(100):
-    opt.step(ansatz, H)
+    _, e = opt.step_and_cost(ansatz, H)
     if step % 10 == 0:
-        e = expectation(ansatz.bind(), H)
         print(f"  step {step:3d}: E = {e:+.6f} Ha")
 
-e_final = expectation(ansatz.bind(), H)
+e_final = e
 print(f"\n  converged: E = {e_final:+.6f} Ha")
 print(f"  exact:     E = {exact_gs:+.6f} Ha")
 print(f"  error:     {abs(e_final - exact_gs):.2e} Ha")
