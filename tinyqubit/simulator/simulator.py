@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel | None" = None,
-             batch_ops: bool = False) -> tuple[np.ndarray, dict[int, int]]:
+             batch_ops: bool = True) -> tuple[np.ndarray, dict[int, int]]:
     """Simulate circuit. Returns (statevector, classical_bits dict).
 
     Auto-dispatches: Clifford circuits → stabilizer tableau, >28 qubits → MPS,

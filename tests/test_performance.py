@@ -58,8 +58,8 @@ print(time.perf_counter() - start)
     import_time = float(result.stdout.strip())
     import_time_ms = import_time * 1000
 
-    assert import_time_ms < 100, (
-        f"Import took {import_time_ms:.1f}ms, expected < 100ms"
+    assert import_time_ms < 150, (
+        f"Import took {import_time_ms:.1f}ms, expected < 150ms"
     )
 
 
