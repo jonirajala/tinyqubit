@@ -109,20 +109,30 @@ def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int
         i += 1
     return [(m, q) for q, m in fused.items()], i
 
-def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: int, buf: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray | None]:
-    if not gates: return state, buf
-    if buf is None: buf = np.empty_like(state)
-    for matrix, qubit in gates:
-        st = state.reshape([2] * n)
-        bt = buf.reshape([2] * n)
+def _apply_1q_matmul(state: np.ndarray, buf: np.ndarray, matrix: np.ndarray, qubit: int, n: int, tmp: np.ndarray):
+    """Apply 1Q gate via matmul broadcast (middle qubits) or ufunc out= (edge qubits)."""
+    nq, nr = 1 << qubit, 1 << (n - qubit - 1)
+    if min(nq, nr) > 1:
+        np.matmul(matrix, state.reshape(nq, 2, nr), out=buf.reshape(nq, 2, nr))
+    else:
+        st, bt = state.reshape([2] * n), buf.reshape([2] * n)
         idx0 = [slice(None)] * n; idx0[qubit] = 0
         idx1 = [slice(None)] * n; idx1[qubit] = 1
         idx0, idx1 = tuple(idx0), tuple(idx1)
         s0, s1 = st[idx0], st[idx1]
-        bt[idx0] = matrix[0, 0] * s0 + matrix[0, 1] * s1
-        bt[idx1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
-        state, buf = buf.reshape(-1), state.reshape(-1)
-    return state, buf
+        t = tmp[:s0.size].reshape(s0.shape)
+        np.multiply(matrix[0, 0], s0, out=t); np.multiply(matrix[0, 1], s1, out=bt[idx0]); np.add(t, bt[idx0], out=bt[idx0])
+        np.multiply(matrix[1, 0], s0, out=t); np.multiply(matrix[1, 1], s1, out=bt[idx1]); np.add(t, bt[idx1], out=bt[idx1])
+
+def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: int,
+                    buf: np.ndarray | None = None, tmp: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if not gates: return state, buf, tmp
+    if buf is None: buf = np.empty_like(state)
+    if tmp is None: tmp = np.empty(1 << (n - 1), dtype=state.dtype)
+    for matrix, qubit in gates:
+        _apply_1q_matmul(state, buf, matrix, qubit, n, tmp)
+        state, buf = buf, state
+    return state, buf, tmp
 
 
 def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops) -> tuple[np.ndarray, dict[int, int]]:
@@ -135,7 +145,9 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
         state[0] = 1.0
 
     ops, ops_iter = circuit.ops, iter(enumerate(circuit.ops))
-    buf = np.empty_like(state) if batch_ops and noise_model is None and n >= 10 else None
+    buf = tmp = None
+    if batch_ops and noise_model is None and n >= 10:
+        buf, tmp = np.empty_like(state), np.empty(1 << (n - 1), dtype=state.dtype)
     for i, op in ops_iter:
         if op.condition is not None and classical.get(op.condition[0]) != op.condition[1]: continue
         if op.gate == Gate.MEASURE:
@@ -150,7 +162,7 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
             if buf is not None:
                 group, end_i = _collect_1q_block(ops, i)
                 if len(group) > 1:
-                    state, buf = _apply_batch_1q(state, group, n, buf)
+                    state, buf, tmp = _apply_batch_1q(state, group, n, buf, tmp)
                     for _ in range(end_i - i - 1): next(ops_iter)
                     continue
             if op.gate in _DIAG_PHASE or op.gate == Gate.RZ:
