@@ -112,7 +112,7 @@ def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int
 def _apply_1q_matmul(state: np.ndarray, buf: np.ndarray, matrix: np.ndarray, qubit: int, n: int, tmp: np.ndarray):
     """Apply 1Q gate via matmul broadcast (middle qubits) or ufunc out= (edge qubits)."""
     nq, nr = 1 << qubit, 1 << (n - qubit - 1)
-    if min(nq, nr) > 1:
+    if nr > 1:
         np.matmul(matrix, state.reshape(nq, 2, nr), out=buf.reshape(nq, 2, nr))
     else:
         st, bt = state.reshape([2] * n), buf.reshape([2] * n)

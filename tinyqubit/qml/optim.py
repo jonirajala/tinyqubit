@@ -66,7 +66,12 @@ def _make_2q_idx(q0: int, q1: int, n: int):
 
 
 def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: np.ndarray) -> dict[str, float]:
-    """Shared backward pass: given forward state and seed λ, extract all parameter gradients."""
+    """Shared backward pass: given forward state and seed λ, extract all parameter gradients.
+
+    NOTE: Diagonal 1Q gates (RZ, S, T, Z, SDG, TDG) are accumulated into a combined phase vector
+    and flushed in one pass, reducing memory traffic from O(n_diag) to O(1) passes per block.
+    This is safe because diagonal phases are unit-magnitude: |e^{iφ}|² = 1, so vdot(e·λ, e·ψ) = vdot(λ, ψ).
+    """
     n = bound.n_qubits
     param_map = {}
     for i, op in enumerate(circuit.ops):
@@ -100,45 +105,63 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
     lam = lam.reshape(-1)
     buf_s = np.empty_like(state)
     buf_l = np.empty_like(lam)
+    diag_phase = None
+    diag_dirty = False
+
+    def _flush_diag():
+        nonlocal state, lam, diag_dirty
+        if not diag_dirty: return
+        state *= diag_phase
+        lam *= diag_phase
+        diag_phase[:] = 1.0
+        diag_dirty = False
 
     for k in range(len(bound.ops) - 1, -1, -1):
         op = bound.ops[k]
         agate, aparams, anq, mat_or_phase, idxs = adjoint_info[k]
+        is_diag_1q = anq == 1 and (agate == Gate.RZ or agate in _DIAG_PHASE)
 
-        if k in param_map:
-            name = param_map[k]
-            st, la = state.reshape([2] * n), lam.reshape([2] * n)
-            if op.gate == Gate.RY:
-                i0, i1 = idxs
-                grad[name] += (np.vdot(la[i1], st[i0]) - np.vdot(la[i0], st[i1])).real
-            elif op.gate == Gate.RX:
-                i0, i1 = idxs
-                grad[name] += (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
-            elif op.gate == Gate.RZ:
+        if is_diag_1q:
+            # Gradient extraction is invariant under pending diagonal phases
+            if k in param_map:
+                name = param_map[k]
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
                 i0, i1 = idxs
                 grad[name] += (np.vdot(la[i0], st[i0]) - np.vdot(la[i1], st[i1])).imag
-            elif op.gate == Gate.CP:
-                _, _, _, _, (_, _, _, i11) = adjoint_info[k]
-                grad[name] += -2 * np.vdot(la[i11], st[i11]).imag
 
-        if anq == 1:
+            # Accumulate phase instead of applying immediately
+            if diag_phase is None:
+                diag_phase = np.ones(len(state), dtype=state.dtype)
+            dp = diag_phase.reshape([2] * n)
             if agate == Gate.RZ:
-                i0, i1 = idxs
                 e0, e1 = mat_or_phase
-                st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                st[i0] *= e0; st[i1] *= e1
-                la[i0] *= e0; la[i1] *= e1
-            elif agate in _DIAG_PHASE:
-                i0, i1 = idxs
-                st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                st[i1] *= mat_or_phase; la[i1] *= mat_or_phase
+                dp[idxs[0]] *= e0; dp[idxs[1]] *= e1
             else:
+                dp[idxs[1]] *= mat_or_phase
+            diag_dirty = True
+        else:
+            _flush_diag()
+
+            if k in param_map:
+                name = param_map[k]
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                if op.gate == Gate.RY:
+                    i0, i1 = idxs
+                    grad[name] += (np.vdot(la[i1], st[i0]) - np.vdot(la[i0], st[i1])).real
+                elif op.gate == Gate.RX:
+                    i0, i1 = idxs
+                    grad[name] += (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
+                elif op.gate == Gate.CP:
+                    _, _, _, _, (_, _, _, i11) = adjoint_info[k]
+                    grad[name] += -2 * np.vdot(la[i11], st[i11]).imag
+
+            if anq == 1:
                 mat = mat_or_phase
                 qubit = op.qubits[0]
-                nq, nr = 1 << qubit, 1 << (n - qubit - 1)
-                if min(nq, nr) > 1:
-                    np.matmul(mat, state.reshape(nq, 2, nr), out=buf_s.reshape(nq, 2, nr))
-                    np.matmul(mat, lam.reshape(nq, 2, nr), out=buf_l.reshape(nq, 2, nr))
+                nql, nr = 1 << qubit, 1 << (n - qubit - 1)
+                if nr > 1:
+                    np.matmul(mat, state.reshape(nql, 2, nr), out=buf_s.reshape(nql, 2, nr))
+                    np.matmul(mat, lam.reshape(nql, 2, nr), out=buf_l.reshape(nql, 2, nr))
                 else:
                     i0, i1 = idxs
                     st, bs = state.reshape([2] * n), buf_s.reshape([2] * n)
@@ -151,36 +174,38 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     bl[i1] = mat[1, 0] * ls0 + mat[1, 1] * ls1
                 state, buf_s = buf_s, state
                 lam, buf_l = buf_l, lam
-        elif anq == 2:
-            st, la = state.reshape([2] * n), lam.reshape([2] * n)
-            i00, i01, i10, i11 = idxs
-            if agate == Gate.CX:
-                tmp = st[i10].copy(); st[i10] = st[i11]; st[i11] = tmp
-                tmp = la[i10].copy(); la[i10] = la[i11]; la[i11] = tmp
-            elif agate == Gate.CZ:
-                st[i11] *= -1; la[i11] *= -1
-            elif agate == Gate.SWAP:
-                tmp = st[i01].copy(); st[i01] = st[i10]; st[i10] = tmp
-                tmp = la[i01].copy(); la[i01] = la[i10]; la[i10] = tmp
-            elif agate == Gate.CP:
-                phase = np.exp(1j * aparams[0])
-                st[i11] *= phase; la[i11] *= phase
-            elif agate == Gate.RZZ:
-                t = aparams[0]
-                em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
-                st[i00] *= em; st[i01] *= ep; st[i10] *= ep; st[i11] *= em
-                la[i00] *= em; la[i01] *= ep; la[i10] *= ep; la[i11] *= em
-            elif agate == Gate.ECR:
-                s00, s01, s10, s11 = st[i00].copy(), st[i01].copy(), st[i10].copy(), st[i11].copy()
-                st[i00] = _SQRT2_INV * (s10 + 1j * s11); st[i01] = _SQRT2_INV * (1j * s10 + s11)
-                st[i10] = _SQRT2_INV * (s00 - 1j * s01); st[i11] = _SQRT2_INV * (-1j * s00 + s01)
-                l00, l01, l10, l11 = la[i00].copy(), la[i01].copy(), la[i10].copy(), la[i11].copy()
-                la[i00] = _SQRT2_INV * (l10 + 1j * l11); la[i01] = _SQRT2_INV * (1j * l10 + l11)
-                la[i10] = _SQRT2_INV * (l00 - 1j * l01); la[i11] = _SQRT2_INV * (-1j * l00 + l01)
-        else:
-            state = _apply_three_qubit(state, agate, *op.qubits, n)
-            lam = _apply_three_qubit(lam, agate, *op.qubits, n)
-            buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+            elif anq == 2:
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                i00, i01, i10, i11 = idxs
+                if agate == Gate.CX:
+                    tmp = st[i10].copy(); st[i10] = st[i11]; st[i11] = tmp
+                    tmp = la[i10].copy(); la[i10] = la[i11]; la[i11] = tmp
+                elif agate == Gate.CZ:
+                    st[i11] *= -1; la[i11] *= -1
+                elif agate == Gate.SWAP:
+                    tmp = st[i01].copy(); st[i01] = st[i10]; st[i10] = tmp
+                    tmp = la[i01].copy(); la[i01] = la[i10]; la[i10] = tmp
+                elif agate == Gate.CP:
+                    phase = np.exp(1j * aparams[0])
+                    st[i11] *= phase; la[i11] *= phase
+                elif agate == Gate.RZZ:
+                    t = aparams[0]
+                    em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
+                    st[i00] *= em; st[i01] *= ep; st[i10] *= ep; st[i11] *= em
+                    la[i00] *= em; la[i01] *= ep; la[i10] *= ep; la[i11] *= em
+                elif agate == Gate.ECR:
+                    s00, s01, s10, s11 = st[i00].copy(), st[i01].copy(), st[i10].copy(), st[i11].copy()
+                    st[i00] = _SQRT2_INV * (s10 + 1j * s11); st[i01] = _SQRT2_INV * (1j * s10 + s11)
+                    st[i10] = _SQRT2_INV * (s00 - 1j * s01); st[i11] = _SQRT2_INV * (-1j * s00 + s01)
+                    l00, l01, l10, l11 = la[i00].copy(), la[i01].copy(), la[i10].copy(), la[i11].copy()
+                    la[i00] = _SQRT2_INV * (l10 + 1j * l11); la[i01] = _SQRT2_INV * (1j * l10 + l11)
+                    la[i10] = _SQRT2_INV * (l00 - 1j * l01); la[i11] = _SQRT2_INV * (-1j * l00 + l01)
+            else:
+                state = _apply_three_qubit(state, agate, *op.qubits, n)
+                lam = _apply_three_qubit(lam, agate, *op.qubits, n)
+                buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+
+    _flush_diag()
     return grad
 
 
