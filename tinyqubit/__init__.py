@@ -13,10 +13,10 @@ from .simulator.noise import (
     readout_error, realistic_noise
 )
 from .measurement.observable import Observable, I, X, Y, Z, expectation, expectation_batch, expectation_sweep, state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
-from .qml.optim import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, backprop_gradient, gradient_landscape, quantum_fisher_information, cost_gradient
+from .qml.optim import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, backprop_gradient, gradient_landscape, quantum_fisher_information, cost_gradient, Adam, GradientDescent, SPSA, QNG
 from .qml.loss import kl_divergence, mse
 from .qml.circuits import qft, ghz, grover_oracle, qaoa_mixer
-from .qml.layers import hardware_efficient_ansatz
+from .qml.layers import hardware_efficient_ansatz, strongly_entangling_layers
 from .measurement.ftqc import resource_estimate, ResourceEstimate
 from .measurement.mitigation import zne, calibration_matrix, mitigate_readout
 
@@ -40,12 +40,14 @@ __all__ = [
     "parameter_shift_gradient", "finite_difference_gradient",
     "adjoint_gradient", "backprop_gradient", "gradient_landscape",
     "quantum_fisher_information", "cost_gradient",
+    "Adam", "GradientDescent", "SPSA", "QNG",
     "kl_divergence", "mse",
     # Quantum info
     "state_fidelity", "partial_trace", "entanglement_entropy",
     "concurrence", "mutual_information",
     # Circuit library
     "qft", "ghz", "grover_oracle", "hardware_efficient_ansatz", "qaoa_mixer",
+    "strongly_entangling_layers",
     # Export
     "to_openqasm2", "to_openqasm3", "from_openqasm2", "from_openqasm3",
     "UnsupportedGateError", "submit_ibm", "wait_ibm", "IBMBackend", "BraketBackend",

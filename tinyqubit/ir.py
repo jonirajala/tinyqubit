@@ -193,10 +193,20 @@ class Circuit:
         """True if any operation has an unbound Parameter."""
         return any(_has_parameter(op.params) for op in self.ops)
 
-    def init_params(self, value: float = 0.0, seed: int | None = None, trainable_only: bool = True) -> dict[str, float]:
+    def init_params(self, value: float = 0.0, seed: int | None = None, trainable_only: bool = True, order: str = 'sorted') -> dict[str, float]:
         """Initialize parameter values (stored in circuit)."""
-        params = self.trainable_parameters if trainable_only else self.parameters
-        names = sorted(p.name for p in params)
+        if order == 'circuit':
+            seen = set()
+            names = []
+            for op in self.ops:
+                for p in op.params:
+                    if isinstance(p, Parameter) and (not trainable_only or p.trainable) and p.name not in seen:
+                        seen.add(p.name)
+                        names.append(p.name)
+        elif order == 'sorted':
+            names = sorted(p.name for p in (self.trainable_parameters if trainable_only else self.parameters))
+        else:
+            raise ValueError(f"order must be 'sorted' or 'circuit', got {order!r}")
         if seed is not None:
             rng = np.random.default_rng(seed)
             vals = dict(zip(names, rng.uniform(0, 2 * np.pi, len(names))))

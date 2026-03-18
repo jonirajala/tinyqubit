@@ -59,6 +59,8 @@ def sample(state: np.ndarray, shots: int, seed: int = None) -> dict[str, int]:
 
 def probabilities(circuit: Circuit, wires: list[int] | None = None, seed: int | None = None) -> np.ndarray:
     """Compute measurement probabilities. Optionally marginal over specified wires."""
+    if circuit.is_parameterized and circuit.param_values:
+        circuit = circuit.bind()
     state, _ = simulate(circuit, seed=seed)
     probs = np.abs(state) ** 2
     if wires is None: return probs

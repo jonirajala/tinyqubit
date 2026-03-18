@@ -59,12 +59,18 @@ def Z(qubit: int) -> Observable: return Observable([(1.0, {qubit: 'Z'})])
 _PAULI_MATRIX = {'X': _GATE_1Q_CACHE[_Gate.X], 'Y': _GATE_1Q_CACHE[_Gate.Y], 'Z': _GATE_1Q_CACHE[_Gate.Z]}
 
 
-def expectation(circuit: Circuit, observable: Observable) -> float:
-    """Compute ⟨ψ|O|ψ⟩ for a Pauli observable."""
-    if circuit.backend is not None:
-        return circuit.backend(circuit, observable)
-    state, _ = simulate(circuit)
-    n = circuit.n_qubits
+def expectation(circuit_or_state, observable: Observable, n_qubits: int | None = None) -> float:
+    """Compute ⟨ψ|O|ψ⟩ for a Pauli observable. Accepts Circuit or statevector."""
+    if isinstance(circuit_or_state, np.ndarray):
+        state, n = circuit_or_state, n_qubits if n_qubits is not None else int(np.log2(len(circuit_or_state)))
+    else:
+        circuit = circuit_or_state
+        if circuit.backend is not None:
+            return circuit.backend(circuit, observable)
+        if circuit.is_parameterized and circuit.param_values:
+            circuit = circuit.bind()
+        state, _ = simulate(circuit)
+        n = circuit.n_qubits
     result = 0.0
     for coeff, paulis in observable.terms:
         psi = state.copy()

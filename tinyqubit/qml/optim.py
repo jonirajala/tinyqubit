@@ -210,7 +210,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
     return grad
 
 
-def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float] | None = None) -> dict[str, float]:
+def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float] | None = None, _return_cost: bool = False):
     """Compute all gradients in one forward + backward pass (adjoint differentiation)."""
     if params is None: params = circuit.param_values
     bound = circuit.bind(params)
@@ -244,19 +244,23 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str,
                 tmp = _apply_single_qubit(tmp, _PAULI_MATRIX[pauli], qubit, n)
             lam_t += tmp.reshape([2] * n) * coeff
     lam = lam_t.reshape(-1)
-    return _adjoint_backward(circuit, bound, state, lam)
+    grad = _adjoint_backward(circuit, bound, state, lam)
+    if _return_cost:
+        return grad, np.vdot(state, lam).real
+    return grad
 
 
-def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None = None, eps: float = 1e-7) -> dict[str, float]:
+def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None = None, eps: float = 1e-7, _return_cost: bool = False):
     """Backprop gradient for loss(probabilities). One forward + one backward pass."""
     if params is None: params = circuit.param_values
     bound = circuit.bind(params)
     state, _ = simulate(bound)
     probs = np.abs(state) ** 2
+    cost = float(loss_fn(probs)) if _return_cost else None
     if hasattr(loss_fn, 'grad'):
         dloss_dp = loss_fn.grad(probs)
     else:
-        loss0 = loss_fn(probs)
+        loss0 = cost if _return_cost else loss_fn(probs)
         dloss_dp = np.empty_like(probs)
         for i in range(len(probs)):
             orig = probs[i]
@@ -264,7 +268,8 @@ def backprop_gradient(circuit: Circuit, loss_fn, params: dict[str, float] | None
             dloss_dp[i] = (loss_fn(probs) - loss0) / eps
             probs[i] = orig
     # Seed: λ_i = (dloss/dp_i) · ψ_i  (chain rule through |ψ_i|²)
-    return _adjoint_backward(circuit, bound, state, dloss_dp * state)
+    grad = _adjoint_backward(circuit, bound, state, dloss_dp * state)
+    return (grad, cost) if _return_cost else grad
 
 
 def quantum_fisher_information(circuit: Circuit, params: dict[str, float] | None = None) -> np.ndarray:
@@ -327,15 +332,8 @@ def _compute_grad(circuit, objective, params, default_grad_fn):
     return default_grad_fn(circuit, objective, params)
 
 
-class GradientDescent:
-    """Vanilla gradient descent."""
-    def __init__(self, stepsize: float = 0.1, grad_fn=None):
-        self.stepsize = stepsize
-        self._grad_fn = grad_fn or adjoint_gradient
-
-    def _update(self, params: dict[str, float], grad: dict[str, float]) -> dict[str, float]:
-        return {k: params[k] - self.stepsize * grad[k] for k in params}
-
+class _GradOptimizer:
+    """Base for gradient-based optimizers. Subclasses implement _update()."""
     def step(self, params_or_circuit, circuit=None, observable=None, grad=None):
         if isinstance(params_or_circuit, Circuit):
             circuit, observable = params_or_circuit, circuit
@@ -347,8 +345,30 @@ class GradientDescent:
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result
 
+    def step_and_cost(self, params_or_circuit, circuit=None, observable=None):
+        if isinstance(params_or_circuit, Circuit):
+            circuit, observable = params_or_circuit, circuit
+            params = circuit.param_values
+        else:
+            params = params_or_circuit
+        grad_fn = backprop_gradient if callable(observable) and not isinstance(observable, Observable) else adjoint_gradient
+        grad, cost = grad_fn(circuit, observable, params, _return_cost=True)
+        result = self._update(params, grad)
+        if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
+        return result, cost
 
-class Adam:
+
+class GradientDescent(_GradOptimizer):
+    """Vanilla gradient descent."""
+    def __init__(self, stepsize: float = 0.1, grad_fn=None):
+        self.stepsize = stepsize
+        self._grad_fn = grad_fn or adjoint_gradient
+
+    def _update(self, params: dict[str, float], grad: dict[str, float]) -> dict[str, float]:
+        return {k: params[k] - self.stepsize * grad[k] for k in params}
+
+
+class Adam(_GradOptimizer):
     """Adam optimizer with bias-corrected moments."""
     def __init__(self, stepsize: float = 0.01, grad_fn=None,
                  beta1: float = 0.9, beta2: float = 0.99, eps: float = 1e-8):
@@ -367,17 +387,6 @@ class Adam:
             m_hat = self._m[k] / (1 - self.beta1 ** self._t)
             v_hat = self._v[k] / (1 - self.beta2 ** self._t)
             result[k] = params[k] - self.stepsize * m_hat / (np.sqrt(v_hat) + self.eps)
-        return result
-
-    def step(self, params_or_circuit, circuit=None, observable=None, grad=None):
-        if isinstance(params_or_circuit, Circuit):
-            circuit, observable = params_or_circuit, circuit
-            params = circuit.param_values
-        else:
-            params = params_or_circuit
-        if grad is None: grad = _compute_grad(circuit, observable, params, self._grad_fn)
-        result = self._update(params, grad)
-        if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result
 
 
