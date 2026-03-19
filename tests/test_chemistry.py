@@ -79,7 +79,7 @@ def test_jw_custom_integrals():
 
 def test_molecular_hamiltonian_unknown_molecule():
     try:
-        molecular_hamiltonian('ch4')
+        molecular_hamiltonian('xyz_fake')
         assert False, "should have raised"
     except ValueError as e:
         assert 'compute_hamiltonian' in str(e).lower()

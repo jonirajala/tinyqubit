@@ -43,6 +43,11 @@ def _simplify(terms: list[tuple[complex, dict]]) -> list[tuple[complex, dict]]:
     return [(c, dict(k)) for k, c in sorted(grouped.items()) if abs(c) > 1e-10]
 
 
+def _to_real_observable(terms: list[tuple[complex, dict]]) -> Observable:
+    simplified = _simplify(terms)
+    return Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
+
+
 def _mul_ops(a: list, b: list) -> list:
     return [_pauli_mul(t1, t2) for t1 in a for t2 in b]
 
@@ -77,6 +82,17 @@ def _conjugate_cnot(paulis: dict, phase: complex, ctrl: int, tgt: int) -> tuple[
     return p, phase
 
 
+def _clifford_transform(H: Observable, cnots: list[tuple[int, int]]) -> list[tuple[complex, dict]]:
+    """Conjugate every term in H by a sequence of CNOTs."""
+    result = []
+    for coeff, paulis in H.terms:
+        p, phase = dict(paulis), complex(coeff)
+        for ctrl, tgt in cnots:
+            p, phase = _conjugate_cnot(p, phase, ctrl, tgt)
+        result.append((phase, p))
+    return result
+
+
 def _bk_cnots(n: int) -> list[tuple[int, int]]:
     """CNOT list implementing the Fenwick-tree BK basis change."""
     cnots = []
@@ -85,19 +101,6 @@ def _bk_cnots(n: int) -> list[tuple[int, int]]:
         for i in range(k - (k & -k), j):
             cnots.append((i, j))
     return cnots
-
-
-def _jw_to_bk(H_jw: Observable, n: int) -> Observable:
-    """Transform JW Hamiltonian to BK basis via Clifford conjugation."""
-    cnots = _bk_cnots(n)
-    bk_terms = []
-    for coeff, paulis in H_jw.terms:
-        p, phase = dict(paulis), complex(coeff)
-        for ctrl, tgt in cnots:
-            p, phase = _conjugate_cnot(p, phase, ctrl, tgt)
-        bk_terms.append((phase, p))
-    simplified = _simplify(bk_terms)
-    return Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
 
 
 # Hamiltonian construction -------
@@ -134,14 +137,12 @@ def _jw_two_body(h2: np.ndarray, n: int) -> list[tuple[complex, dict]]:
 def jordan_wigner(h1: np.ndarray, h2: np.ndarray, nuclear_repulsion: float = 0.0) -> Observable:
     """Convert one/two-electron integrals to a qubit Hamiltonian via Jordan-Wigner."""
     n = h1.shape[0]
-    terms = [(nuclear_repulsion, {})] + _jw_one_body(h1, n) + _jw_two_body(h2, n)
-    simplified = _simplify(terms)
-    return Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
+    return _to_real_observable([(nuclear_repulsion, {})] + _jw_one_body(h1, n) + _jw_two_body(h2, n))
 
 
 def bravyi_kitaev(h1: np.ndarray, h2: np.ndarray, nuclear_repulsion: float = 0.0) -> Observable:
     """Convert one/two-electron integrals to a qubit Hamiltonian via Bravyi-Kitaev."""
-    return _jw_to_bk(jordan_wigner(h1, h2, nuclear_repulsion), h1.shape[0])
+    return _to_real_observable(_clifford_transform(jordan_wigner(h1, h2, nuclear_repulsion), _bk_cnots(h1.shape[0])))
 
 
 _ANG_TO_BOHR = 1.8897259886
@@ -152,12 +153,19 @@ def _h2o_geom(R_bohr: float) -> np.ndarray:
                      [R_bohr * np.sin(angle / 2), 0.0, R_bohr * np.cos(angle / 2)],
                      [-R_bohr * np.sin(angle / 2), 0.0, R_bohr * np.cos(angle / 2)]])
 
+def _ch4_geom(R_bohr: float) -> np.ndarray:
+    # Tetrahedral: C at origin, 4 H at vertices of a tetrahedron
+    t = R_bohr / (3 ** 0.5)
+    return np.array([[0., 0., 0.], [t, t, t], [t, -t, -t], [-t, t, -t], [-t, -t, t]])
+
 # (symbols, geometry_fn(R_bohr), default_R_angstrom, default_active_electrons, default_active_orbitals)
 _MOLECULES = {
     'h2':   (['H', 'H'], lambda R: np.array([[0., 0., 0.], [0., 0., R]]), 0.735, 2, 2),
     'lih':  (['Li', 'H'], lambda R: np.array([[0., 0., 0.], [0., 0., R]]), 1.546, 4, 4),
     'beh2': (['H', 'Be', 'H'], lambda R: np.array([[0., 0., -R], [0., 0., 0.], [0., 0., R]]), 1.326, 4, 4),
+    'n2':   (['N', 'N'], lambda R: np.array([[0., 0., 0.], [0., 0., R]]), 1.098, 4, 4),
     'h2o':  (['O', 'H', 'H'], _h2o_geom, 0.957, 4, 4),
+    'ch4':  (['C', 'H', 'H', 'H', 'H'], _ch4_geom, 1.089, 4, 4),
 }
 
 
@@ -217,22 +225,16 @@ def taper(H: Observable, n_qubits: int, n_electrons: int) -> tuple[Observable, i
     """
     if n_qubits < 4:
         raise ValueError(f"taper requires >= 4 qubits, got {n_qubits}")
-    # Clifford: CNOT from each non-pivot generator qubit to the pivot
-    # Alpha parity generator: Z on even qubits, pivot = n_qubits-2
-    # Beta parity generator:  Z on odd qubits,  pivot = n_qubits-1
     pivots = {n_qubits - 2, n_qubits - 1}
     cnots = [(q, n_qubits - 2) for q in range(0, n_qubits - 2, 2)]
     cnots += [(q, n_qubits - 1) for q in range(1, n_qubits - 1, 2)]
-    # Eigenvalues: (-1)^(n_alpha) and (-1)^(n_beta) on the HF state
     n_alpha = (n_electrons + 1) // 2
-    n_beta = n_electrons // 2
-    eigenvalues = {n_qubits - 2: (-1) ** n_alpha, n_qubits - 1: (-1) ** n_beta}
-    # Conjugate, project, relabel
+    eigenvalues = {n_qubits - 2: (-1) ** n_alpha, n_qubits - 1: (-1) ** (n_electrons // 2)}
+    kept = [q for q in range(n_qubits) if q not in pivots]
+    remap = {old: new for new, old in enumerate(kept)}
+    transformed = _clifford_transform(H, cnots)
     tapered = []
-    for coeff, paulis in H.terms:
-        p, phase = dict(paulis), complex(coeff)
-        for ctrl, tgt in cnots:
-            p, phase = _conjugate_cnot(p, phase, ctrl, tgt)
+    for phase, p in transformed:
         skip = False
         for piv in pivots:
             op = p.pop(piv, 'I')
@@ -243,13 +245,8 @@ def taper(H: Observable, n_qubits: int, n_electrons: int) -> tuple[Observable, i
                 break
         if skip:
             continue
-        # Relabel: remove pivot qubits, shift remaining down
-        kept = [q for q in range(n_qubits) if q not in pivots]
-        remap = {old: new for new, old in enumerate(kept)}
         tapered.append((phase, {remap[q]: s for q, s in p.items() if q in remap}))
-    simplified = _simplify(tapered)
-    result = Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
-    return result, n_qubits - 2
+    return _to_real_observable(tapered), n_qubits - 2
 
 
 # UCCSD ansatz via Trotterized excitation generators -------
@@ -292,87 +289,10 @@ def _exp_pauli(c: Circuit, param: Parameter, paulis: dict, negate: bool = False)
         elif paulis[q] == 'Y': c.rx(q, -_pi / 2)
 
 
-def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True,
-                 spin_adapted: bool = False) -> Circuit:
-    """UCCSD ansatz with Trotterized single and double excitations.
+def _apply_gen(c: Circuit, occ, virt, param: Parameter) -> None:
+    for coeff, paulis in _excitation_generator(occ, virt):
+        _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
 
-    spin_adapted=True groups alpha/beta excitations under shared parameters,
-    reducing parameter count (e.g. 52 → 18 for CAS(4,4)).
-    """
-    c = Circuit(n_qubits)
-    if include_hf:
-        for i in range(n_electrons):
-            c.x(i)
-    if not spin_adapted:
-        occupied = list(range(n_electrons))
-        virtual = list(range(n_electrons, n_qubits))
-        idx = 0
-        for i in occupied:
-            for a in virtual:
-                gen = _excitation_generator(i, a)
-                param = Parameter(f"s_{idx}")
-                for coeff, paulis in gen:
-                    _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
-                idx += 1
-        idx = 0
-        for ii, i in enumerate(occupied):
-            for jj, j in enumerate(occupied):
-                if jj <= ii:
-                    continue
-                for aa, a in enumerate(virtual):
-                    for bb, b in enumerate(virtual):
-                        if bb <= aa:
-                            continue
-                        gen = _excitation_generator((i, j), (a, b))
-                        param = Parameter(f"d_{idx}")
-                        for coeff, paulis in gen:
-                            _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
-                        idx += 1
-    else:
-        n_orb = n_qubits // 2
-        n_occ = n_electrons // 2
-        occ_spatial = list(range(n_occ))
-        virt_spatial = list(range(n_occ, n_orb))
-        # Spin-adapted singles: one param per spatial pair, applied to both alpha and beta
-        idx = 0
-        for i in occ_spatial:
-            for a in virt_spatial:
-                param = Parameter(f"s_{idx}")
-                for spin in (0, 1):  # alpha, beta
-                    gen = _excitation_generator(2 * i + spin, 2 * a + spin)
-                    for coeff, paulis in gen:
-                        _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
-                idx += 1
-        # Spin-adapted doubles: group same-spatial excitations under one param
-        idx = 0
-        for ii, i in enumerate(occ_spatial):
-            for j in occ_spatial[ii + 1:]:
-                for aa, a in enumerate(virt_spatial):
-                    for b in virt_spatial[aa + 1:]:
-                        param = Parameter(f"d_{idx}")
-                        seen = set()
-                        for si in (0, 1):
-                            for sj in (0, 1):
-                                oi, oj = 2*i+si, 2*j+sj
-                                if oi == oj:
-                                    continue
-                                for sa in (0, 1):
-                                    for sb in (0, 1):
-                                        va, vb = 2*a+sa, 2*b+sb
-                                        if va == vb:
-                                            continue
-                                        key = (min(oi,oj), max(oi,oj), min(va,vb), max(va,vb))
-                                        if key in seen:
-                                            continue
-                                        seen.add(key)
-                                        gen = _excitation_generator(key[:2], key[2:])
-                                        for coeff, paulis in gen:
-                                            _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
-                        idx += 1
-    return c
-
-
-# ADAPT-VQE -------
 
 def _excitation_pool(n_qubits: int, n_electrons: int) -> list:
     occupied = list(range(n_electrons))
@@ -383,6 +303,59 @@ def _excitation_pool(n_qubits: int, n_electrons: int) -> list:
     return pool
 
 
+def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True,
+                 spin_adapted: bool = False) -> Circuit:
+    """UCCSD ansatz with Trotterized single and double excitations.
+
+    spin_adapted=True groups alpha/beta excitations under shared parameters.
+    """
+    c = Circuit(n_qubits)
+    if include_hf:
+        for i in range(n_electrons):
+            c.x(i)
+    if not spin_adapted:
+        pool = _excitation_pool(n_qubits, n_electrons)
+        s_idx = d_idx = 0
+        for occ, virt in pool:
+            if isinstance(occ, int):
+                _apply_gen(c, occ, virt, Parameter(f"s_{s_idx}")); s_idx += 1
+            else:
+                _apply_gen(c, occ, virt, Parameter(f"d_{d_idx}")); d_idx += 1
+    else:
+        n_orb, n_occ = n_qubits // 2, n_electrons // 2
+        occ_sp, virt_sp = list(range(n_occ)), list(range(n_occ, n_orb))
+        idx = 0
+        for i in occ_sp:
+            for a in virt_sp:
+                p = Parameter(f"s_{idx}")
+                for spin in (0, 1):
+                    _apply_gen(c, 2*i+spin, 2*a+spin, p)
+                idx += 1
+        idx = 0
+        for ii, i in enumerate(occ_sp):
+            for j in occ_sp[ii + 1:]:
+                for aa, a in enumerate(virt_sp):
+                    for b in virt_sp[aa + 1:]:
+                        p = Parameter(f"d_{idx}")
+                        seen = set()
+                        for si in (0, 1):
+                            for sj in (0, 1):
+                                oi, oj = 2*i+si, 2*j+sj
+                                if oi == oj: continue
+                                for sa in (0, 1):
+                                    for sb in (0, 1):
+                                        va, vb = 2*a+sa, 2*b+sb
+                                        if va == vb: continue
+                                        key = (min(oi,oj), max(oi,oj), min(va,vb), max(va,vb))
+                                        if key in seen: continue
+                                        seen.add(key)
+                                        _apply_gen(c, key[:2], key[2:], p)
+                        idx += 1
+    return c
+
+
+# ADAPT-VQE -------
+
 def _pool_gradients(circuit: Circuit, H: Observable, pool: list) -> np.ndarray:
     from .optim import adjoint_gradient
     grads = np.empty(len(pool))
@@ -391,8 +364,7 @@ def _pool_gradients(circuit: Circuit, H: Observable, pool: list) -> np.ndarray:
         trial.ops = list(circuit.ops)
         trial.param_values = dict(circuit.param_values)
         p = Parameter(f"_pool_{i}")
-        for coeff, paulis in _excitation_generator(occ, virt):
-            _exp_pauli(trial, p, paulis, negate=coeff.imag > 0)
+        _apply_gen(trial, occ, virt, p)
         trial.param_values[p.name] = 0.0
         grads[i] = adjoint_gradient(trial, H)[p.name]
     return grads
@@ -416,11 +388,8 @@ def adapt_vqe(H: Observable, n_qubits: int, n_electrons: int,
         max_grad = float(np.abs(grads[idx]))
         if max_grad < threshold:
             break
-        occ, virt = pool[idx]
-        p = Parameter(f"a_{it}")
-        for coeff, paulis in _excitation_generator(occ, virt):
-            _exp_pauli(circuit, p, paulis, negate=coeff.imag > 0)
-        circuit.param_values[p.name] = 0.0
+        _apply_gen(circuit, *pool[idx], Parameter(f"a_{it}"))
+        circuit.param_values[f"a_{it}"] = 0.0
         opt = Adam(stepsize=stepsize)
         for _ in range(opt_steps):
             opt.step(circuit, H)

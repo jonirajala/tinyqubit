@@ -28,34 +28,29 @@ def _shot_expectation(circuit: Circuit, observable: Observable, shots: int, seed
     return result
 
 
-def parameter_shift_gradient(circuit: Circuit, observable: Observable,
-                             params: dict[str, float] | None = None, shots: int | None = None) -> dict[str, float]:
-    """Compute gradient via the parameter-shift rule: df/dθ = [f(θ+π/2) - f(θ-π/2)] / 2"""
-    if params is None: params = circuit.param_values
-    shift = np.pi / 2
-    exp_fn = expectation if shots is None else lambda c, o: _shot_expectation(c, o, shots)
+def _shift_gradient(circuit: Circuit, observable: Observable, params: dict[str, float],
+                    shift: float, divisor: float, exp_fn) -> dict[str, float]:
     grad = {}
     for param in sorted(circuit.parameters, key=lambda p: p.name):
         v_plus = {**params, param.name: params[param.name] + shift}
         v_minus = {**params, param.name: params[param.name] - shift}
-        e_plus = exp_fn(circuit.bind(v_plus), observable)
-        e_minus = exp_fn(circuit.bind(v_minus), observable)
-        grad[param.name] = (e_plus - e_minus) / 2
+        grad[param.name] = (exp_fn(circuit.bind(v_plus), observable) - exp_fn(circuit.bind(v_minus), observable)) / divisor
     return grad
+
+
+def parameter_shift_gradient(circuit: Circuit, observable: Observable,
+                             params: dict[str, float] | None = None, shots: int | None = None) -> dict[str, float]:
+    """Compute gradient via the parameter-shift rule: df/dθ = [f(θ+π/2) - f(θ-π/2)] / 2"""
+    if params is None: params = circuit.param_values
+    exp_fn = expectation if shots is None else lambda c, o: _shot_expectation(c, o, shots)
+    return _shift_gradient(circuit, observable, params, np.pi / 2, 2, exp_fn)
 
 
 def finite_difference_gradient(circuit: Circuit, observable: Observable,
                                params: dict[str, float] | None = None, epsilon: float = 1e-7) -> dict[str, float]:
     """Compute gradient via symmetric finite differences: df/dθ ≈ [f(θ+ε) - f(θ-ε)] / 2ε"""
     if params is None: params = circuit.param_values
-    grad = {}
-    for param in sorted(circuit.parameters, key=lambda p: p.name):
-        v_plus = {**params, param.name: params[param.name] + epsilon}
-        v_minus = {**params, param.name: params[param.name] - epsilon}
-        e_plus = expectation(circuit.bind(v_plus), observable)
-        e_minus = expectation(circuit.bind(v_minus), observable)
-        grad[param.name] = (e_plus - e_minus) / (2 * epsilon)
-    return grad
+    return _shift_gradient(circuit, observable, params, epsilon, 2 * epsilon, expectation)
 
 
 def _make_2q_idx(q0: int, q1: int, n: int):
@@ -232,7 +227,6 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str,
         elif types <= {'Y'}:
             flipped = np.flip(state_t, axis=qubits)
             t = flipped.copy()
-            # Y|0⟩=i|1⟩, Y|1⟩=-i|0⟩ → after flip, position 0 came from |1⟩ (coeff -i), position 1 from |0⟩ (coeff i)
             for q in qubits:
                 i0 = [slice(None)] * n; i0[q] = 0
                 i1 = [slice(None)] * n; i1[q] = 1
@@ -325,6 +319,13 @@ def cost_gradient(circuit: Circuit, cost_fn, params=None, *args, eps: float = 0.
 
 # Optimizers -------
 
+def _unpack_args(params_or_circuit, circuit, observable):
+    """Unpack the flexible (circuit, observable) or (params, circuit, observable) calling convention."""
+    if isinstance(params_or_circuit, Circuit):
+        return params_or_circuit.param_values, params_or_circuit, circuit
+    return params_or_circuit, circuit, observable
+
+
 def _compute_grad(circuit, objective, params, default_grad_fn):
     """Dispatch gradient: Observable → adjoint, callable → backprop."""
     if callable(objective) and not isinstance(objective, Observable):
@@ -335,22 +336,14 @@ def _compute_grad(circuit, objective, params, default_grad_fn):
 class _GradOptimizer:
     """Base for gradient-based optimizers. Subclasses implement _update()."""
     def step(self, params_or_circuit, circuit=None, observable=None, grad=None):
-        if isinstance(params_or_circuit, Circuit):
-            circuit, observable = params_or_circuit, circuit
-            params = circuit.param_values
-        else:
-            params = params_or_circuit
+        params, circuit, observable = _unpack_args(params_or_circuit, circuit, observable)
         if grad is None: grad = _compute_grad(circuit, observable, params, self._grad_fn)
         result = self._update(params, grad)
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result
 
     def step_and_cost(self, params_or_circuit, circuit=None, observable=None):
-        if isinstance(params_or_circuit, Circuit):
-            circuit, observable = params_or_circuit, circuit
-            params = circuit.param_values
-        else:
-            params = params_or_circuit
+        params, circuit, observable = _unpack_args(params_or_circuit, circuit, observable)
         if callable(observable) and not isinstance(observable, Observable):
             grad, cost = backprop_gradient(circuit, observable, params, return_cost=True)
         elif self._grad_fn is adjoint_gradient:
@@ -416,21 +409,13 @@ class SPSA:
         return {k: params[k] - self.stepsize * g_est / d for k, d in zip(keys, delta)}
 
     def step(self, params_or_circuit, circuit=None, observable=None):
-        if isinstance(params_or_circuit, Circuit):
-            circuit, observable = params_or_circuit, circuit
-            params = circuit.param_values
-        else:
-            params = params_or_circuit
+        params, circuit, observable = _unpack_args(params_or_circuit, circuit, observable)
         result = self._perturb_and_step(params, lambda p: self._eval(circuit.bind(p), observable))
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
         return result
 
     def step_and_cost(self, params_or_circuit, circuit=None, observable=None):
-        if isinstance(params_or_circuit, Circuit):
-            circuit, observable = params_or_circuit, circuit
-            params = circuit.param_values
-        else:
-            params = params_or_circuit
+        params, circuit, observable = _unpack_args(params_or_circuit, circuit, observable)
         cost = self._eval(circuit.bind(params), observable)
         result = self._perturb_and_step(params, lambda p: self._eval(circuit.bind(p), observable))
         if isinstance(params_or_circuit, Circuit): params_or_circuit.param_values = result
@@ -444,11 +429,7 @@ class QNG:
         self._grad_fn = grad_fn or adjoint_gradient
 
     def step(self, params_or_circuit, circuit=None, observable=None, grad=None):
-        if isinstance(params_or_circuit, Circuit):
-            circuit, observable = params_or_circuit, circuit
-            params = circuit.param_values
-        else:
-            params = params_or_circuit
+        params, circuit, observable = _unpack_args(params_or_circuit, circuit, observable)
         if grad is None: grad = self._grad_fn(circuit, observable, params)
         F = quantum_fisher_information(circuit, params)
         F_reg = F + self.epsilon * np.eye(len(F))
