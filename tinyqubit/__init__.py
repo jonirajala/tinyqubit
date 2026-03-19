@@ -17,6 +17,7 @@ from .qml.optim import parameter_shift_gradient, finite_difference_gradient, adj
 from .qml.loss import kl_divergence, mse
 from .qml.circuits import qft, ghz, grover_oracle, qaoa_mixer
 from .qml.layers import hardware_efficient_ansatz, strongly_entangling_layers
+from .qml.chemistry import jordan_wigner, molecular_hamiltonian, hf_state, uccsd_ansatz
 from .measurement.ftqc import resource_estimate, ResourceEstimate
 from .measurement.mitigation import zne, calibration_matrix, mitigate_readout
 
@@ -48,6 +49,8 @@ __all__ = [
     # Circuit library
     "qft", "ghz", "grover_oracle", "hardware_efficient_ansatz", "qaoa_mixer",
     "strongly_entangling_layers",
+    # Chemistry
+    "jordan_wigner", "molecular_hamiltonian", "hf_state", "uccsd_ansatz",
     # Export
     "to_openqasm2", "to_openqasm3", "from_openqasm2", "from_openqasm3",
     "UnsupportedGateError", "submit_ibm", "wait_ibm", "IBMBackend", "BraketBackend",
