@@ -1,4 +1,4 @@
-"""Quantum chemistry: Jordan-Wigner transform, molecular Hamiltonians, UCCSD ansatz."""
+"""Quantum chemistry: Jordan-Wigner & Bravyi-Kitaev transforms, molecular Hamiltonians, UCCSD, ADAPT-VQE."""
 from __future__ import annotations
 import numpy as np
 from math import pi as _pi
@@ -43,6 +43,12 @@ def _simplify(terms: list[tuple[complex, dict]]) -> list[tuple[complex, dict]]:
     return [(c, dict(k)) for k, c in sorted(grouped.items()) if abs(c) > 1e-10]
 
 
+def _mul_ops(a: list, b: list) -> list:
+    return [_pauli_mul(t1, t2) for t1 in a for t2 in b]
+
+
+# Jordan-Wigner encoding -------
+
 def _jw_op(p: int, create: bool) -> list[tuple[complex, dict]]:
     """JW encoding of a†_p (create=True) or a_p (create=False)."""
     z_string = {k: 'Z' for k in range(p)}
@@ -51,9 +57,50 @@ def _jw_op(p: int, create: bool) -> list[tuple[complex, dict]]:
     return [(0.5, d0), (-0.5j if create else 0.5j, d1)]
 
 
-def _mul_ops(a: list, b: list) -> list:
-    return [_pauli_mul(t1, t2) for t1 in a for t2 in b]
+# Bravyi-Kitaev encoding (via Clifford conjugation of JW) -------
 
+_ENC = {'I': (0, 0), 'X': (1, 0), 'Z': (0, 1), 'Y': (1, 1)}
+_DEC = {v: k for k, v in _ENC.items()}
+
+def _conjugate_cnot(paulis: dict, phase: complex, ctrl: int, tgt: int) -> tuple[dict, complex]:
+    """Heisenberg picture: CNOT(c→t) P CNOT(c→t)†."""
+    p = dict(paulis)
+    xc, zc = _ENC[p.get(ctrl, 'I')]
+    xt, zt = _ENC[p.get(tgt, 'I')]
+    xc2, zc2 = xc, zc ^ zt
+    xt2, zt2 = xc ^ xt, zt
+    phase *= 1j ** ((xc2 * zc2 + xt2 * zt2 - xc * zc - xt * zt) % 4)
+    for q, bits in [(ctrl, (xc2, zc2)), (tgt, (xt2, zt2))]:
+        s = _DEC[bits]
+        if s == 'I': p.pop(q, None)
+        else: p[q] = s
+    return p, phase
+
+
+def _bk_cnots(n: int) -> list[tuple[int, int]]:
+    """CNOT list implementing the Fenwick-tree BK basis change."""
+    cnots = []
+    for j in range(n - 1, -1, -1):
+        k = j + 1
+        for i in range(k - (k & -k), j):
+            cnots.append((i, j))
+    return cnots
+
+
+def _jw_to_bk(H_jw: Observable, n: int) -> Observable:
+    """Transform JW Hamiltonian to BK basis via Clifford conjugation."""
+    cnots = _bk_cnots(n)
+    bk_terms = []
+    for coeff, paulis in H_jw.terms:
+        p, phase = dict(paulis), complex(coeff)
+        for ctrl, tgt in cnots:
+            p, phase = _conjugate_cnot(p, phase, ctrl, tgt)
+        bk_terms.append((phase, p))
+    simplified = _simplify(bk_terms)
+    return Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
+
+
+# Hamiltonian construction -------
 
 def _jw_one_body(h1: np.ndarray, n: int) -> list[tuple[complex, dict]]:
     terms = []
@@ -67,8 +114,6 @@ def _jw_one_body(h1: np.ndarray, n: int) -> list[tuple[complex, dict]]:
 
 
 def _jw_two_body(h2: np.ndarray, n: int) -> list[tuple[complex, dict]]:
-    # H₂ = (1/2) Σ_{pqrs} <pq|rs> a†_p a†_q a_s a_r
-    # <pq|rs>_physicist = h2_chemist[p,r,q,s]
     terms = []
     for p in range(n):
         for q in range(n):
@@ -84,72 +129,6 @@ def _jw_two_body(h2: np.ndarray, n: int) -> list[tuple[complex, dict]]:
     return terms
 
 
-# STO-3G integrals in chemist notation (Mulliken) for 2-spatial-orbital systems.
-# Each tuple: (h1_00, h1_01, h1_11, h2_0000, h2_0001, h2_0011, h2_0101, h2_0111, h2_1111, nuc)
-# h2 indices use (pq|rs) convention with 8-fold symmetry.
-_H2_DATA = {
-    0.5:   (-1.4105283931923402, 0.0, -0.2569357501101742, 0.7197060466662034, 0.0, 0.7072398465608030, 0.1688702254936380, 0.0, 0.7448393735424563, 1.0583544979881958),
-    0.6:   (-1.3422140240241811, 0.0, -0.3657705374371827, 0.7013377385823411, 0.0, 0.6887931040096968, 0.1737306409794547, 0.0, 0.7245060293379857, 0.8819620816568299),
-    0.735: (-1.2563390730032498, 0.0, -0.4718960244306283, 0.6745062250002953, 0.0, 0.6631370544950876, 0.1812875358076718, 0.0, 0.6973161242283644, 0.7199689944489797),
-    0.8:   (-1.2178260641715115, 0.0, -0.5096378496128872, 0.6633301613086797, 0.0, 0.6534413812804418, 0.1846267796145410, 0.0, 0.6867915430949000, 0.6614715612426223),
-    1.0:   (-1.1108442164433172, 0.0, -0.5891209862310223, 0.6264025138010334, 0.0, 0.6217067734311319, 0.1967905783476326, 0.0, 0.6530707563359346, 0.5291772489940979),
-    1.5:   (-0.9081809084385146, 0.0, -0.6653369318569269, 0.5527033964734940, 0.0, 0.5596841665141924, 0.2295359287681033, 0.0, 0.5834207729512356, 0.3527848326627320),
-    2.0:   (-0.7789220655576415, 0.0, -0.6702666763402987, 0.5094628221516899, 0.0, 0.5192012675407549, 0.2591384672205846, 0.0, 0.5346641304400876, 0.2645886244970490),
-    2.5:   (-0.7001473137381311, 0.0, -0.6540677457758881, 0.4856801055932184, 0.0, 0.4931151113548152, 0.2822100389690942, 0.0, 0.5020597975885854, 0.2116708995976392),
-}
-_LIH_DATA = {
-    # CAS(2,2) active-space integrals; nuc includes frozen-core energy
-    1.0:   (-0.8409202346526006, 0.0388118604638738, -0.4069794512341456, 0.5242631026169444, -0.0388118621781447, 0.2466468715703858, 0.0094659307750216, -0.0013893963764109, 0.3390039481920167, -6.6097847347216554),
-    1.2:   (-0.8278713130323999, 0.0423369808722260, -0.3857320790079779, 0.5148767890831005, -0.0423369825138071, 0.2376720772075236, 0.0101850782556243, 0.0019915742907765, 0.3399470181481741, -6.6947499748738082),
-    1.546: (-0.7808777812837662, -0.0476791296327596, -0.3591840949370927, 0.4910674023733631, 0.0476791311646736, 0.2251974447211591, 0.0125450500384619, -0.0067713558207440, 0.3384181549103699, -6.7924455429464441),
-    1.8:   (-0.7413731941530436, 0.0521977063894693, -0.3456342567125165, 0.4736133021401983, -0.0521977075183405, 0.2185509934515109, 0.0154267121004898, 0.0101267417760618, 0.3352660909605326, -6.8408856418061186),
-    2.0:   (-0.7103842529519923, -0.0563190495464320, -0.3377713261556503, 0.4602775368273803, 0.0563190503782486, 0.2148354472226688, 0.0186205964433050, -0.0127497025320093, 0.3316631350922356, -6.8704146570838454),
-    2.5:   (-0.6381171930415036, 0.0697660378190973, -0.3283613454824998, 0.4288779243881071, -0.0697660385835551, 0.2130131319069598, 0.0323303291064438, 0.0180436174978116, 0.3177514725398956, -6.9235172693019189),
-    3.0:   (-0.5764664510696279, -0.0895333498866370, -0.3364804286399476, 0.4009794995901804, 0.0895333505871813, 0.2273700099167799, 0.0610302648064006, -0.0146537056059983, 0.2960111849454110, -6.9588765701171518),
-}
-_MOLECULE_DATA = {'h2': (_H2_DATA, 0.735, 2, 2), 'lih': (_LIH_DATA, 1.546, 2, 2)}
-
-
-def _unpack_2orb(data: tuple) -> tuple[np.ndarray, np.ndarray, float]:
-    """Reconstruct h1 (2×2) and h2 (2×2×2×2) from compact 10-tuple."""
-    h1_00, h1_01, h1_11, h2_0000, h2_0001, h2_0011, h2_0101, h2_0111, h2_1111, nuc = data
-    h1 = np.array([[h1_00, h1_01], [h1_01, h1_11]])
-    h2 = np.zeros((2, 2, 2, 2))
-    for (p, q, r, s), v in [((0,0,0,0), h2_0000), ((0,0,0,1), h2_0001), ((0,0,1,1), h2_0011),
-                              ((0,1,0,1), h2_0101), ((0,1,1,1), h2_0111), ((1,1,1,1), h2_1111)]:
-        for a, b, c, d in [(p,q,r,s),(q,p,r,s),(p,q,s,r),(q,p,s,r),
-                            (r,s,p,q),(s,r,p,q),(r,s,q,p),(s,r,q,p)]:
-            h2[a, b, c, d] = v
-    return h1, h2, nuc
-
-
-def _spatial_to_spin(h1_sp: np.ndarray, h2_sp: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Spatial (2-orbital) → spin-orbital (4-orbital) integrals."""
-    n = 4
-    h1, h2 = np.zeros((n, n)), np.zeros((n, n, n, n))
-    for p in range(n):
-        for q in range(n):
-            if p % 2 != q % 2:
-                continue
-            h1[p, q] = h1_sp[p // 2, q // 2]
-            for r in range(n):
-                for s in range(n):
-                    if r % 2 == s % 2:
-                        h2[p, q, r, s] = h2_sp[p // 2, q // 2, r // 2, s // 2]
-    return h1, h2
-
-
-def _get_integrals(molecule: str, bond_length: float) -> tuple[np.ndarray, np.ndarray, float]:
-    """Look up integrals for a molecule at a given bond length."""
-    data_table, _, _, _ = _MOLECULE_DATA[molecule]
-    if bond_length not in data_table:
-        available = sorted(data_table.keys())
-        raise ValueError(f"Bond length {bond_length} not available for {molecule!r}. Available: {available}")
-    h1_sp, h2_sp, nuc = _unpack_2orb(data_table[bond_length])
-    h1, h2 = _spatial_to_spin(h1_sp, h2_sp)
-    return h1, h2, nuc
-
-
 # Public API -------
 
 def jordan_wigner(h1: np.ndarray, h2: np.ndarray, nuclear_repulsion: float = 0.0) -> Observable:
@@ -160,23 +139,67 @@ def jordan_wigner(h1: np.ndarray, h2: np.ndarray, nuclear_repulsion: float = 0.0
     return Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
 
 
-def molecular_hamiltonian(molecule: str = 'h2', bond_length: float | None = None,
-                          active_electrons: int | None = None, active_orbitals: int | None = None) -> tuple[Observable, int, int]:
-    """Build molecular Hamiltonian. Returns (hamiltonian, n_qubits, n_electrons).
+def bravyi_kitaev(h1: np.ndarray, h2: np.ndarray, nuclear_repulsion: float = 0.0) -> Observable:
+    """Convert one/two-electron integrals to a qubit Hamiltonian via Bravyi-Kitaev."""
+    return _jw_to_bk(jordan_wigner(h1, h2, nuclear_repulsion), h1.shape[0])
 
-    Supported: 'h2' (STO-3G, 4 qubits) and 'lih' (STO-3G CAS(2,2), 4 qubits).
-    """
+
+_ANG_TO_BOHR = 1.8897259886
+
+def _h2o_geom(R_bohr: float) -> np.ndarray:
+    angle = 104.5 * _pi / 180
+    return np.array([[0.0, 0.0, 0.0],
+                     [R_bohr * np.sin(angle / 2), 0.0, R_bohr * np.cos(angle / 2)],
+                     [-R_bohr * np.sin(angle / 2), 0.0, R_bohr * np.cos(angle / 2)]])
+
+# (symbols, geometry_fn(R_bohr), default_R_angstrom, default_active_electrons, default_active_orbitals)
+_MOLECULES = {
+    'h2':   (['H', 'H'], lambda R: np.array([[0., 0., 0.], [0., 0., R]]), 0.735, 2, 2),
+    'lih':  (['Li', 'H'], lambda R: np.array([[0., 0., 0.], [0., 0., R]]), 1.546, 4, 4),
+    'beh2': (['H', 'Be', 'H'], lambda R: np.array([[0., 0., -R], [0., 0., 0.], [0., 0., R]]), 1.326, 4, 4),
+    'h2o':  (['O', 'H', 'H'], _h2o_geom, 0.957, 4, 4),
+}
+
+
+def molecular_hamiltonian(molecule: str = 'h2', bond_length: float | None = None,
+                          active_electrons: int | None = None, active_orbitals: int | None = None,
+                          mapping: str = 'jw', basis: str = 'sto-3g') -> tuple[Observable, int, int]:
+    """Build molecular Hamiltonian via SCF. Returns (hamiltonian, n_qubits, n_electrons)."""
     mol = molecule.lower()
-    if mol not in _MOLECULE_DATA:
-        raise ValueError(f"Unknown molecule {molecule!r}. Use jordan_wigner() with custom integrals.")
-    _, default_r, default_ne, default_no = _MOLECULE_DATA[mol]
+    if mol not in _MOLECULES:
+        raise ValueError(f"Unknown molecule {molecule!r}. Use compute_hamiltonian() for arbitrary molecules.")
+    symbols, geom_fn, default_R, default_ne, default_no = _MOLECULES[mol]
+    R = bond_length if bond_length is not None else default_R
     ne = active_electrons or default_ne
     no = active_orbitals or default_no
-    if (ne, no) != (default_ne, default_no):
-        raise ValueError(f"Only CAS({default_ne},{default_no}) supported for {molecule!r}.")
-    r = bond_length if bond_length is not None else default_r
-    h1, h2, nuc = _get_integrals(mol, r)
-    return jordan_wigner(h1, h2, nuc), 4, ne
+    geometry = geom_fn(R * _ANG_TO_BOHR)
+    return compute_hamiltonian(symbols, geometry, ne, no, mapping=mapping, basis=basis)
+
+
+def compute_hamiltonian(symbols: list[str], geometry: np.ndarray,
+                        active_electrons: int | None = None,
+                        active_orbitals: int | None = None,
+                        mapping: str = 'jw', basis: str = 'sto-3g') -> tuple[Observable, int, int]:
+    """Compute Hamiltonian from atomic symbols + geometry (Bohr). Any molecule, any geometry."""
+    from .integrals import compute_molecular_integrals
+    h1, h2, nuc, ne = compute_molecular_integrals(symbols, geometry, active_electrons, active_orbitals, basis)
+    transform = bravyi_kitaev if mapping == 'bk' else jordan_wigner
+    return transform(h1, h2, nuc), h1.shape[0], ne
+
+
+_PAULI_MAT = {'X': np.array([[0,1],[1,0]], dtype=complex), 'Y': np.array([[0,-1j],[1j,0]], dtype=complex),
+              'Z': np.array([[1,0],[0,-1]], dtype=complex)}
+_I2 = np.eye(2, dtype=complex)
+
+def exact_diag(H: Observable, n_qubits: int) -> float:
+    """Ground state energy by exact diagonalization."""
+    H_mat = np.zeros((2**n_qubits, 2**n_qubits), dtype=complex)
+    for coeff, paulis in H.terms:
+        term = np.array([[1]], dtype=complex)
+        for q in range(n_qubits):
+            term = np.kron(term, _PAULI_MAT[paulis[q]] if q in paulis else _I2)
+        H_mat += coeff * term
+    return float(np.linalg.eigvalsh(H_mat).real.min())
 
 
 def hf_state(n_qubits: int, n_electrons: int) -> Circuit:
@@ -185,6 +208,48 @@ def hf_state(n_qubits: int, n_electrons: int) -> Circuit:
     for i in range(n_electrons):
         c.x(i)
     return c
+
+
+def taper(H: Observable, n_qubits: int, n_electrons: int) -> tuple[Observable, int]:
+    """Remove 2 qubits from a JW Hamiltonian via Z₂ spin-parity symmetries.
+
+    Returns (tapered_hamiltonian, new_n_qubits).
+    """
+    if n_qubits < 4:
+        raise ValueError(f"taper requires >= 4 qubits, got {n_qubits}")
+    # Clifford: CNOT from each non-pivot generator qubit to the pivot
+    # Alpha parity generator: Z on even qubits, pivot = n_qubits-2
+    # Beta parity generator:  Z on odd qubits,  pivot = n_qubits-1
+    pivots = {n_qubits - 2, n_qubits - 1}
+    cnots = [(q, n_qubits - 2) for q in range(0, n_qubits - 2, 2)]
+    cnots += [(q, n_qubits - 1) for q in range(1, n_qubits - 1, 2)]
+    # Eigenvalues: (-1)^(n_alpha) and (-1)^(n_beta) on the HF state
+    n_alpha = (n_electrons + 1) // 2
+    n_beta = n_electrons // 2
+    eigenvalues = {n_qubits - 2: (-1) ** n_alpha, n_qubits - 1: (-1) ** n_beta}
+    # Conjugate, project, relabel
+    tapered = []
+    for coeff, paulis in H.terms:
+        p, phase = dict(paulis), complex(coeff)
+        for ctrl, tgt in cnots:
+            p, phase = _conjugate_cnot(p, phase, ctrl, tgt)
+        skip = False
+        for piv in pivots:
+            op = p.pop(piv, 'I')
+            if op == 'Z':
+                phase *= eigenvalues[piv]
+            elif op != 'I':
+                skip = True
+                break
+        if skip:
+            continue
+        # Relabel: remove pivot qubits, shift remaining down
+        kept = [q for q in range(n_qubits) if q not in pivots]
+        remap = {old: new for new, old in enumerate(kept)}
+        tapered.append((phase, {remap[q]: s for q, s in p.items() if q in remap}))
+    simplified = _simplify(tapered)
+    result = Observable([(complex(c).real if abs(complex(c).imag) < 1e-10 else c, p) for c, p in simplified])
+    return result, n_qubits - 2
 
 
 # UCCSD ansatz via Trotterized excitation generators -------
@@ -227,34 +292,138 @@ def _exp_pauli(c: Circuit, param: Parameter, paulis: dict, negate: bool = False)
         elif paulis[q] == 'Y': c.rx(q, -_pi / 2)
 
 
-def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True) -> Circuit:
-    """UCCSD ansatz with Trotterized single and double excitations."""
+def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True,
+                 spin_adapted: bool = False) -> Circuit:
+    """UCCSD ansatz with Trotterized single and double excitations.
+
+    spin_adapted=True groups alpha/beta excitations under shared parameters,
+    reducing parameter count (e.g. 52 → 18 for CAS(4,4)).
+    """
     c = Circuit(n_qubits)
     if include_hf:
         for i in range(n_electrons):
             c.x(i)
-    occupied = list(range(n_electrons))
-    virtual = list(range(n_electrons, n_qubits))
-    idx = 0
-    for i in occupied:
-        for a in virtual:
-            gen = _excitation_generator(i, a)
-            param = Parameter(f"s_{idx}")
-            for coeff, paulis in gen:
-                _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
-            idx += 1
-    idx = 0
-    for ii, i in enumerate(occupied):
-        for jj, j in enumerate(occupied):
-            if jj <= ii:
-                continue
-            for aa, a in enumerate(virtual):
-                for bb, b in enumerate(virtual):
-                    if bb <= aa:
-                        continue
-                    gen = _excitation_generator((i, j), (a, b))
-                    param = Parameter(f"d_{idx}")
+    if not spin_adapted:
+        occupied = list(range(n_electrons))
+        virtual = list(range(n_electrons, n_qubits))
+        idx = 0
+        for i in occupied:
+            for a in virtual:
+                gen = _excitation_generator(i, a)
+                param = Parameter(f"s_{idx}")
+                for coeff, paulis in gen:
+                    _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
+                idx += 1
+        idx = 0
+        for ii, i in enumerate(occupied):
+            for jj, j in enumerate(occupied):
+                if jj <= ii:
+                    continue
+                for aa, a in enumerate(virtual):
+                    for bb, b in enumerate(virtual):
+                        if bb <= aa:
+                            continue
+                        gen = _excitation_generator((i, j), (a, b))
+                        param = Parameter(f"d_{idx}")
+                        for coeff, paulis in gen:
+                            _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
+                        idx += 1
+    else:
+        n_orb = n_qubits // 2
+        n_occ = n_electrons // 2
+        occ_spatial = list(range(n_occ))
+        virt_spatial = list(range(n_occ, n_orb))
+        # Spin-adapted singles: one param per spatial pair, applied to both alpha and beta
+        idx = 0
+        for i in occ_spatial:
+            for a in virt_spatial:
+                param = Parameter(f"s_{idx}")
+                for spin in (0, 1):  # alpha, beta
+                    gen = _excitation_generator(2 * i + spin, 2 * a + spin)
                     for coeff, paulis in gen:
                         _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
-                    idx += 1
+                idx += 1
+        # Spin-adapted doubles: group same-spatial excitations under one param
+        idx = 0
+        for ii, i in enumerate(occ_spatial):
+            for j in occ_spatial[ii + 1:]:
+                for aa, a in enumerate(virt_spatial):
+                    for b in virt_spatial[aa + 1:]:
+                        param = Parameter(f"d_{idx}")
+                        seen = set()
+                        for si in (0, 1):
+                            for sj in (0, 1):
+                                oi, oj = 2*i+si, 2*j+sj
+                                if oi == oj:
+                                    continue
+                                for sa in (0, 1):
+                                    for sb in (0, 1):
+                                        va, vb = 2*a+sa, 2*b+sb
+                                        if va == vb:
+                                            continue
+                                        key = (min(oi,oj), max(oi,oj), min(va,vb), max(va,vb))
+                                        if key in seen:
+                                            continue
+                                        seen.add(key)
+                                        gen = _excitation_generator(key[:2], key[2:])
+                                        for coeff, paulis in gen:
+                                            _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
+                        idx += 1
     return c
+
+
+# ADAPT-VQE -------
+
+def _excitation_pool(n_qubits: int, n_electrons: int) -> list:
+    occupied = list(range(n_electrons))
+    virtual = list(range(n_electrons, n_qubits))
+    pool = [(i, a) for i in occupied for a in virtual]
+    pool += [((i, j), (a, b)) for ii, i in enumerate(occupied) for j in occupied[ii + 1:]
+             for aa, a in enumerate(virtual) for b in virtual[aa + 1:]]
+    return pool
+
+
+def _pool_gradients(circuit: Circuit, H: Observable, pool: list) -> np.ndarray:
+    from .optim import adjoint_gradient
+    grads = np.empty(len(pool))
+    for i, (occ, virt) in enumerate(pool):
+        trial = Circuit(circuit.n_qubits)
+        trial.ops = list(circuit.ops)
+        trial.param_values = dict(circuit.param_values)
+        p = Parameter(f"_pool_{i}")
+        for coeff, paulis in _excitation_generator(occ, virt):
+            _exp_pauli(trial, p, paulis, negate=coeff.imag > 0)
+        trial.param_values[p.name] = 0.0
+        grads[i] = adjoint_gradient(trial, H)[p.name]
+    return grads
+
+
+def adapt_vqe(H: Observable, n_qubits: int, n_electrons: int,
+              max_iters: int = 20, threshold: float = 1e-3,
+              opt_steps: int = 100, stepsize: float = 0.1) -> tuple[Circuit, float, list]:
+    """ADAPT-VQE: grow ansatz by iteratively selecting operators with largest gradient.
+
+    Returns (circuit, energy, history) where history is [(energy, max_gradient), ...].
+    """
+    from .optim import Adam
+    from ..measurement.observable import expectation
+    pool = _excitation_pool(n_qubits, n_electrons)
+    circuit = hf_state(n_qubits, n_electrons)
+    history, energy = [], 0.0
+    for it in range(max_iters):
+        grads = _pool_gradients(circuit, H, pool)
+        idx = int(np.argmax(np.abs(grads)))
+        max_grad = float(np.abs(grads[idx]))
+        if max_grad < threshold:
+            break
+        occ, virt = pool[idx]
+        p = Parameter(f"a_{it}")
+        for coeff, paulis in _excitation_generator(occ, virt):
+            _exp_pauli(circuit, p, paulis, negate=coeff.imag > 0)
+        circuit.param_values[p.name] = 0.0
+        opt = Adam(stepsize=stepsize)
+        for _ in range(opt_steps):
+            opt.step(circuit, H)
+        energy = expectation(circuit.bind(), H)
+        history.append((float(energy), max_grad))
+    return circuit, float(energy), history
