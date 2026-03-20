@@ -3,7 +3,7 @@ import numpy as np
 import tinyqubit as tq
 from tinyqubit.qml.chemistry import (
     jordan_wigner, bravyi_kitaev, molecular_hamiltonian, compute_hamiltonian, hf_state, uccsd_ansatz,
-    _pauli_mul, _simplify, _excitation_generator, _PAULI_MAT, _I2,
+    adapt_vqe, _pauli_mul, _simplify, _excitation_generator, _PAULI_MAT, _I2,
 )
 
 def _exact_gs(mol, **kwargs):
@@ -243,28 +243,14 @@ def test_uccsd_gradient_nonzero():
     grads = adjoint_gradient(c, H)
     assert abs(grads['d_0']) > 0.01
 
-def test_uccsd_spin_adapted_fewer_params():
-    c_full = uccsd_ansatz(8, 4)
-    c_spin = uccsd_ansatz(8, 4, spin_adapted=True)
-    assert len(c_spin.parameters) < len(c_full.parameters)
-
-def test_uccsd_spin_adapted_hf_energy():
-    H, nq, ne = molecular_hamiltonian('lih')
-    c = uccsd_ansatz(nq, ne, spin_adapted=True)
-    c.init_params(value=0.0)
-    e_sa = tq.expectation(c, H)
-    e_hf = tq.expectation(hf_state(nq, ne), H)
-    assert abs(e_sa - e_hf) < 1e-10
-
-
 # --- Excitation generators ---
 
-def test_single_excitation_generator_hermitian():
+def test_singleexcitation_generator_hermitian():
     gen = _excitation_generator(0, 2)
     for c, _ in gen:
         assert abs(c.real) < 1e-10
 
-def test_double_excitation_generator_term_count():
+def test_doubleexcitation_generator_term_count():
     gen = _excitation_generator((0, 1), (2, 3))
     assert len(gen) == 8
 
@@ -401,3 +387,28 @@ def test_taper_reduces_terms():
     H, nq, ne = molecular_hamiltonian('h2', active_electrons=2, active_orbitals=2)
     H_tap, _ = taper(H, nq, ne)
     assert len(H_tap.terms) < len(H.terms)
+
+
+# --- apply_excitation building block ---
+
+def test_apply_excitation_at_zero_is_hf():
+    from tinyqubit import Circuit, Parameter, apply_excitation
+    H, nq, ne = molecular_hamiltonian('h2', active_electrons=2, active_orbitals=2)
+    c = Circuit(nq)
+    c.x(0); c.x(1)
+    apply_excitation(c, 0, 2, Parameter("s0"))
+    c.init_params(value=0.0)
+    e = tq.expectation(c, H)
+    e_hf = tq.expectation(hf_state(nq, ne), H)
+    assert abs(e - e_hf) < 1e-10
+
+def test_apply_excitation_double():
+    from tinyqubit import Circuit, Parameter, apply_excitation
+    H, nq, ne = molecular_hamiltonian('h2', active_electrons=2, active_orbitals=2)
+    c = Circuit(nq)
+    c.x(0); c.x(1)
+    apply_excitation(c, (0, 1), (2, 3), Parameter("d0"))
+    c.init_params(value=0.0)
+    e = tq.expectation(c, H)
+    e_hf = tq.expectation(hf_state(nq, ne), H)
+    assert abs(e - e_hf) < 1e-10

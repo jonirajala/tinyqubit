@@ -252,7 +252,6 @@ def taper(H: Observable, n_qubits: int, n_electrons: int) -> tuple[Observable, i
 # UCCSD ansatz via Trotterized excitation generators -------
 
 def _excitation_generator(occupied, virtual) -> list[tuple[complex, dict]]:
-    """JW Pauli terms for anti-Hermitian excitation generator (a†...a - h.c.)."""
     if isinstance(occupied, int):
         fwd = _mul_ops(_jw_op(virtual, True), _jw_op(occupied, False))
         bwd = _mul_ops(_jw_op(occupied, True), _jw_op(virtual, False))
@@ -270,7 +269,6 @@ def _excitation_generator(occupied, virtual) -> list[tuple[complex, dict]]:
 
 
 def _exp_pauli(c: Circuit, param: Parameter, paulis: dict, negate: bool = False) -> None:
-    """Append exp(-i * param/2 * P) block. negate flips sign (for generator terms with positive imag coeff)."""
     qubits = sorted(paulis.keys())
     for q in qubits:
         if paulis[q] == 'X': c.h(q)
@@ -289,12 +287,14 @@ def _exp_pauli(c: Circuit, param: Parameter, paulis: dict, negate: bool = False)
         elif paulis[q] == 'Y': c.rx(q, -_pi / 2)
 
 
-def _apply_gen(c: Circuit, occ, virt, param: Parameter) -> None:
+def apply_excitation(c: Circuit, occ, virt, param: Parameter) -> None:
+    """Append a fermionic excitation (occ→virt) to circuit c with the given parameter."""
     for coeff, paulis in _excitation_generator(occ, virt):
         _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
 
 
-def _excitation_pool(n_qubits: int, n_electrons: int) -> list:
+def excitation_pool(n_qubits: int, n_electrons: int) -> list:
+    """All single and double excitation operators as (occupied, virtual) tuples."""
     occupied = list(range(n_electrons))
     virtual = list(range(n_electrons, n_qubits))
     pool = [(i, a) for i in occupied for a in virtual]
@@ -303,60 +303,26 @@ def _excitation_pool(n_qubits: int, n_electrons: int) -> list:
     return pool
 
 
-def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True,
-                 spin_adapted: bool = False) -> Circuit:
-    """UCCSD ansatz with Trotterized single and double excitations.
-
-    spin_adapted=True groups alpha/beta excitations under shared parameters.
-    """
+def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True) -> Circuit:
+    """UCCSD ansatz with Trotterized single and double excitations."""
     c = Circuit(n_qubits)
     if include_hf:
         for i in range(n_electrons):
             c.x(i)
-    if not spin_adapted:
-        pool = _excitation_pool(n_qubits, n_electrons)
-        s_idx = d_idx = 0
-        for occ, virt in pool:
-            if isinstance(occ, int):
-                _apply_gen(c, occ, virt, Parameter(f"s_{s_idx}")); s_idx += 1
-            else:
-                _apply_gen(c, occ, virt, Parameter(f"d_{d_idx}")); d_idx += 1
-    else:
-        n_orb, n_occ = n_qubits // 2, n_electrons // 2
-        occ_sp, virt_sp = list(range(n_occ)), list(range(n_occ, n_orb))
-        idx = 0
-        for i in occ_sp:
-            for a in virt_sp:
-                p = Parameter(f"s_{idx}")
-                for spin in (0, 1):
-                    _apply_gen(c, 2*i+spin, 2*a+spin, p)
-                idx += 1
-        idx = 0
-        for ii, i in enumerate(occ_sp):
-            for j in occ_sp[ii + 1:]:
-                for aa, a in enumerate(virt_sp):
-                    for b in virt_sp[aa + 1:]:
-                        p = Parameter(f"d_{idx}")
-                        seen = set()
-                        for si in (0, 1):
-                            for sj in (0, 1):
-                                oi, oj = 2*i+si, 2*j+sj
-                                if oi == oj: continue
-                                for sa in (0, 1):
-                                    for sb in (0, 1):
-                                        va, vb = 2*a+sa, 2*b+sb
-                                        if va == vb: continue
-                                        key = (min(oi,oj), max(oi,oj), min(va,vb), max(va,vb))
-                                        if key in seen: continue
-                                        seen.add(key)
-                                        _apply_gen(c, key[:2], key[2:], p)
-                        idx += 1
+    pool = excitation_pool(n_qubits, n_electrons)
+    s_idx = d_idx = 0
+    for occ, virt in pool:
+        if isinstance(occ, int):
+            apply_excitation(c, occ, virt, Parameter(f"s_{s_idx}")); s_idx += 1
+        else:
+            apply_excitation(c, occ, virt, Parameter(f"d_{d_idx}")); d_idx += 1
     return c
 
 
 # ADAPT-VQE -------
 
-def _pool_gradients(circuit: Circuit, H: Observable, pool: list) -> np.ndarray:
+def pool_gradients(circuit: Circuit, H: Observable, pool: list) -> np.ndarray:
+    """Gradient of energy w.r.t. appending each pool operator at theta=0."""
     from .optim import adjoint_gradient
     grads = np.empty(len(pool))
     for i, (occ, virt) in enumerate(pool):
@@ -364,7 +330,7 @@ def _pool_gradients(circuit: Circuit, H: Observable, pool: list) -> np.ndarray:
         trial.ops = list(circuit.ops)
         trial.param_values = dict(circuit.param_values)
         p = Parameter(f"_pool_{i}")
-        _apply_gen(trial, occ, virt, p)
+        apply_excitation(trial, occ, virt, p)
         trial.param_values[p.name] = 0.0
         grads[i] = adjoint_gradient(trial, H)[p.name]
     return grads
@@ -379,16 +345,16 @@ def adapt_vqe(H: Observable, n_qubits: int, n_electrons: int,
     """
     from .optim import Adam
     from ..measurement.observable import expectation
-    pool = _excitation_pool(n_qubits, n_electrons)
+    pool = excitation_pool(n_qubits, n_electrons)
     circuit = hf_state(n_qubits, n_electrons)
     history, energy = [], 0.0
     for it in range(max_iters):
-        grads = _pool_gradients(circuit, H, pool)
+        grads = pool_gradients(circuit, H, pool)
         idx = int(np.argmax(np.abs(grads)))
         max_grad = float(np.abs(grads[idx]))
         if max_grad < threshold:
             break
-        _apply_gen(circuit, *pool[idx], Parameter(f"a_{it}"))
+        apply_excitation(circuit, *pool[idx], Parameter(f"a_{it}"))
         circuit.param_values[f"a_{it}"] = 0.0
         opt = Adam(stepsize=stepsize)
         for _ in range(opt_steps):
