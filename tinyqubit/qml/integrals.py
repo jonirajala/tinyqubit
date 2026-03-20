@@ -116,6 +116,74 @@ _631G: dict[int, list[tuple[int, np.ndarray, np.ndarray]]] = {
          (1, np.array([0.445819]), np.array([1.0]))],
 }
 
+def _631g_row3(e1s, c1s, e_sp1, cs1, cp1, e_sp2, cs2, cp2, e_sp3):
+    """Build 6-31G shells for Na-Ar (S + 3 SP shells)."""
+    e1s, e_sp1, e_sp2 = np.array(e1s), np.array(e_sp1), np.array(e_sp2)
+    e_sp3 = np.array([e_sp3])
+    return [(0, e1s, np.array(c1s)),
+            (0, e_sp1, np.array(cs1)), (1, e_sp1, np.array(cp1)),
+            (0, e_sp2, np.array(cs2)), (1, e_sp2, np.array(cp2)),
+            (0, e_sp3, np.array([1.0])), (1, e_sp3, np.array([1.0]))]
+
+_631G.update({
+    11: _631g_row3([9993.2,1499.89,341.951,94.6796,29.7345,10.0063],
+                   [0.001938,0.014807,0.072705,0.252629,0.493242,0.313169],
+                   [150.963,35.5878,11.1683,3.90201,1.38177,0.466382],
+                   [-0.003542,-0.043959,-0.109752,0.187398,0.646700,0.306058],
+                   [0.005002,0.035511,0.142825,0.338620,0.451579,0.273271],
+                   [0.497966,0.084353,0.066635], [-0.248503,-0.131704,1.233521],
+                   [-0.023023,0.950359,0.059858], 0.025954),
+    12: _631g_row3([11722.8,1759.93,400.846,112.807,35.9997,12.1828],
+                   [0.001978,0.015114,0.073911,0.249191,0.487928,0.319662],
+                   [189.180,45.2119,14.3563,5.13886,1.90652,0.705887],
+                   [-0.003237,-0.041008,-0.112600,0.148633,0.616497,0.364829],
+                   [0.004928,0.034989,0.140725,0.333642,0.444940,0.269254],
+                   [0.929340,0.269035,0.117379], [-0.212291,-0.107985,1.175845],
+                   [-0.022419,0.192271,0.846180], 0.042106),
+    13: _631g_row3([13983.1,2098.75,477.705,134.360,42.8709,14.5189],
+                   [0.001943,0.014860,0.072849,0.246830,0.487258,0.323496],
+                   [239.668,57.4419,18.2859,6.59914,2.49049,0.944545],
+                   [-0.002926,-0.037408,-0.114487,0.115635,0.612595,0.393799],
+                   [0.004603,0.033199,0.136282,0.330476,0.449146,0.265704],
+                   [1.27790,0.397590,0.160095], [-0.227607,0.001446,1.092794],
+                   [-0.017513,0.244533,0.804934], 0.055658),
+    14: _631g_row3([16115.9,2425.58,553.867,156.340,50.0683,17.0178],
+                   [0.001959,0.014929,0.072848,0.246130,0.485914,0.325002],
+                   [292.718,69.8731,22.3363,8.15039,3.13458,1.22543],
+                   [-0.002781,-0.035715,-0.114985,0.093563,0.603017,0.418959],
+                   [0.004438,0.032668,0.134721,0.328678,0.449640,0.261372],
+                   [1.72738,0.572922,0.222192], [-0.244631,0.004316,1.098185],
+                   [-0.017795,0.253539,0.800669], 0.077837),
+    15: _631g_row3([19413.3,2909.42,661.364,185.759,59.1943,20.0310],
+                   [0.001852,0.014206,0.069999,0.240079,0.484762,0.335200],
+                   [339.478,81.0101,25.8780,9.45221,3.66566,1.46746],
+                   [-0.002782,-0.036050,-0.116631,0.096833,0.614418,0.403798],
+                   [0.004565,0.033694,0.139755,0.339362,0.450921,0.238586],
+                   [2.15623,0.748997,0.283145], [-0.252924,0.032852,1.081255],
+                   [-0.017765,0.274058,0.785422], 0.099832),
+    16: _631g_row3([21917.1,3301.49,754.146,212.711,67.9896,23.0515],
+                   [0.001869,0.014230,0.069696,0.238487,0.483307,0.338074],
+                   [423.735,100.710,32.1599,11.8079,4.63110,1.87025],
+                   [-0.002377,-0.031693,-0.113317,0.056090,0.592255,0.455006],
+                   [0.004061,0.030681,0.130452,0.327205,0.452851,0.256042],
+                   [2.61584,0.922167,0.341287], [-0.250373,0.066957,1.054506],
+                   [-0.014510,0.310263,0.754482], 0.117167),
+    17: _631g_row3([25180.1,3780.35,860.474,242.145,77.3349,26.2470],
+                   [0.001833,0.014034,0.069097,0.237452,0.483034,0.339856],
+                   [491.765,116.984,37.4153,13.7834,5.45215,2.22588],
+                   [-0.002297,-0.030714,-0.112528,0.045016,0.589353,0.465206],
+                   [0.003989,0.030318,0.129880,0.327951,0.453527,0.252154],
+                   [3.18649,1.14427,0.420377], [-0.251828,0.061589,1.060184],
+                   [-0.014299,0.323572,0.743508], 0.142657),
+    18: _631g_row3([28348.3,4257.62,969.857,273.263,87.3695,29.6867],
+                   [0.001825,0.013969,0.068707,0.236204,0.482214,0.342043],
+                   [575.891,136.816,43.8098,16.2094,6.46084,2.65114],
+                   [-0.002160,-0.029078,-0.110827,0.027699,0.577613,0.488688],
+                   [0.003807,0.029230,0.126467,0.323510,0.454896,0.256630],
+                   [3.86028,1.41373,0.516646], [-0.255593,0.037807,1.080564],
+                   [-0.015920,0.324646,0.743990], 0.173888),
+})
+
 _STO3G.update({
     11: [(0, np.array([250.772430, 45.678511, 12.362388]), np.array([0.15432897, 0.53532814, 0.44463454])),
          (0, np.array([12.040193, 2.797882, 0.909958]), np.array([-0.09996723, 0.39951283, 0.70011547])),
@@ -682,6 +750,76 @@ def _rhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,
     return E_elec, C, F
 
 
+def _uhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,
+         n_electrons: int, max_iter: int = 200, tol: float = 1e-10) -> tuple[float, np.ndarray, np.ndarray]:
+    """Unrestricted Hartree-Fock SCF. Returns (electronic_energy, MO_coefficients, Fock_matrix).
+
+    MO coefficients are for the alpha orbitals (used for active space extraction).
+    """
+    nbf = S.shape[0]
+    na = (n_electrons + 1) // 2  # alpha electrons
+    nb = n_electrons // 2         # beta electrons
+    H_core = T + V
+    eigvals, eigvecs = np.linalg.eigh(S)
+    X = eigvecs @ np.diag(eigvals ** -0.5) @ eigvecs.T
+
+    F_prime = X.T @ H_core @ X
+    _, C_prime = np.linalg.eigh(F_prime)
+    C = X @ C_prime
+    Da = C[:, :na] @ C[:, :na].T
+    Db = C[:, :nb] @ C[:, :nb].T if nb > 0 else np.zeros_like(Da)
+
+    diis_focks_a, diis_focks_b, diis_errors = [], [], []
+    E_old = 0.0
+    for iteration in range(max_iter):
+        D = Da + Db
+        Ja = np.einsum('kl,ijkl->ij', Da, eri)
+        Jb = np.einsum('kl,ijkl->ij', Db, eri)
+        Ka = np.einsum('kl,ikjl->ij', Da, eri)
+        Kb = np.einsum('kl,ikjl->ij', Db, eri)
+        Fa = H_core + Ja + Jb - Ka
+        Fb = H_core + Ja + Jb - Kb
+
+        err_a = Fa @ Da @ S - S @ Da @ Fa
+        err_b = Fb @ Db @ S - S @ Db @ Fb
+        diis_focks_a.append(Fa.copy()); diis_focks_b.append(Fb.copy())
+        diis_errors.append(np.concatenate([err_a.ravel(), err_b.ravel()]))
+        if len(diis_focks_a) > 8:
+            diis_focks_a.pop(0); diis_focks_b.pop(0); diis_errors.pop(0)
+
+        if len(diis_focks_a) >= 2:
+            n = len(diis_focks_a)
+            B = np.zeros((n + 1, n + 1))
+            B[-1, :] = B[:, -1] = -1.0
+            B[-1, -1] = 0.0
+            for ii in range(n):
+                for jj in range(n):
+                    B[ii, jj] = diis_errors[ii] @ diis_errors[jj]
+            rhs = np.zeros(n + 1); rhs[-1] = -1.0
+            try:
+                coeffs = np.linalg.solve(B, rhs)
+                Fa = sum(c * f for c, f in zip(coeffs[:n], diis_focks_a))
+                Fb = sum(c * f for c, f in zip(coeffs[:n], diis_focks_b))
+            except np.linalg.LinAlgError:
+                pass
+
+        _, Ca_prime = np.linalg.eigh(X.T @ Fa @ X)
+        Ca = X @ Ca_prime
+        Da_new = Ca[:, :na] @ Ca[:, :na].T
+        _, Cb_prime = np.linalg.eigh(X.T @ Fb @ X)
+        Cb = X @ Cb_prime
+        Db_new = Cb[:, :nb] @ Cb[:, :nb].T if nb > 0 else np.zeros_like(Da)
+
+        D_new = Da_new + Db_new
+        E_elec = 0.5 * (np.sum(Da_new * (H_core + Fa)) + np.sum(Db_new * (H_core + Fb)))
+        if abs(E_elec - E_old) < tol and iteration > 0:
+            return E_elec, Ca, Fa
+        E_old = E_elec
+        Da, Db = Da_new, Db_new
+
+    return E_elec, Ca, Fa
+
+
 # Active space extraction -------
 
 def _active_space_integrals(C: np.ndarray, H_core: np.ndarray, eri: np.ndarray,
@@ -727,7 +865,8 @@ def compute_molecular_integrals(symbols: list[str], geometry: np.ndarray,
     n_el = sum(_ATOMIC_NUMBER[s.upper()] for s in symbols)
     nuc = _nuclear_repulsion(symbols, geometry)
 
-    E_elec, C, F = _rhf(S, T, V, eri, n_el)
+    scf = _rhf if n_el % 2 == 0 else _uhf
+    E_elec, C, F = scf(S, T, V, eri, n_el)
 
     nbf = len(basis)
     act_el = active_electrons if active_electrons is not None else n_el
