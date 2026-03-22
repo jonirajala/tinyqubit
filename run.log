@@ -1,51 +1,55 @@
 === TinyQubit Statevector Benchmark ===
 
-Baseline loaded: simulator_baseline.json (20 circuits)
-
 Correctness:
-  ghz_4                PASS  (norm=1.0000000000 ez0=0.000000)
-  ghz_12               PASS  (norm=1.0000000000 ez0=0.000000)
-  ghz_20               PASS  (norm=1.0000000000 ez0=0.000000)
-  ghz_23               PASS  (norm=1.0000000000 ez0=0.000000)
-  qft_4                PASS  (norm=1.0000000000 ez0=-0.000000)
-  qft_10               PASS  (norm=1.0000000000 ez0=0.000000)
-  qft_16               PASS  (norm=1.0000000000 ez0=-0.000000)
-  hea_8                PASS  (norm=1.0000000000 ez0=-0.224571)
-  hea_14               PASS  (norm=1.0000000000 ez0=-0.261529)
-  hea_20               PASS  (norm=1.0000000000 ez0=0.443463)
-  clifford_t_10        PASS  (norm=1.0000000000 ez0=-0.021149)
-  clifford_t_16        PASS  (norm=1.0000000000 ez0=0.125000)
-  toffoli_6            PASS  (norm=1.0000000000 ez0=-0.000000)
-  toffoli_10           PASS  (norm=1.0000000000 ez0=0.000000)
-  diag_12              PASS  (norm=1.0000000000 ez0=0.000000)
-  diag_20              PASS  (norm=1.0000000000 ez0=0.000000)
-  qaoa_12              PASS  (norm=1.0000000000 ez0=-0.000000)
-  qaoa_18              PASS  (norm=1.0000000000 ez0=0.000000)
-  random_12            PASS  (norm=1.0000000000 ez0=-0.299332)
-  random_18            PASS  (norm=1.0000000000 ez0=0.184653)
+  ghz_4                NEW   (hash=a56addf9.. norm=1.0000000000)
+  ghz_12               NEW   (hash=22f89030.. norm=1.0000000000)
+  ghz_20               NEW   (hash=b59c76de.. norm=1.0000000000)
+  ghz_23               NEW   (hash=4c667f22.. norm=1.0000000000)
+  qft_4                NEW   (hash=2d695001.. norm=1.0000000000)
+  qft_10               NEW   (hash=2025f54d.. norm=1.0000000000)
+  qft_16               NEW   (hash=92a58f25.. norm=1.0000000000)
+  hea_8                NEW   (hash=fdb593c6.. norm=1.0000000000)
+  hea_14               NEW   (hash=480b07bc.. norm=1.0000000000)
+  hea_20               NEW   (hash=e5d1b195.. norm=1.0000000000)
+  clifford_t_10        NEW   (hash=2f086fd0.. norm=1.0000000000)
+  clifford_t_16        NEW   (hash=51ddc474.. norm=1.0000000000)
+  toffoli_6            NEW   (hash=dca70eaf.. norm=1.0000000000)
+  toffoli_10           NEW   (hash=6ba2d4c8.. norm=1.0000000000)
+  diag_12              NEW   (hash=e1874bc6.. norm=1.0000000000)
+  diag_20              NEW   (hash=c957af98.. norm=1.0000000000)
+  qaoa_12              NEW   (hash=c8e0d5f9.. norm=1.0000000000)
+  qaoa_18              NEW   (hash=131aee46.. norm=1.0000000000)
+  random_12            NEW   (hash=1ae85179.. norm=1.0000000000)
+  random_18            NEW   (hash=6458c4f9.. norm=1.0000000000)
+  swap_route_12        NEW   (hash=f903294b.. norm=1.0000000000)
+  swap_route_18        NEW   (hash=29203f14.. norm=1.0000000000)
 
 Performance:
-  Circuit              Qubits    Ops   Time(ms)   Baseline     Change
-  ----------------------------------------------------------------------------
-  ghz_4                     4      4      0.069      0.032 +116% REGR!
-  ghz_12                   12     12      0.208      0.213        -2%
-  ghz_20                   20     20      0.582      0.726 -20% FASTER
-  ghz_23                   23     23     12.638     13.041        -3%
-  qft_4                     4     10      0.043      0.042        +2%
-  qft_10                   10     55      0.647      0.616        +5%
-  qft_16                   16    136     17.398     16.703        +4%
-  hea_8                     8    115      1.308      1.321        -1%
-  hea_14                   14    205      5.612      5.748        -2%
-  hea_20                   20    295    228.214    241.810 -6% FASTER
-  clifford_t_10            10    299      4.390      4.339        +1%
-  clifford_t_16            16    480     50.216     60.119 -16% FASTER
-  toffoli_6                 6     10      0.119      0.121        -2%
-  toffoli_10               10     18      0.257      0.263        -2%
-  diag_12                  12    362      2.409      2.486        -3%
-  diag_20                  20    610    181.212    216.563 -16% FASTER
-  qaoa_12                  12    127      3.333      3.432        -3%
-  qaoa_18                  18    193    140.215    140.190        +0%
-  random_12                12    372      8.743      9.607 -9% FASTER
-  random_18                18    564    294.261    160.502 +83% REGR!
+  Circuit              Qubits    Ops   Time(ms)
+  ------------------------------------------------------
+  ghz_4                     4      4      0.032
+  ghz_12                   12     12      0.095
+  ghz_20                   20     20      0.602
+  ghz_23                   23     23     11.012
+  qft_4                     4     10      0.043
+  qft_10                   10     55      0.626
+  qft_16                   16    136     15.518
+  hea_8                     8    115      0.560
+  hea_14                   14    205      6.781
+  hea_20                   20    295    225.473
+  clifford_t_10            10    299      4.753
+  clifford_t_16            16    480     49.243
+  toffoli_6                 6     10      0.053
+  toffoli_10               10     18      0.120
+  diag_12                  12    362      1.618
+  diag_20                  20    610    188.130
+  qaoa_12                  12    127      3.367
+  qaoa_18                  18    193    142.410
+  random_12                12    372     10.683
+  random_18                18    564    305.224
+  swap_route_12            12    296      5.130
+  swap_route_18            18    734    313.725
 
-Summary: 20/20 correctness PASS, 5 faster, 2 regressions
+Summary: 22/22 correctness PASS
+
+Baseline saved to /Users/jonirajala/Documents/code/tinyqubit/benchmarks/simulator_baseline.json

@@ -101,6 +101,23 @@ def build_random_circuit(n, depth=20):
             if rng.random() < 0.6: c.cx(q, q + 1)
     return c
 
+def build_swap_routed(n, layers=8):
+    """Simulates a compiled circuit on linear-connectivity hardware: 1Q gates + CX/SWAP routing."""
+    c = Circuit(n)
+    rng = np.random.RandomState(42)
+    for _ in range(layers):
+        for q in range(n):
+            c.ry(q, rng.uniform(0, 2 * np.pi))
+        # Route non-adjacent CX via SWAP chains (typical compiler output)
+        for _ in range(n // 3):
+            q0, q1 = rng.randint(0, n), rng.randint(0, n)
+            if q0 == q1: continue
+            lo, hi = min(q0, q1), max(q0, q1)
+            for s in range(lo, hi - 1): c.swap(s, s + 1)
+            c.cx(hi - 1, hi)
+            for s in range(hi - 2, lo - 1, -1): c.swap(s, s + 1)
+    return c
+
 def build_diagonal_heavy(n, layers=10):
     """Heavy RZ/S/T/CZ circuit — tests diagonal gate optimizations."""
     c = Circuit(n)
@@ -139,6 +156,8 @@ CIRCUITS = [
     ("qaoa_18",       lambda: build_qaoa(18)),
     ("random_12",     lambda: build_random_circuit(12)),
     ("random_18",     lambda: build_random_circuit(18)),
+    ("swap_route_12", lambda: build_swap_routed(12)),
+    ("swap_route_18", lambda: build_swap_routed(18)),
 ]
 
 
