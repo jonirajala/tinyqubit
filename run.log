@@ -20,7 +20,7 @@ Correctness:
   diag_12              PASS  (norm=1.0000000000 ez0=0.000000)
   diag_20              PASS  (norm=1.0000000000 ez0=0.000000)
   qaoa_12              PASS  (norm=1.0000000000 ez0=-0.000000)
-  qaoa_18              PASS  (norm=1.0000000000 ez0=-0.000000)
+  qaoa_18              PASS  (norm=1.0000000000 ez0=0.000000)
   random_12            PASS  (norm=1.0000000000 ez0=-0.299332)
   random_18            PASS  (norm=1.0000000000 ez0=0.184653)
   swap_route_12        PASS  (norm=1.0000000000 ez0=-0.522148)
@@ -29,27 +29,27 @@ Correctness:
 Performance:
   Circuit              Qubits    Ops   Time(ms)   Baseline     Change
   ----------------------------------------------------------------------------
-  ghz_4                     4      4      0.070      0.032 +119% REGR!
-  ghz_12                   12     12      0.213      0.096 +122% REGR!
-  ghz_20                   20     20      0.667      0.675        -1%
-  ghz_23                   23     23     15.593     11.183 +39% REGR!
-  qft_4                     4     10      0.099      0.102        -3%
-  qft_10                   10     55      0.945      0.621 +52% REGR!
-  qft_16                   16    136     12.631     16.173 -22% FASTER
-  hea_8                     8    115      0.847      1.331 -36% FASTER
-  hea_14                   14    205      4.467      4.571        -2%
-  hea_20                   20    295    174.208    171.406        +2%
-  clifford_t_10            10    299      1.085      2.084 -48% FASTER
-  clifford_t_16            16    480     53.509     48.033       +11%
-  toffoli_6                 6     10      0.120      0.125        -4%
-  toffoli_10               10     18      0.279      0.279        +0%
-  diag_12                  12    362      2.535      2.576        -2%
-  diag_20                  20    610    112.196    103.700        +8%
-  qaoa_12                  12    127      4.095      2.707 +51% REGR!
-  qaoa_18                  18    193     56.668    112.351 -50% FASTER
-  random_12                12    372      3.878      8.601 -55% FASTER
-  random_18                18    564    159.488    149.829        +6%
-  swap_route_12            12    296      2.383      1.935  +23% warn
-  swap_route_18            18    734     55.007     46.570  +18% warn
+  ghz_4                     4      4      0.069      0.032 +116% REGR!
+  ghz_12                   12     12      0.095      0.096        -1%
+  ghz_20                   20     20      0.658      0.675        -3%
+  ghz_23                   23     23     14.395     11.183  +29% warn
+  qft_4                     4     10      0.045      0.102 -56% FASTER
+  qft_10                   10     55      0.621      0.621        +0%
+  qft_16                   16    136     16.312     16.173        +1%
+  hea_8                     8    115      1.073      1.331 -19% FASTER
+  hea_14                   14    205      3.961      4.571 -13% FASTER
+  hea_20                   20    295    169.868    171.406        -1%
+  clifford_t_10            10    299      1.096      2.084 -47% FASTER
+  clifford_t_16            16    480     77.017     48.033 +60% REGR!
+  toffoli_6                 6     10      0.121      0.125        -3%
+  toffoli_10               10     18      0.280      0.279        +0%
+  diag_12                  12    362      2.677      2.576        +4%
+  diag_20                  20    610    237.498    103.700 +129% REGR!
+  qaoa_12                  12    127      4.542      2.707 +68% REGR!
+  qaoa_18                  18    193    127.841    112.351       +14%
+  random_12                12    372      7.047      8.601 -18% FASTER
+  random_18                18    564    141.317    149.829 -6% FASTER
+  swap_route_12            12    296      2.004      1.935        +4%
+  swap_route_18            18    734     98.429     46.570 +111% REGR!
 
-Summary: 22/22 correctness PASS, 5 faster, 7 regressions
+Summary: 22/22 correctness PASS, 6 faster, 6 regressions

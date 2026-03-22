@@ -232,8 +232,15 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             for j in range(1, run):
                 combined = np.kron(combined, non_diag[nd_i + j][0])
             dim = 1 << run
-            nq, nr = 1 << q_first, max(1 << (n - q_last - 1), 1)
-            np.matmul(combined, state.reshape(nq, dim, nr), out=buf.reshape(nq, dim, nr))
+            nq = 1 << q_first
+            nr = 1 << (n - q_last - 1)
+            if nr <= 1:
+                # NOTE: 2D GEMM much faster than 3D batch matmul for nr=1
+                np.matmul(state.reshape(nq, dim), combined.T, out=buf.reshape(nq, dim))
+            elif nq == 1:
+                np.matmul(combined, state.reshape(dim, nr), out=buf.reshape(dim, nr))
+            else:
+                np.matmul(combined, state.reshape(nq, dim, nr), out=buf.reshape(nq, dim, nr))
             state, buf = buf, state
             nd_i += run
         else:
