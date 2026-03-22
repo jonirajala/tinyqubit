@@ -219,9 +219,9 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
     non_diag.sort(key=lambda x: x[1])
     nd_i = 0
     while nd_i < len(non_diag):
-        # Find longest run of consecutive qubits (up to 4)
+        # Find longest run of consecutive qubits (up to 5 → 32×32 matmul)
         run = 1
-        while run < 4 and nd_i + run < len(non_diag) and non_diag[nd_i + run][1] == non_diag[nd_i][1] + run:
+        while run < 5 and nd_i + run < len(non_diag) and non_diag[nd_i + run][1] == non_diag[nd_i][1] + run:
             run += 1
         if run >= 2:
             q_first = non_diag[nd_i][1]

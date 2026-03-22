@@ -12,3 +12,4 @@ b7e446a	841.6	16/16	keep	single-copy swap + np.take for CX perm
 8001f78	740.7	16/16	keep	fuse diagonal 1Q + CZ across block boundaries (diag_20 -32%)
 b7f3b85	710.3	16/16	keep	pair adjacent 1Q into 4x4 kron matmul (clifford_t -28%)
 2a20384	552.3	16/16	keep	extend kron grouping to 4 adjacent qubits (hea_20 -39%)
+5fd19e5	967.8	22/22	keep	SWAP+CX combined perm batching (swap_route -65%)
