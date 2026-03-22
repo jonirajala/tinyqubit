@@ -120,36 +120,48 @@ def _apply_reset(state: np.ndarray, qubit: int, n: int, rng) -> np.ndarray:
     state, outcome = _apply_measure(state, qubit, n, rng)
     return _apply_single_qubit(state, _GATE_1Q_CACHE[Gate.X], qubit, n) if outcome == 1 else state
 
-def _build_cx_perm(cx_pairs: tuple[tuple[int, int], ...], n: int) -> np.ndarray:
+def _build_perm(gate_ops: tuple[tuple[str, int, int], ...], n: int) -> np.ndarray:
     N = 1 << n
     identity = np.arange(N, dtype=np.int64)
     perm = identity.copy()
     single = np.empty(N, dtype=np.int64)
-    for q0, q1 in cx_pairs:
-        np.copyto(single, identity)
-        single[(single & (1 << (n - 1 - q0))) != 0] ^= (1 << (n - 1 - q1))
-        perm = perm[single]
+    for gate, q0, q1 in gate_ops:
+        if gate == 'CX':
+            np.copyto(single, identity)
+            single[(single & (1 << (n - 1 - q0))) != 0] ^= (1 << (n - 1 - q1))
+            perm = perm[single]
+        else:  # SWAP
+            b0, b1 = 1 << (n - 1 - q0), 1 << (n - 1 - q1)
+            np.copyto(single, identity)
+            # Swap bits q0 and q1: XOR both when they differ
+            diff = (single & b0) != 0
+            diff ^= (single & b1) != 0
+            single[diff] ^= b0 | b1
+            perm = perm[single]
     return perm
 
-_cx_perm_cache: dict[tuple, np.ndarray] = {}
-_CX_PERM_CACHE_MAX = 64
+_perm_cache: dict[tuple, np.ndarray] = {}
+_PERM_CACHE_MAX = 64
+
+def _get_perm(gate_ops: tuple[tuple[str, int, int], ...], n: int) -> np.ndarray:
+    key = (gate_ops, n)
+    if key not in _perm_cache:
+        if len(_perm_cache) >= _PERM_CACHE_MAX:
+            _perm_cache.pop(next(iter(_perm_cache)))
+        _perm_cache[key] = _build_perm(gate_ops, n)
+    return _perm_cache[key]
 
 def _get_cx_perm(cx_pairs: tuple[tuple[int, int], ...], n: int) -> np.ndarray:
-    key = (cx_pairs, n)
-    if key not in _cx_perm_cache:
-        if len(_cx_perm_cache) >= _CX_PERM_CACHE_MAX:
-            _cx_perm_cache.pop(next(iter(_cx_perm_cache)))
-        _cx_perm_cache[key] = _build_cx_perm(cx_pairs, n)
-    return _cx_perm_cache[key]
+    return _get_perm(tuple(('CX', q0, q1) for q0, q1 in cx_pairs), n)
 
-def _collect_cx_block(ops: list, start: int) -> tuple[tuple[tuple[int, int], ...] | None, int]:
-    i, pairs = start, []
+def _collect_perm_block(ops: list, start: int) -> tuple[tuple[tuple[str, int, int], ...] | None, int]:
+    i, gate_ops = start, []
     while i < len(ops):
         op = ops[i]
-        if op.gate != Gate.CX or op.condition is not None: break
-        pairs.append((op.qubits[0], op.qubits[1]))
+        if op.condition is not None or op.gate not in (Gate.CX, Gate.SWAP): break
+        gate_ops.append(('CX' if op.gate == Gate.CX else 'SWAP', op.qubits[0], op.qubits[1]))
         i += 1
-    return (tuple(pairs), i) if len(pairs) >= 2 else (None, start)
+    return (tuple(gate_ops), i) if len(gate_ops) >= 2 else (None, start)
 
 
 def _collect_cz_block(ops: list, start: int) -> tuple[list[tuple[int, int]] | None, int]:
@@ -282,10 +294,10 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
             if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif nq == 2:
             if buf is not None and noise_model is None:
-                if op.gate == Gate.CX:
-                    cx_pairs, end_i = _collect_cx_block(ops, i)
-                    if cx_pairs is not None:
-                        np.take(state, _get_cx_perm(cx_pairs, n), out=buf)
+                if op.gate in (Gate.CX, Gate.SWAP):
+                    perm_ops, end_i = _collect_perm_block(ops, i)
+                    if perm_ops is not None:
+                        np.take(state, _get_perm(perm_ops, n), out=buf)
                         state, buf = buf, state
                         for _ in range(end_i - i - 1): next(ops_iter)
                         continue
