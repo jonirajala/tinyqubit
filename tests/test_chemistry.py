@@ -208,7 +208,7 @@ def test_uccsd_parameter_count():
     params = c.parameters
     singles = [p for p in params if p.name.startswith('s_')]
     doubles = [p for p in params if p.name.startswith('d_')]
-    assert len(singles) == 4
+    assert len(singles) == 2  # spin-conserving: α→α, β→β only
     assert len(doubles) == 1
 
 def test_uccsd_hf_state_included():

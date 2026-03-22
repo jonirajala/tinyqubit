@@ -284,6 +284,33 @@ _CCPVDZ: dict[int, list[tuple[int, np.ndarray, np.ndarray]]] = {
             np.array([0.023809, 0.155180, 0.469958, 0.513026])),
         (0, np.array([0.2976]), np.array([1.0])),
         (1, np.array([1.275]), np.array([1.0]))],
+    6: [(0, np.array([6665., 1000., 228.0, 64.71, 21.06, 7.495, 2.797, 0.5215, 0.1596]),
+            np.array([0.000692, 0.005329, 0.027077, 0.101718, 0.274740, 0.448564, 0.285074, 0.015204, -0.003191])),
+        (0, np.array([6665., 1000., 228.0, 64.71, 21.06, 7.495, 2.797, 0.5215, 0.1596]),
+            np.array([-0.000146, -0.001154, -0.005725, -0.023312, -0.063955, -0.149981, -0.127262, 0.544529, 0.580496])),
+        (0, np.array([0.1596]), np.array([1.0])),
+        (1, np.array([9.439, 2.002, 0.5456, 0.1517]),
+            np.array([0.038109, 0.209480, 0.508557, 0.468842])),
+        (1, np.array([0.1517]), np.array([1.0])),
+        (2, np.array([0.55]), np.array([1.0]))],
+    7: [(0, np.array([9046., 1357., 309.3, 87.73, 28.56, 10.21, 3.838, 0.7466, 0.2248]),
+            np.array([0.000700, 0.005389, 0.027406, 0.103207, 0.278723, 0.448540, 0.278238, 0.015440, -0.002864])),
+        (0, np.array([9046., 1357., 309.3, 87.73, 28.56, 10.21, 3.838, 0.7466, 0.2248]),
+            np.array([-0.000153, -0.001208, -0.005992, -0.024544, -0.067459, -0.158078, -0.121831, 0.549003, 0.578815])),
+        (0, np.array([0.2248]), np.array([1.0])),
+        (1, np.array([13.55, 2.917, 0.7973, 0.2185]),
+            np.array([0.039919, 0.217169, 0.510319, 0.462214])),
+        (1, np.array([0.2185]), np.array([1.0])),
+        (2, np.array([0.817]), np.array([1.0]))],
+    8: [(0, np.array([11720., 1759., 400.8, 113.7, 37.03, 13.27, 5.025, 1.013, 0.3023]),
+            np.array([0.000710, 0.005470, 0.027837, 0.104800, 0.283062, 0.448719, 0.270952, 0.015458, -0.002585])),
+        (0, np.array([11720., 1759., 400.8, 113.7, 37.03, 13.27, 5.025, 1.013, 0.3023]),
+            np.array([-0.000160, -0.001263, -0.006267, -0.025716, -0.070924, -0.165411, -0.116955, 0.557368, 0.572759])),
+        (0, np.array([0.3023]), np.array([1.0])),
+        (1, np.array([17.70, 3.854, 1.046, 0.2753]),
+            np.array([0.043018, 0.228913, 0.508728, 0.460531])),
+        (1, np.array([0.2753]), np.array([1.0])),
+        (2, np.array([1.185]), np.array([1.0]))],
 }
 
 _BASIS_SETS = {'sto-3g': _STO3G, '6-31g': _631G, 'cc-pvdz': _CCPVDZ}
@@ -692,10 +719,8 @@ def _nuclear_repulsion(symbols: list[str], coords: np.ndarray) -> float:
 
 # RHF-SCF with DIIS -------
 
-def _rhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,
-         n_electrons: int, max_iter: int = 200, tol: float = 1e-10) -> tuple[float, np.ndarray, np.ndarray]:
-    """Restricted Hartree-Fock SCF. Returns (electronic_energy, MO_coefficients, Fock_matrix)."""
-    nbf = S.shape[0]
+def _rhf_core(S, T, V, eri, n_electrons, max_iter, tol, use_diis):
+    """Single RHF SCF run. Returns (electronic_energy, MO_coefficients, Fock_matrix)."""
     n_occ = n_electrons // 2
     H_core = T + V
     eigvals, eigvecs = np.linalg.eigh(S)
@@ -707,34 +732,30 @@ def _rhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,
     D = 2.0 * C[:, :n_occ] @ C[:, :n_occ].T
 
     diis_focks, diis_errors = [], []
-    E_old = 0.0
+    E_old, E_elec = 0.0, 0.0
     for iteration in range(max_iter):
         J = np.einsum('kl,ijkl->ij', D, eri)
         K = np.einsum('kl,ikjl->ij', D, eri)
         F = H_core + J - 0.5 * K
 
-        err = F @ D @ S - S @ D @ F
-        diis_focks.append(F.copy())
-        diis_errors.append(err.copy())
-        if len(diis_focks) > 8:
-            diis_focks.pop(0)
-            diis_errors.pop(0)
-
-        if len(diis_focks) >= 2:
-            n = len(diis_focks)
-            B = np.zeros((n + 1, n + 1))
-            B[-1, :] = B[:, -1] = -1.0
-            B[-1, -1] = 0.0
-            for ii in range(n):
-                for jj in range(n):
-                    B[ii, jj] = np.sum(diis_errors[ii] * diis_errors[jj])
-            rhs = np.zeros(n + 1)
-            rhs[-1] = -1.0
-            try:
-                coeffs = np.linalg.solve(B, rhs)
-                F = sum(c * f for c, f in zip(coeffs[:n], diis_focks))
-            except np.linalg.LinAlgError:
-                pass
+        if use_diis:
+            err = F @ D @ S - S @ D @ F
+            diis_focks.append(F.copy())
+            diis_errors.append(err.copy())
+            if len(diis_focks) > 8: diis_focks.pop(0); diis_errors.pop(0)
+            if len(diis_focks) >= 2:
+                n = len(diis_focks)
+                B = np.zeros((n + 1, n + 1))
+                B[-1, :] = B[:, -1] = -1.0; B[-1, -1] = 0.0
+                for ii in range(n):
+                    for jj in range(n):
+                        B[ii, jj] = np.sum(diis_errors[ii] * diis_errors[jj])
+                rhs = np.zeros(n + 1); rhs[-1] = -1.0
+                try:
+                    coeffs = np.linalg.solve(B, rhs)
+                    F = sum(c * f for c, f in zip(coeffs[:n], diis_focks))
+                except np.linalg.LinAlgError:
+                    pass
 
         F_prime = X.T @ F @ X
         _, C_prime = np.linalg.eigh(F_prime)
@@ -743,11 +764,22 @@ def _rhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,
 
         E_elec = 0.5 * np.sum(D_new * (H_core + F))
         if abs(E_elec - E_old) < tol and iteration > 0:
-            return E_elec, C, F
+            return E_elec, C, F, True
         E_old = E_elec
         D = D_new
 
-    return E_elec, C, F
+    return E_elec, C, F, False
+
+
+def _rhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,
+         n_electrons: int, max_iter: int = 200, tol: float = 1e-10) -> tuple[float, np.ndarray, np.ndarray]:
+    """Restricted Hartree-Fock SCF. Falls back to no-DIIS only if DIIS didn't converge."""
+    E, C, F, converged = _rhf_core(S, T, V, eri, n_electrons, max_iter, tol, use_diis=True)
+    if not converged:
+        E2, C2, F2, _ = _rhf_core(S, T, V, eri, n_electrons, max_iter, tol, use_diis=False)
+        if E2 < E:
+            return E2, C2, F2
+    return E, C, F
 
 
 def _uhf(S: np.ndarray, T: np.ndarray, V: np.ndarray, eri: np.ndarray,

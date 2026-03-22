@@ -1,7 +1,7 @@
 """Simulator package — re-exports for backward compatibility."""
 from .statevector import (
     simulate_statevector, _apply_single_qubit, _apply_two_qubit,
-    _apply_three_qubit, _apply_diagonal_1q, _build_gate_unitary,
+    _apply_three_qubit, _apply_four_qubit, _apply_diagonal_1q, _build_gate_unitary,
     _DIAG_PHASE, _apply_measure, _apply_reset, _apply_gate_noise,
     _apply_batch_1q, _collect_1q_block, _get_cx_perm,
 )

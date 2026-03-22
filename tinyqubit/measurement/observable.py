@@ -6,13 +6,20 @@ from ..simulator import simulate, _apply_single_qubit
 
 
 class Observable:
-    """Sum of weighted Pauli terms: O = Σ cᵢ · Pᵢ"""
-    __slots__ = ('terms',)
+    """Quantum observable: sum of Pauli terms (O = Σ cᵢ · Pᵢ) or a Hermitian matrix."""
+    __slots__ = ('terms', '_matrix')
 
-    def __init__(self, terms: list[tuple[complex, dict[int, str]]]):
-        self.terms = terms
+    def __init__(self, terms_or_matrix):
+        if isinstance(terms_or_matrix, np.ndarray):
+            self.terms = []
+            self._matrix = np.asarray(terms_or_matrix, dtype=complex)
+        else:
+            self.terms = terms_or_matrix
+            self._matrix = None
 
     def __add__(self, other: Observable) -> Observable:
+        if self._matrix is not None or other._matrix is not None:
+            raise TypeError("Cannot add matrix observables with +; combine matrices directly")
         return Observable(self.terms + other.terms)
 
     def __radd__(self, other) -> Observable:
@@ -71,6 +78,8 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
             circuit = circuit.bind()
         state, _ = simulate(circuit)
         n = circuit.n_qubits
+    if observable._matrix is not None:
+        return np.vdot(state, observable._matrix @ state).real
     result = 0.0
     for coeff, paulis in observable.terms:
         psi = state.copy()

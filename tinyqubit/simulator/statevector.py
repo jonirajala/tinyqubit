@@ -55,11 +55,16 @@ def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, pa
         state[idx(1, 0)] *= ep; state[idx(1, 1)] *= em
     elif gate == Gate.ECR:
         s00, s01, s10, s11 = state[idx(0,0)].copy(), state[idx(0,1)].copy(), state[idx(1,0)].copy(), state[idx(1,1)].copy()
-        # ECR matrix: [[0,0,1,i],[0,0,i,1],[1,-i,0,0],[-i,1,0,0]] / sqrt(2)
         state[idx(0,0)] = _SQRT2_INV * (s10 + 1j * s11)
         state[idx(0,1)] = _SQRT2_INV * (1j * s10 + s11)
         state[idx(1,0)] = _SQRT2_INV * (s00 - 1j * s01)
         state[idx(1,1)] = _SQRT2_INV * (-1j * s00 + s01)
+    elif gate == Gate.SEXC:
+        t = params[0]
+        c, s = np.cos(t / 2), np.sin(t / 2)
+        s01, s10 = state[idx(0, 1)].copy(), state[idx(1, 0)].copy()
+        state[idx(0, 1)] = c * s01 - s * s10
+        state[idx(1, 0)] = s * s01 + c * s10
     return state.reshape(-1)
 
 def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, n: int) -> np.ndarray:
@@ -71,6 +76,21 @@ def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int,
         state[idx(1, 1, 0)], state[idx(1, 1, 1)] = state[idx(1, 1, 1)].copy(), state[idx(1, 1, 0)].copy()
     elif gate == Gate.CCZ:
         state[idx(1, 1, 1)] *= -1
+    return state.reshape(-1)
+
+def _apply_four_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, q3: int, n: int, params: tuple = ()) -> np.ndarray:
+    state = state.reshape([2] * n)
+    def idx(v0, v1, v2, v3):
+        i = [slice(None)] * n; i[q0], i[q1], i[q2], i[q3] = v0, v1, v2, v3
+        return tuple(i)
+    if gate == Gate.DEXC:
+        # Givens rotation in |0011⟩ ↔ |1100⟩ subspace
+        t = params[0]
+        c, s = np.cos(t / 2), np.sin(t / 2)
+        s0011 = state[idx(0, 0, 1, 1)].copy()
+        s1100 = state[idx(1, 1, 0, 0)].copy()
+        state[idx(0, 0, 1, 1)] = c * s0011 - s * s1100
+        state[idx(1, 1, 0, 0)] = s * s0011 + c * s1100
     return state.reshape(-1)
 
 def _apply_gate_noise(state: np.ndarray, op, noise_model, n: int, rng) -> np.ndarray:
@@ -211,8 +231,11 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                     continue
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
-        else:  # 3Q
+        elif op.gate.n_qubits == 3:
             state = _apply_three_qubit(state, op.gate, *op.qubits, n)
+            state = _apply_gate_noise(state, op, noise_model, n, rng)
+        else:  # 4Q
+            state = _apply_four_qubit(state, op.gate, *op.qubits, n, op.params)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
     assert abs(np.linalg.norm(state) - 1.0) < 1e-10, "statevector norm drifted"
     return state, classical

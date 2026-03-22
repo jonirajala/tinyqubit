@@ -268,7 +268,7 @@ def _excitation_generator(occupied, virtual) -> list[tuple[complex, dict]]:
     return [(c, d) for c, d in _simplify(terms) if d]
 
 
-def _exp_pauli(c: Circuit, param: Parameter, paulis: dict, negate: bool = False) -> None:
+def _exp_pauli(c: Circuit, param, paulis: dict, negate: bool = False) -> None:
     qubits = sorted(paulis.keys())
     for q in qubits:
         if paulis[q] == 'X': c.h(q)
@@ -288,34 +288,66 @@ def _exp_pauli(c: Circuit, param: Parameter, paulis: dict, negate: bool = False)
 
 
 def apply_excitation(c: Circuit, occ, virt, param: Parameter) -> None:
-    """Append a fermionic excitation (occ→virt) to circuit c with the given parameter."""
-    for coeff, paulis in _excitation_generator(occ, virt):
-        _exp_pauli(c, param, paulis, negate=coeff.imag > 0)
+    """Append a fermionic excitation (occ→virt) via Trotterized JW Pauli exponentials.
+
+    Each Pauli term gets the correct coefficient scaling so that the RZ angle
+    matches the physical rotation: exp(θ · c_k · P_k) uses RZ(2|c_k|·θ).
+    """
+    gen = _excitation_generator(occ, virt)
+    for coeff, paulis in gen:
+        scale = 2 * abs(coeff.imag)  # singles: 1.0, doubles: 0.25
+        scaled_param = scale * param if scale != 1.0 else param
+        _exp_pauli(c, scaled_param, paulis, negate=(coeff.imag > 0))
 
 
 def excitation_pool(n_qubits: int, n_electrons: int) -> list:
-    """All single and double excitation operators as (occupied, virtual) tuples."""
+    """Spin-conserving single and double excitation operators as (occupied, virtual) tuples.
+
+    Filters by spin symmetry: only same-spin singles (α→α, β→β) and
+    spin-conserving doubles. Matches PennyLane's qml.qchem.excitations.
+    """
     occupied = list(range(n_electrons))
     virtual = list(range(n_electrons, n_qubits))
-    pool = [(i, a) for i in occupied for a in virtual]
-    pool += [((i, j), (a, b)) for ii, i in enumerate(occupied) for j in occupied[ii + 1:]
-             for aa, a in enumerate(virtual) for b in virtual[aa + 1:]]
+    # Singles: same spin only (even→even, odd→odd)
+    pool = [(i, a) for i in occupied for a in virtual if i % 2 == a % 2]
+    # Doubles: spin-conserving (total spin of occupied pair == total spin of virtual pair)
+    for ii, i in enumerate(occupied):
+        for j in occupied[ii + 1:]:
+            for aa, a in enumerate(virtual):
+                for b in virtual[aa + 1:]:
+                    if (i % 2 + j % 2) == (a % 2 + b % 2):
+                        pool.append(((i, j), (a, b)))
+    return pool
+
+
+def qubit_excitation_pool(n_qubits: int) -> list[dict]:
+    """Qubit operator pool for qubit-ADAPT-VQE: individual Pauli strings on qubit pairs.
+
+    Each pool element is a single Pauli string dict. The ADAPT loop appends
+    exp(-iθP/2) for the selected P. Returns XY, YX, XX, YY on each qubit pair.
+    """
+    pool = []
+    for i in range(n_qubits):
+        for j in range(i + 1, n_qubits):
+            for p1, p2 in [('X','Y'), ('Y','X'), ('X','X'), ('Y','Y')]:
+                pool.append({i: p1, j: p2})
     return pool
 
 
 def uccsd_ansatz(n_qubits: int, n_electrons: int, include_hf: bool = True) -> Circuit:
-    """UCCSD ansatz with Trotterized single and double excitations."""
+    """UCCSD ansatz: doubles first, then singles (matching PennyLane UCCSD ordering)."""
     c = Circuit(n_qubits)
     if include_hf:
         for i in range(n_electrons):
             c.x(i)
     pool = excitation_pool(n_qubits, n_electrons)
-    s_idx = d_idx = 0
-    for occ, virt in pool:
-        if isinstance(occ, int):
-            apply_excitation(c, occ, virt, Parameter(f"s_{s_idx}")); s_idx += 1
-        else:
-            apply_excitation(c, occ, virt, Parameter(f"d_{d_idx}")); d_idx += 1
+    singles = [(o, v) for o, v in pool if isinstance(o, int)]
+    doubles = [(o, v) for o, v in pool if not isinstance(o, int)]
+    d_idx = s_idx = 0
+    for occ, virt in doubles:
+        apply_excitation(c, occ, virt, Parameter(f"d_{d_idx}")); d_idx += 1
+    for occ, virt in singles:
+        apply_excitation(c, occ, virt, Parameter(f"s_{s_idx}")); s_idx += 1
     return c
 
 
@@ -341,19 +373,25 @@ def adapt_vqe(H: Observable, n_qubits: int, n_electrons: int,
               opt_steps: int = 100, stepsize: float = 0.1) -> tuple[Circuit, float, list]:
     """ADAPT-VQE: grow ansatz by iteratively selecting operators with largest gradient.
 
-    Returns (circuit, energy, history) where history is [(energy, max_gradient), ...].
+    Deduplicates: each operator can only be selected once. Returns (circuit, energy, history).
     """
     from .optim import Adam
     from ..measurement.observable import expectation
     pool = excitation_pool(n_qubits, n_electrons)
     circuit = hf_state(n_qubits, n_electrons)
-    history, energy = [], 0.0
+    history, energy, used = [], 0.0, set()
     for it in range(max_iters):
         grads = pool_gradients(circuit, H, pool)
-        idx = int(np.argmax(np.abs(grads)))
-        max_grad = float(np.abs(grads[idx]))
-        if max_grad < threshold:
+        order = np.argsort(-np.abs(grads))
+        # Pick the highest-gradient operator not yet used
+        idx = None
+        for j in order:
+            if j not in used and abs(grads[j]) >= threshold:
+                idx = int(j); break
+        if idx is None:
             break
+        used.add(idx)
+        max_grad = float(np.abs(grads[idx]))
         apply_excitation(circuit, *pool[idx], Parameter(f"a_{it}"))
         circuit.param_values[f"a_{it}"] = 0.0
         opt = Adam(stepsize=stepsize)

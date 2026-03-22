@@ -4,7 +4,7 @@ import numpy as np
 from math import pi
 from typing import TYPE_CHECKING
 from ..ir import Circuit, Gate, _has_parameter, _get_gate_matrix
-from .statevector import simulate_statevector, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit
+from .statevector import simulate_statevector, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _apply_four_qubit
 from .density import simulate_density
 from .stabilizer import is_clifford, simulate_stabilizer
 from .mps import simulate_mps, mps_to_statevector

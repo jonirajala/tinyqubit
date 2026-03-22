@@ -17,8 +17,8 @@ from tinyqubit.qasm import to_openqasm2
 # =============================================================================
 
 def test_gate_count():
-    """We have exactly 22 primitive gates"""
-    assert len(Gate) == 22
+    """We have exactly 24 primitive gates (22 original + SEXC + DEXC)"""
+    assert len(Gate) == 24
 
 
 def test_gate_n_qubits():

@@ -16,12 +16,30 @@ class Parameter:
     def __repr__(self): return f"Parameter({self.name!r})"
     def __eq__(self, other): return isinstance(other, Parameter) and self.name == other.name
     def __hash__(self): return hash(('Parameter', self.name))
+    def __mul__(self, other): return ScaledParam(other, self)
+    def __rmul__(self, other): return ScaledParam(other, self)
 
 
-def _has_parameter(params: tuple) -> bool: return any(isinstance(p, Parameter) for p in params)
+class ScaledParam:
+    """scale * Parameter — resolved at bind time."""
+    __slots__ = ('scale', 'param')
+    def __init__(self, scale: float, param: Parameter):
+        self.scale, self.param = scale, param
+    @property
+    def name(self): return self.param.name
+    @property
+    def trainable(self): return self.param.trainable
+
+
+def _is_param(p) -> bool: return isinstance(p, (Parameter, ScaledParam))
+def _has_parameter(params: tuple) -> bool: return any(_is_param(p) for p in params)
+def _resolve(p, values: dict):
+    if isinstance(p, ScaledParam) and p.param.name in values: return p.scale * values[p.param.name]
+    if isinstance(p, Parameter) and p.name in values: return values[p.name]
+    return p
 
 class Gate(Enum):
-    """22 primitive quantum gates."""
+    """24 primitive quantum gates."""
     # Pauli gates
     X = auto()
     Y = auto()
@@ -49,6 +67,8 @@ class Gate(Enum):
     SWAP = auto()
     ECR = auto()   # Echoed cross-resonance
     RZZ = auto()   # ZZ interaction
+    SEXC = auto()  # Single excitation (Givens rotation in |01⟩,|10⟩ subspace)
+    DEXC = auto()  # Double excitation (Givens rotation in |0011⟩,|1100⟩ subspace)
 
     # Three-qubit
     CCX = auto()   # Toffoli
@@ -60,12 +80,13 @@ class Gate(Enum):
 
     @property
     def n_qubits(self) -> int:
-        if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP, Gate.ECR, Gate.RZZ): return 2
+        if self in (Gate.CX, Gate.CZ, Gate.CP, Gate.SWAP, Gate.ECR, Gate.RZZ, Gate.SEXC): return 2
         if self in (Gate.CCX, Gate.CCZ): return 3
+        if self == Gate.DEXC: return 4
         return 1
 
     @property
-    def n_params(self) -> int: return 1 if self in (Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ) else 0
+    def n_params(self) -> int: return 1 if self in (Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ, Gate.SEXC, Gate.DEXC) else 0
 
 
 @dataclass(frozen=True)
@@ -101,7 +122,7 @@ def _get_gate_matrix(gate: Gate, params: tuple = ()) -> np.ndarray:
 
 
 _GATE_ADJOINT = {Gate.S: Gate.SDG, Gate.SDG: Gate.S, Gate.T: Gate.TDG, Gate.TDG: Gate.T}
-_PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ})
+_PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ, Gate.SEXC, Gate.DEXC})
 _2Q_DRAW_SYMS = {Gate.CX: ("●", "X"), Gate.CZ: ("●", "●"), Gate.SWAP: ("╳", "╳"),
                  Gate.CP: ("●", "P"), Gate.ECR: ("ECR", "ECR"), Gate.RZZ: ("RZZ", "RZZ")}
 
@@ -159,6 +180,8 @@ class Circuit:
     def sx(self, q: int) -> "Circuit": return self._add(Gate.SX, (q,))
     def ecr(self, q0: int, q1: int) -> "Circuit": return self._add(Gate.ECR, (q0, q1))
     def rzz(self, q0: int, q1: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.RZZ, (q0, q1), (theta,))
+    def sexc(self, q0: int, q1: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.SEXC, (q0, q1), (theta,))
+    def dexc(self, q0: int, q1: int, q2: int, q3: int, theta: "float | Parameter") -> "Circuit": return self._add(Gate.DEXC, (q0, q1, q2, q3), (theta,))
     def ccx(self, c1: int, c2: int, t: int) -> "Circuit": return self._add(Gate.CCX, (c1, c2, t))
     def ccz(self, a: int, b: int, c: int) -> "Circuit": return self._add(Gate.CCZ, tuple(sorted([a, b, c])))  # Symmetric → canonicalize
 
@@ -181,7 +204,7 @@ class Circuit:
     @property
     def parameters(self) -> set[Parameter]:
         """Return set of all unbound Parameters in the circuit."""
-        return {p for op in self.ops for p in op.params if isinstance(p, Parameter)}
+        return {(p.param if isinstance(p, ScaledParam) else p) for op in self.ops for p in op.params if _is_param(p)}
 
     @property
     def trainable_parameters(self) -> set[Parameter]:
@@ -200,7 +223,7 @@ class Circuit:
             names = []
             for op in self.ops:
                 for p in op.params:
-                    if isinstance(p, Parameter) and (not trainable_only or p.trainable) and p.name not in seen:
+                    if _is_param(p) and (not trainable_only or p.trainable) and p.name not in seen:
                         seen.add(p.name)
                         names.append(p.name)
         elif order == 'sorted':
@@ -223,8 +246,7 @@ class Circuit:
         c.backend = self.backend
         for op in self.ops:
             if _has_parameter(op.params):
-                new_params = tuple(values[p.name] if isinstance(p, Parameter) and p.name in values else p
-                                   for p in op.params)
+                new_params = tuple(_resolve(p, values) if _is_param(p) else p for p in op.params)
                 c.ops.append(Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition))
             else:
                 c.ops.append(op)
@@ -235,7 +257,7 @@ class Circuit:
         if not hasattr(self, '_param_slots'):
             self._param_slots = [(i, op) for i, op in enumerate(self.ops) if _has_parameter(op.params)]
         for i, tmpl in self._param_slots:
-            new_params = tuple(values[p.name] if isinstance(p, Parameter) and p.name in values else p for p in tmpl.params)
+            new_params = tuple(_resolve(p, values) if _is_param(p) else p for p in tmpl.params)
             self.ops[i] = Operation(tmpl.gate, tmpl.qubits, new_params, tmpl.classical_bit, tmpl.condition)
         return self
 
