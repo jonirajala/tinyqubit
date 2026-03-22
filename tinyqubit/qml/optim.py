@@ -283,18 +283,26 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str,
     if observable._matrix is not None:
         lam = observable._matrix @ state
     else:
+        dim = 1 << n
         lam_t = np.zeros(([2] * n), dtype=state.dtype)
         state_t = state.reshape([2] * n)
+        # Batch Z-only terms via popcount parity (avoids per-term state copy)
+        z_terms = [(c, p) for c, p in observable.terms if p and set(p.values()) <= {'Z'}]
+        if z_terms:
+            idx = np.arange(dim, dtype=np.int32)
+            weights = np.zeros(dim, dtype=np.float64)
+            for coeff, paulis in z_terms:
+                mask = sum(1 << (n - 1 - q) for q in paulis)
+                v = idx & mask
+                v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
+                weights += coeff * (1 - 2 * (v & 1))
+            lam_t += (state.reshape(-1) * weights).reshape([2] * n)
         for coeff, paulis in observable.terms:
+            if not paulis: lam_t += coeff * state_t; continue
             types = set(paulis.values())
+            if types <= {'Z'}: continue  # already handled above
             qubits = tuple(paulis.keys())
-            if types <= {'Z'}:
-                t = state_t.copy()
-                for q in qubits:
-                    idx1 = [slice(None)] * n; idx1[q] = 1
-                    t[tuple(idx1)] *= -1
-                lam_t += coeff * t
-            elif types <= {'X'}:
+            if types <= {'X'}:
                 lam_t += coeff * np.flip(state_t, axis=qubits)
             elif types <= {'Y'}:
                 flipped = np.flip(state_t, axis=qubits)
