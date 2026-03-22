@@ -258,13 +258,17 @@ class Circuit:
         c = Circuit(self.n_qubits, self.n_classical)
         c._initial_state = self._initial_state
         c.backend = self.backend
-        for op in self.ops:
-            if _has_parameter(op.params):
-                new_params = tuple(_resolve(p, values) if _is_param(p) else p for p in op.params)
-                c.ops.append(Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition))
-            else:
-                c.ops.append(op)
-        c._validated = True  # bound circuits have no unbound params and valid qubits
+        # Cache param slots for fast repeated bind on same structure
+        slots = getattr(self, '_bind_slots', None)
+        if slots is None:
+            slots = [i for i, op in enumerate(self.ops) if _has_parameter(op.params)]
+            self._bind_slots = slots
+        c.ops = list(self.ops)  # shallow copy — share non-parametric Operation objects
+        for i in slots:
+            op = self.ops[i]
+            new_params = tuple(_resolve(p, values) if _is_param(p) else p for p in op.params)
+            c.ops[i] = Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition)
+        c._validated = True
         return c
 
     def bind_params(self, values: dict[str, float]) -> "Circuit":
