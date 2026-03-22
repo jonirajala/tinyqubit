@@ -40,10 +40,15 @@ def _has_scaled_params(circuit: Circuit) -> bool:
 def _shift_gradient(circuit: Circuit, observable: Observable, params: dict[str, float],
                     shift: float, divisor: float, exp_fn) -> dict[str, float]:
     grad = {}
+    work = circuit.bind({})  # copy with Parameters intact for rebinding
     for param in sorted(circuit.parameters, key=lambda p: p.name):
         v_plus = {**params, param.name: params[param.name] + shift}
         v_minus = {**params, param.name: params[param.name] - shift}
-        grad[param.name] = (exp_fn(circuit.bind(v_plus), observable) - exp_fn(circuit.bind(v_minus), observable)) / divisor
+        work.bind_params(v_plus)
+        e_plus = exp_fn(work, observable)
+        work.bind_params(v_minus)
+        e_minus = exp_fn(work, observable)
+        grad[param.name] = (e_plus - e_minus) / divisor
     return grad
 
 
