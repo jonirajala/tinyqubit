@@ -19,3 +19,4 @@ d091da0	766.5	22/22	keep	fuse RZZ/CP into diagonal phase vector (qaoa_18 -50%)
 704e661	0.0	20/22	crash	unified CZ/RZZ into _collect_1q_block (ordering bug: RZZ before RX)
 148f5f1	907.0	22/22	keep	extend standalone diag 2Q batch to RZZ/CP
 e2f70d4	523.9	22/22	keep	2D GEMM for edge kron groups (hea_20 -54%)
+f2ad6f1	456.8	22/22	keep	reuse buf for phase vector (avoid alloc)

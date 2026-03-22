@@ -230,7 +230,9 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             q_last = non_diag[nd_i + run - 1][1]
             combined = non_diag[nd_i][0]
             for j in range(1, run):
-                combined = np.kron(combined, non_diag[nd_i + j][0])
+                b = non_diag[nd_i + j][0]
+                combined = (combined[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
+                    combined.shape[0] * 2, combined.shape[1] * 2)
             dim = 1 << run
             nq = 1 << q_first
             nr = 1 << (n - q_last - 1)
