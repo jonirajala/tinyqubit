@@ -233,19 +233,16 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 mat = mat_or_phase
                 qubit = op.qubits[0]
                 nql, nr = 1 << qubit, 1 << (n - qubit - 1)
-                if nr > 1:
+                if nr <= 1:
+                    # NOTE: 2D GEMM much faster than 3D batch for nr=1
+                    np.matmul(state.reshape(nql, 2), mat.T, out=buf_s.reshape(nql, 2))
+                    np.matmul(lam.reshape(nql, 2), mat.T, out=buf_l.reshape(nql, 2))
+                elif nql == 1:
+                    np.matmul(mat, state.reshape(2, nr), out=buf_s.reshape(2, nr))
+                    np.matmul(mat, lam.reshape(2, nr), out=buf_l.reshape(2, nr))
+                else:
                     np.matmul(mat, state.reshape(nql, 2, nr), out=buf_s.reshape(nql, 2, nr))
                     np.matmul(mat, lam.reshape(nql, 2, nr), out=buf_l.reshape(nql, 2, nr))
-                else:
-                    i0, i1 = idxs
-                    st, bs = state.reshape([2] * n), buf_s.reshape([2] * n)
-                    ss0, ss1 = st[i0], st[i1]
-                    bs[i0] = mat[0, 0] * ss0 + mat[0, 1] * ss1
-                    bs[i1] = mat[1, 0] * ss0 + mat[1, 1] * ss1
-                    la, bl = lam.reshape([2] * n), buf_l.reshape([2] * n)
-                    ls0, ls1 = la[i0], la[i1]
-                    bl[i0] = mat[0, 0] * ls0 + mat[0, 1] * ls1
-                    bl[i1] = mat[1, 0] * ls0 + mat[1, 1] * ls1
                 state, buf_s = buf_s, state
                 lam, buf_l = buf_l, lam
             elif anq == 2:

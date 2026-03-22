@@ -1,0 +1,39 @@
+=== TinyQubit Gradient Benchmark ===
+
+Baseline loaded: gradient_baseline.json (14 benchmarks)
+
+Correctness:
+  vqe_hea_4q_3l          PASS  (err=0.00e+00 |g|=1.299117)
+  vqe_hea_8q_3l          PASS  (err=0.00e+00 |g|=1.653846)
+  vqe_hea_12q_3l         PASS  (err=1.00e-10 |g|=1.518702)
+  vqe_hea_16q_3l         PASS  (err=5.00e-10 |g|=0.637454)
+  vqe_hea_8q_heisen      PASS  (err=1.00e-10 |g|=2.761298)
+  uccsd_4q               PASS  (err=0.00e+00 |g|=0.931587)
+  uccsd_8q               PASS  (err=0.00e+00 |g|=4.133549)
+  qaoa_8q_p3             PASS  (err=0.00e+00 |g|=0.000000)
+  qaoa_14q_p3            PASS  (err=2.00e-10 |g|=0.000000)
+  reupl_1q_4f_6l         PASS  (err=1.00e-10 |g|=2.117037)
+  random_8q_d5           PASS  (err=0.00e+00 |g|=0.415975)
+  random_14q_d5          PASS  (err=0.00e+00 |g|=0.219164)
+  pshift_hea_8q_3l       PASS  (err=0.00e+00 |g|=1.653846)
+  backprop_hea_8q        PASS  (err=1.47e-06 |g|=0.559082)
+
+Performance:
+  Benchmark              Qubits Params    Ops   Time(ms)   Baseline     Change
+  --------------------------------------------------------------------------
+  vqe_hea_4q_3l               4     24     33      0.821      0.600 +37% REGR!
+  vqe_hea_8q_3l               8     48     69      2.048      1.548 +32% REGR!
+  vqe_hea_12q_3l             12     72    105      4.790      5.751 -17% FASTER
+  vqe_hea_16q_3l             16     96    141     72.596     67.796        +7%
+  vqe_hea_8q_heisen           8     48     69      1.219      1.914 -36% FASTER
+  uccsd_4q                    4      5     19      0.503      0.273 +84% REGR!
+  uccsd_8q                    8     19     67      1.829      1.204 +52% REGR!
+  qaoa_8q_p3                  8      6     53      2.396      2.104       +14%
+  qaoa_14q_p3                14      6     95     24.923     24.783        +1%
+  reupl_1q_4f_6l              1     30     30      0.546      0.535        +2%
+  random_8q_d5                8     40     75      2.514      2.538        -1%
+  random_14q_d5              14     70    135     30.912     25.108  +23% warn
+  pshift_hea_8q_3l            8     48     69     86.936     87.806        -1%
+  backprop_hea_8q             8     48     69      2.964      1.983 +49% REGR!
+
+Summary: 14/14 correctness PASS, 2 faster, 6 regressions
