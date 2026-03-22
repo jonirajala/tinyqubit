@@ -6,3 +6,4 @@ f246ea7	977.9	9/9	keep	cache sim buffers on circuit (sweep/eval -12%)
 4fc2a31	975.1	9/9	keep	fast bind: shallow copy + parametric slots only
 9af703d	984.6	9/9	keep	cache z_idx array across Z-only terms
 d8911cd	985.1	9/9	keep	_GATE_NQ dict for O(1) n_qubits lookup (eval_12q -29%)
+c084877	952.8	9/9	keep	cache 1Q index tuples (kernel -12%)

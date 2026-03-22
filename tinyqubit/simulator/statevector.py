@@ -44,29 +44,37 @@ def _apply_single_qubit(state: np.ndarray, matrix: np.ndarray, qubit: int, n: in
     out[i1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
     return out.reshape(-1)
 
+_2Q_IDX_CACHE: dict[tuple[int, int, int], tuple[tuple, tuple, tuple, tuple]] = {}
+
+def _get_2q_idx(n: int, q0: int, q1: int) -> tuple[tuple, tuple, tuple, tuple]:
+    key = (n, q0, q1)
+    if key not in _2Q_IDX_CACHE:
+        sl = slice(None)
+        def _mk(v0, v1):
+            i = [sl] * n; i[q0] = v0; i[q1] = v1; return tuple(i)
+        _2Q_IDX_CACHE[key] = (_mk(0, 0), _mk(0, 1), _mk(1, 0), _mk(1, 1))
+    return _2Q_IDX_CACHE[key]
+
 def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, params: tuple = ()) -> np.ndarray:
     state = state.reshape([2] * n)
-    def idx(v0, v1):
-        i = [slice(None)] * n
-        i[q0], i[q1] = v0, v1
-        return tuple(i)
+    i00, i01, i10, i11 = _get_2q_idx(n, q0, q1)
     if gate == Gate.CX:
-        tmp = state[idx(1, 0)].copy(); state[idx(1, 0)] = state[idx(1, 1)]; state[idx(1, 1)] = tmp
-    elif gate == Gate.CZ: state[idx(1, 1)] *= -1
+        tmp = state[i10].copy(); state[i10] = state[i11]; state[i11] = tmp
+    elif gate == Gate.CZ: state[i11] *= -1
     elif gate == Gate.SWAP:
-        tmp = state[idx(0, 1)].copy(); state[idx(0, 1)] = state[idx(1, 0)]; state[idx(1, 0)] = tmp
-    elif gate == Gate.CP: state[idx(1, 1)] *= np.exp(1j * params[0])
+        tmp = state[i01].copy(); state[i01] = state[i10]; state[i10] = tmp
+    elif gate == Gate.CP: state[i11] *= np.exp(1j * params[0])
     elif gate == Gate.RZZ:
         t = params[0]
         em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
-        state[idx(0, 0)] *= em; state[idx(0, 1)] *= ep
-        state[idx(1, 0)] *= ep; state[idx(1, 1)] *= em
+        state[i00] *= em; state[i01] *= ep
+        state[i10] *= ep; state[i11] *= em
     elif gate == Gate.ECR:
-        s00, s01, s10, s11 = state[idx(0,0)].copy(), state[idx(0,1)].copy(), state[idx(1,0)].copy(), state[idx(1,1)].copy()
-        state[idx(0,0)] = _SQRT2_INV * (s10 + 1j * s11)
-        state[idx(0,1)] = _SQRT2_INV * (1j * s10 + s11)
-        state[idx(1,0)] = _SQRT2_INV * (s00 - 1j * s01)
-        state[idx(1,1)] = _SQRT2_INV * (-1j * s00 + s01)
+        s00, s01, s10, s11 = state[i00].copy(), state[i01].copy(), state[i10].copy(), state[i11].copy()
+        state[i00] = _SQRT2_INV * (s10 + 1j * s11)
+        state[i01] = _SQRT2_INV * (1j * s10 + s11)
+        state[i10] = _SQRT2_INV * (s00 - 1j * s01)
+        state[i11] = _SQRT2_INV * (-1j * s00 + s01)
     elif gate == Gate.SEXC:
         t = params[0]
         c, s = np.cos(t / 2), np.sin(t / 2)
