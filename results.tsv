@@ -1,0 +1,3 @@
+commit	total_ms	correctness	status	description
+b3bf005	2105.5	16/16	keep	baseline
+88ac1dc	0.0	16/16	discard	np.take with output buf for CX perm (~1% on ghz_23, not worth it)

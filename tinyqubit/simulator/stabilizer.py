@@ -179,25 +179,22 @@ class StabilizerState:
         dim = 2 ** n
         state = np.zeros(dim, dtype=complex)
         state[seed] = 1.0
+        indices = np.arange(dim, dtype=np.int64)
         for ri in range(n_pivots):
             row = row_perm[ri]
             sign = -1.0 if sr[row] else 1.0
-            # Apply Pauli operator from row to state
-            p_state = state.copy()
-            for q in range(n):
-                xq, zq = sx[row, q], sz[row, q]
-                if not xq and not zq:
-                    continue
-                p_state = p_state.reshape([2] * n)
-                idx0 = [slice(None)] * n; idx0[q] = 0
-                idx1 = [slice(None)] * n; idx1[q] = 1
-                idx0, idx1 = tuple(idx0), tuple(idx1)
-                s0, s1 = p_state[idx0].copy(), p_state[idx1].copy()
-                out = np.empty_like(p_state)
-                if xq and zq: out[idx0], out[idx1] = -1j * s1, 1j * s0   # Y
-                elif xq: out[idx0], out[idx1] = s1, s0               # X
-                else: out[idx0], out[idx1] = s0, -s1              # Z
-                p_state = out.reshape(-1)
+            # Vectorized Pauli application: P|b⟩ = phase(b) × |b ⊕ x_mask⟩
+            x_mask = sum((1 << (n - 1 - q)) for q in range(n) if sx[row, q])
+            z_mask = sum((1 << (n - 1 - q)) for q in range(n) if sz[row, q])
+            b_orig = indices ^ x_mask
+            if z_mask == 0:
+                p_state = state[b_orig]
+            else:
+                n_y = bin(x_mask & z_mask).count('1')
+                v = (b_orig & z_mask).astype(np.int32)
+                v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
+                phase = (1j ** n_y) * (1 - 2 * (v & 1)).astype(complex)
+                p_state = phase * state[b_orig]
             state = state + sign * p_state
             norm = np.linalg.norm(state)
             if norm > 1e-15:
