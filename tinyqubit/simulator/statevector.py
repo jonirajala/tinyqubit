@@ -14,28 +14,34 @@ if TYPE_CHECKING:
 
 _DIAG_PHASE = {Gate.Z: -1, Gate.S: 1j, Gate.SDG: -1j,
                Gate.T: np.exp(1j * pi / 4), Gate.TDG: np.exp(-1j * pi / 4)}
+_1Q_IDX_CACHE: dict[tuple[int, int], tuple[tuple, tuple]] = {}
+
+def _get_1q_idx(n: int, qubit: int) -> tuple[tuple, tuple]:
+    key = (n, qubit)
+    if key not in _1Q_IDX_CACHE:
+        i0 = [slice(None)] * n; i0[qubit] = 0
+        i1 = [slice(None)] * n; i1[qubit] = 1
+        _1Q_IDX_CACHE[key] = (tuple(i0), tuple(i1))
+    return _1Q_IDX_CACHE[key]
 
 def _apply_diagonal_1q(state: np.ndarray, gate: Gate, qubit: int, n: int, params: tuple) -> np.ndarray:
     state = state.reshape([2] * n)
-    idx1 = [slice(None)] * n; idx1[qubit] = 1
+    i0, i1 = _get_1q_idx(n, qubit)
     if gate == Gate.RZ:
-        idx0 = [slice(None)] * n; idx0[qubit] = 0
         t = params[0]
-        state[tuple(idx0)] *= np.exp(-1j * t / 2)
-        state[tuple(idx1)] *= np.exp(1j * t / 2)
+        state[i0] *= np.exp(-1j * t / 2)
+        state[i1] *= np.exp(1j * t / 2)
     else:
-        state[tuple(idx1)] *= _DIAG_PHASE[gate]
+        state[i1] *= _DIAG_PHASE[gate]
     return state.reshape(-1)
 
 def _apply_single_qubit(state: np.ndarray, matrix: np.ndarray, qubit: int, n: int) -> np.ndarray:
     state = state.reshape([2] * n)
-    idx0 = [slice(None)] * n; idx0[qubit] = 0
-    idx1 = [slice(None)] * n; idx1[qubit] = 1
-    idx0, idx1 = tuple(idx0), tuple(idx1)
-    s0, s1 = state[idx0], state[idx1]
+    i0, i1 = _get_1q_idx(n, qubit)
+    s0, s1 = state[i0], state[i1]
     out = np.empty_like(state)
-    out[idx0] = matrix[0, 0] * s0 + matrix[0, 1] * s1
-    out[idx1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
+    out[i0] = matrix[0, 0] * s0 + matrix[0, 1] * s1
+    out[i1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
     return out.reshape(-1)
 
 def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, params: tuple = ()) -> np.ndarray:
