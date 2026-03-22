@@ -7,7 +7,7 @@ from __future__ import annotations
 import numpy as np
 from math import pi
 from typing import TYPE_CHECKING
-from ..ir import Circuit, Gate, _has_parameter, _SQRT2_INV, _GATE_1Q_CACHE, _get_gate_matrix
+from ..ir import Circuit, Gate, _has_parameter, _SQRT2_INV, _GATE_1Q_CACHE, _get_gate_matrix, _GATE_NQ
 
 if TYPE_CHECKING:
     from .noise import NoiseModel
@@ -175,7 +175,7 @@ def _collect_fusable_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray
     while i < len(ops):
         op = ops[i]
         if op.condition is not None or op.gate in (Gate.MEASURE, Gate.RESET): break
-        if op.gate.n_qubits == 1:
+        if _GATE_NQ[op.gate] == 1:
             q = op.qubits[0]
             mat = _get_gate_matrix(op.gate, op.params)
             fused[q] = mat @ fused[q] if q in fused else mat
@@ -311,7 +311,7 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 classical[op.classical_bit] = outcome
         elif op.gate == Gate.RESET:
             state = _apply_reset(state, op.qubits[0], n, rng)
-        elif (nq := op.gate.n_qubits) == 1:
+        elif (nq := _GATE_NQ[op.gate]) == 1:
             if buf is not None:
                 group, diag_2q_ops, end_i = _collect_fusable_block(ops, i)
                 if len(group) > 1 or diag_2q_ops:

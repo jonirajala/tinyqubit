@@ -4,3 +4,4 @@ commit	total_ms	correctness	status	description
 c926faf	946.1	9/9	keep	Z-only fast path in expectation (kernel -15%, sweep -12%)
 f246ea7	977.9	9/9	keep	cache sim buffers on circuit (sweep/eval -12%)
 4fc2a31	975.1	9/9	keep	fast bind: shallow copy + parametric slots only
+9af703d	984.6	9/9	keep	cache z_idx array across Z-only terms

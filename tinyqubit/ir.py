@@ -122,6 +122,7 @@ def _get_gate_matrix(gate: Gate, params: tuple = ()) -> np.ndarray:
 
 
 _GATE_ADJOINT = {Gate.S: Gate.SDG, Gate.SDG: Gate.S, Gate.T: Gate.TDG, Gate.TDG: Gate.T}
+_GATE_NQ = {g: g.n_qubits for g in Gate}  # pre-computed dict for hot-path lookup
 _PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ, Gate.SEXC, Gate.DEXC})
 _2Q_DRAW_SYMS = {Gate.CX: ("●", "X"), Gate.CZ: ("●", "●"), Gate.SWAP: ("╳", "╳"),
                  Gate.CP: ("●", "P"), Gate.ECR: ("ECR", "ECR"), Gate.RZZ: ("RZZ", "RZZ")}
