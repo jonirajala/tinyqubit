@@ -11,6 +11,7 @@ from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit,
 
 _H_MAT = _SQRT2_INV * np.array([[1,1],[1,-1]], dtype=complex)
 _Y2Z_MAT = _SQRT2_INV * np.array([[1,-1j],[1,1j]], dtype=complex)
+_BACKWARD_PERM_GATES = frozenset({Gate.CX, Gate.SWAP})
 
 
 def _shot_expectation(circuit: Circuit, observable: Observable, shots: int, seed: int | None = None) -> float:
@@ -159,13 +160,12 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
 
     # Precompute CX/SWAP block boundaries for batch permutation in backward traversal
     perm_block_start = {}  # block_end_k -> (block_start_k, perm_inv)
-    _PERM_GATES = frozenset({Gate.CX, Gate.SWAP})
     if n >= 10:
         j = len(bound.ops) - 1
         while j >= 0:
-            if bound.ops[j].gate in _PERM_GATES and j not in param_map:
+            if bound.ops[j].gate in _BACKWARD_PERM_GATES and j not in param_map:
                 end = j
-                while j > 0 and bound.ops[j - 1].gate in _PERM_GATES and (j - 1) not in param_map:
+                while j > 0 and bound.ops[j - 1].gate in _BACKWARD_PERM_GATES and (j - 1) not in param_map:
                     j -= 1
                 start = j
                 if end > start:
