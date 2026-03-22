@@ -5,3 +5,4 @@ b3bf005	2105.5	16/16	keep	baseline
 2e3da8f	0.0	12/16	crash	diagonal specialization in batch_1q (hash mismatch)
 2ab6cbc	1100.9	16/16	keep	lazy indices + state[::-1] for all-X (ghz_23 -94%)
 75a2426	1494.4	16/16	keep	short-circuit 1-pivot pure-X stabilizer (ghz_23 -99%)
+b7e446a	841.6	16/16	keep	single-copy swap + np.take for CX perm

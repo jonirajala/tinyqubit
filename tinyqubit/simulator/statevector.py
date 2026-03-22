@@ -152,6 +152,15 @@ def _collect_cx_block(ops: list, start: int) -> tuple[tuple[tuple[int, int], ...
     return (tuple(pairs), i) if len(pairs) >= 2 else (None, start)
 
 
+def _collect_cz_block(ops: list, start: int) -> tuple[list[tuple[int, int]] | None, int]:
+    i, pairs = start, []
+    while i < len(ops):
+        op = ops[i]
+        if op.gate != Gate.CZ or op.condition is not None: break
+        pairs.append((op.qubits[0], op.qubits[1]))
+        i += 1
+    return (pairs, i) if len(pairs) >= 2 else (None, start)
+
 def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], int]:
     fused, i = {}, start
     while i < len(ops):
@@ -225,13 +234,25 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif op.gate.n_qubits == 2:
-            if buf is not None and op.gate == Gate.CX and noise_model is None:
-                cx_pairs, end_i = _collect_cx_block(ops, i)
-                if cx_pairs is not None:
-                    np.take(state, _get_cx_perm(cx_pairs, n), out=buf)
-                    state, buf = buf, state
-                    for _ in range(end_i - i - 1): next(ops_iter)
-                    continue
+            if buf is not None and noise_model is None:
+                if op.gate == Gate.CX:
+                    cx_pairs, end_i = _collect_cx_block(ops, i)
+                    if cx_pairs is not None:
+                        np.take(state, _get_cx_perm(cx_pairs, n), out=buf)
+                        state, buf = buf, state
+                        for _ in range(end_i - i - 1): next(ops_iter)
+                        continue
+                elif op.gate == Gate.CZ:
+                    cz_pairs, end_i = _collect_cz_block(ops, i)
+                    if cz_pairs is not None:
+                        mask = np.ones(1 << n, dtype=np.float64)
+                        mt = mask.reshape([2] * n)
+                        for q0, q1 in cz_pairs:
+                            idx = [slice(None)] * n; idx[q0] = 1; idx[q1] = 1
+                            mt[tuple(idx)] *= -1
+                        state *= mask
+                        for _ in range(end_i - i - 1): next(ops_iter)
+                        continue
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
             state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif op.gate.n_qubits == 3:
