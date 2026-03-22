@@ -242,12 +242,12 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             nd_i += 1
     # Fuse diagonal 1Q + diagonal 2Q gates into single phase vector
     if diag or diag_2q:
-        diag_by_q = {q: m for m, q in diag}
-        _ones2 = np.array([1.0 + 0j, 1.0 + 0j])
-        phase = np.array([diag_by_q[0][0, 0], diag_by_q[0][1, 1]]) if 0 in diag_by_q else _ones2.copy()
-        for q in range(1, n):
-            m = diag_by_q.get(q)
-            phase = np.multiply.outer(phase, np.array([m[0, 0], m[1, 1]]) if m is not None else _ones2).ravel()
+        phase = np.ones(1 << n, dtype=complex)
+        for matrix, qubit in diag:
+            nq, nr = 1 << qubit, 1 << (n - qubit - 1)
+            p = phase.reshape(nq, 2, nr)
+            p[:, 0, :] *= matrix[0, 0]
+            p[:, 1, :] *= matrix[1, 1]
         if diag_2q:
             pt = phase.reshape([2] * n)
             for op in diag_2q:
