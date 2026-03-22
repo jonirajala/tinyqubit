@@ -11,6 +11,7 @@ from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit,
 
 _H_MAT = _SQRT2_INV * np.array([[1,1],[1,-1]], dtype=complex)
 _Y2Z_MAT = _SQRT2_INV * np.array([[1,-1j],[1,1j]], dtype=complex)
+_BACKWARD_PERM_GATES = frozenset({Gate.CX, Gate.SWAP})
 
 
 def _shot_expectation(circuit: Circuit, observable: Observable, shots: int, seed: int | None = None) -> float:
@@ -39,10 +40,15 @@ def _has_scaled_params(circuit: Circuit) -> bool:
 def _shift_gradient(circuit: Circuit, observable: Observable, params: dict[str, float],
                     shift: float, divisor: float, exp_fn) -> dict[str, float]:
     grad = {}
+    work = circuit.bind({})  # copy with Parameters intact for rebinding
     for param in sorted(circuit.parameters, key=lambda p: p.name):
         v_plus = {**params, param.name: params[param.name] + shift}
         v_minus = {**params, param.name: params[param.name] - shift}
-        grad[param.name] = (exp_fn(circuit.bind(v_plus), observable) - exp_fn(circuit.bind(v_minus), observable)) / divisor
+        work.bind_params(v_plus)
+        e_plus = exp_fn(work, observable)
+        work.bind_params(v_minus)
+        e_minus = exp_fn(work, observable)
+        grad[param.name] = (e_plus - e_minus) / divisor
     return grad
 
 
@@ -139,34 +145,38 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
 
     grad = {p.name: 0.0 for p in circuit.parameters}
 
-    state = state.reshape(-1)
-    lam = lam.reshape(-1)
-    buf_s = np.empty_like(state)
-    buf_l = np.empty_like(lam)
-    diag_phase = None
+    dim = len(state.reshape(-1))
+    # NOTE: Pack state+lam into contiguous (2, dim) pair for fused 1Q matmul
+    sl = np.empty((2, dim), dtype=state.dtype)
+    sl[0] = state.reshape(-1)
+    sl[1] = lam.reshape(-1)
+    buf_sl = np.empty_like(sl)
+    state, lam = sl[0], sl[1]  # views into sl
+    diag_phase = None  # lazy: allocated on first diagonal gate
     diag_dirty = False
 
     def _flush_diag():
-        nonlocal state, lam, diag_dirty
+        nonlocal diag_dirty
         if not diag_dirty: return
-        state *= diag_phase
-        lam *= diag_phase
+        np.multiply(sl, diag_phase, out=sl)  # broadcast (2, dim) *= (dim,) — one call for both
         diag_phase[:] = 1.0
         diag_dirty = False
 
-    # Precompute CX block boundaries for batch permutation in backward traversal
-    cx_block_start = {}  # block_end_k -> (block_start_k, perm_inv)
+    # Precompute CX/SWAP block boundaries for batch permutation in backward traversal
+    perm_block_start = {}  # block_end_k -> (block_start_k, perm_inv)
     if n >= 10:
         j = len(bound.ops) - 1
         while j >= 0:
-            if bound.ops[j].gate == Gate.CX and j not in param_map:
+            if bound.ops[j].gate in _BACKWARD_PERM_GATES and j not in param_map:
                 end = j
-                while j > 0 and bound.ops[j - 1].gate == Gate.CX and (j - 1) not in param_map:
+                while j > 0 and bound.ops[j - 1].gate in _BACKWARD_PERM_GATES and (j - 1) not in param_map:
                     j -= 1
                 start = j
                 if end > start:
-                    cx_rev = tuple((bound.ops[i].qubits[0], bound.ops[i].qubits[1]) for i in range(end, start - 1, -1))
-                    cx_block_start[end] = (start, _get_perm(tuple(('CX', q0, q1) for q0, q1 in cx_rev), n))
+                    ops_rev = tuple(
+                        ('CX' if bound.ops[i].gate == Gate.CX else 'SWAP', bound.ops[i].qubits[0], bound.ops[i].qubits[1])
+                        for i in range(end, start - 1, -1))
+                    perm_block_start[end] = (start, _get_perm(ops_rev, n))
             j -= 1
 
     k = len(bound.ops) - 1
@@ -183,9 +193,8 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 i0, i1 = idxs
                 grad[name] += scale * (np.vdot(la[i0], st[i0]) - np.vdot(la[i1], st[i1])).imag
 
-            # Accumulate phase instead of applying immediately
             if diag_phase is None:
-                diag_phase = np.ones(len(state), dtype=state.dtype)
+                diag_phase = np.ones(dim, dtype=state.dtype)
             dp = diag_phase.reshape([2] * n)
             if agate == Gate.RZ:
                 e0, e1 = mat_or_phase
@@ -193,25 +202,116 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
             else:
                 dp[idxs[1]] *= mat_or_phase
             diag_dirty = True
-        elif k in cx_block_start:
+        elif k in perm_block_start:
             _flush_diag()
-            start, perm_inv = cx_block_start[k]
-            state = state[perm_inv]
-            lam = lam[perm_inv]
+            start, perm_inv = perm_block_start[k]
+            np.take(sl[0], perm_inv, out=buf_sl[0])
+            np.take(sl[1], perm_inv, out=buf_sl[1])
+            sl, buf_sl = buf_sl, sl
+            state, lam = sl[0], sl[1]
             k = start - 1; continue
         else:
             _flush_diag()
 
+            # Collect commuting 1Q gates on different qubits for batch application
+            if anq == 1 and n >= 10:
+                batch_1q = []  # (k_idx, op, info_entry)
+                seen_qubits = set()
+                scan = k
+                while scan >= 0:
+                    s_info = adjoint_info[scan]
+                    s_op = bound.ops[scan]
+                    s_anq = s_info[2]
+                    s_is_diag = s_anq == 1 and (s_info[0] == Gate.RZ or s_info[0] in _DIAG_PHASE)
+                    if s_anq != 1: break
+                    if s_is_diag:
+                        break  # diagonal gates need sequential state; let main loop handle
+                    q = s_op.qubits[0]
+                    if q in seen_qubits: break
+                    batch_1q.append((scan, s_op, s_info))
+                    seen_qubits.add(q)
+                    scan -= 1
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                for bk, bop, binfo in batch_1q:
+                    if bk in param_map:
+                        bname, bscale = param_map[bk]
+                        bi0, bi1 = binfo[4]
+                        if bop.gate == Gate.RY:
+                            grad[bname] += bscale * (np.vdot(la[bi1], st[bi0]) - np.vdot(la[bi0], st[bi1])).real
+                        elif bop.gate == Gate.RX:
+                            grad[bname] += bscale * (np.vdot(la[bi0], st[bi1]) + np.vdot(la[bi1], st[bi0])).imag
+                        elif bop.gate in (Gate.CP, Gate.RZZ, Gate.SEXC, Gate.DEXC):
+                            # Rare in 1Q context; fall through to individual handling below
+                            pass
+                # Apply all adjoint gates via kron grouping (sorted by qubit for adjacency)
+                batch_1q.sort(key=lambda x: x[1].qubits[0])
+                bi = 0
+                while bi < len(batch_1q):
+                    # Find adjacent qubit run
+                    run = 1
+                    while run < 5 and bi + run < len(batch_1q) and batch_1q[bi + run][1].qubits[0] == batch_1q[bi][1].qubits[0] + run:
+                        run += 1
+                    if run >= 2:
+                        q_first = batch_1q[bi][1].qubits[0]
+                        q_last = batch_1q[bi + run - 1][1].qubits[0]
+                        combined = batch_1q[bi][2][3]
+                        for j in range(1, run):
+                            b = batch_1q[bi + j][2][3]
+                            combined = (combined[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
+                                combined.shape[0] * 2, combined.shape[1] * 2)
+                        dim_g = 1 << run
+                        nql = 1 << q_first
+                        nr = 1 << (n - q_last - 1)
+                        if nr <= 1:
+                            np.matmul(sl.reshape(2 * nql, dim_g), combined.T, out=buf_sl.reshape(2 * nql, dim_g))
+                        elif nql == 1:
+                            np.matmul(combined, sl.reshape(2, dim_g, nr), out=buf_sl.reshape(2, dim_g, nr))
+                        else:
+                            np.matmul(combined, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
+                        sl, buf_sl = buf_sl, sl
+                        state, lam = sl[0], sl[1]
+                        bi += run
+                    else:
+                        mat = batch_1q[bi][2][3]
+                        qubit = batch_1q[bi][1].qubits[0]
+                        nql, nr = 1 << qubit, 1 << (n - qubit - 1)
+                        if nr <= 1:
+                            np.matmul(sl.reshape(2 * nql, 2), mat.T, out=buf_sl.reshape(2 * nql, 2))
+                        elif nql == 1:
+                            np.matmul(mat, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
+                        else:
+                            np.matmul(mat, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                        sl, buf_sl = buf_sl, sl
+                        state, lam = sl[0], sl[1]
+                        bi += 1
+                # Skip processed gates (scan already advanced past them)
+                k = scan; continue
+            if anq == 1:
+                # Small circuit: apply individually (avoids batch scan overhead)
+                if k in param_map:
+                    name, scale = param_map[k]
+                    st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                    i0, i1 = idxs
+                    if op.gate == Gate.RY:
+                        grad[name] += scale * (np.vdot(la[i1], st[i0]) - np.vdot(la[i0], st[i1])).real
+                    elif op.gate == Gate.RX:
+                        grad[name] += scale * (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
+                qubit = op.qubits[0]
+                nql, nr = 1 << qubit, 1 << (n - qubit - 1)
+                if nr <= 1:
+                    np.matmul(sl.reshape(2 * nql, 2), mat_or_phase.T, out=buf_sl.reshape(2 * nql, 2))
+                elif nql == 1:
+                    np.matmul(mat_or_phase, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
+                else:
+                    np.matmul(mat_or_phase, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                sl, buf_sl = buf_sl, sl
+                state, lam = sl[0], sl[1]
+                k -= 1; continue
+            # Non-1Q gate: extract gradient individually
             if k in param_map:
                 name, scale = param_map[k]
                 st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                if op.gate == Gate.RY:
-                    i0, i1 = idxs
-                    grad[name] += scale * (np.vdot(la[i1], st[i0]) - np.vdot(la[i0], st[i1])).real
-                elif op.gate == Gate.RX:
-                    i0, i1 = idxs
-                    grad[name] += scale * (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
-                elif op.gate == Gate.CP:
+                if op.gate == Gate.CP:
                     _, _, _, _, (_, _, _, i11) = adjoint_info[k]
                     grad[name] += scale * -2 * np.vdot(la[i11], st[i11]).imag
                 elif op.gate == Gate.RZZ:
@@ -229,38 +329,22 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     i0011, i1100 = idx4(0,0,1,1), idx4(1,1,0,0)
                     grad[name] += scale * (np.vdot(la[i1100], st[i0011]) - np.vdot(la[i0011], st[i1100])).real
 
-            if anq == 1:
-                mat = mat_or_phase
-                qubit = op.qubits[0]
-                nql, nr = 1 << qubit, 1 << (n - qubit - 1)
-                if nr > 1:
-                    np.matmul(mat, state.reshape(nql, 2, nr), out=buf_s.reshape(nql, 2, nr))
-                    np.matmul(mat, lam.reshape(nql, 2, nr), out=buf_l.reshape(nql, 2, nr))
-                else:
-                    i0, i1 = idxs
-                    st, bs = state.reshape([2] * n), buf_s.reshape([2] * n)
-                    ss0, ss1 = st[i0], st[i1]
-                    bs[i0] = mat[0, 0] * ss0 + mat[0, 1] * ss1
-                    bs[i1] = mat[1, 0] * ss0 + mat[1, 1] * ss1
-                    la, bl = lam.reshape([2] * n), buf_l.reshape([2] * n)
-                    ls0, ls1 = la[i0], la[i1]
-                    bl[i0] = mat[0, 0] * ls0 + mat[0, 1] * ls1
-                    bl[i1] = mat[1, 0] * ls0 + mat[1, 1] * ls1
-                state, buf_s = buf_s, state
-                lam, buf_l = buf_l, lam
-            elif anq == 2:
+            if anq == 2:
                 q0, q1 = op.qubits[0], op.qubits[1]
-                state = _apply_two_qubit(state, agate, q0, q1, n, aparams)
-                lam = _apply_two_qubit(lam, agate, q0, q1, n, aparams)
+                _apply_two_qubit(state, agate, q0, q1, n, aparams)
+                _apply_two_qubit(lam, agate, q0, q1, n, aparams)
             elif anq == 3:
-                state = _apply_three_qubit(state, agate, *op.qubits, n)
-                lam = _apply_three_qubit(lam, agate, *op.qubits, n)
-                buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+                # 3Q/4Q gates may reallocate; copy back into sl
+                s2 = _apply_three_qubit(state, agate, *op.qubits, n)
+                l2 = _apply_three_qubit(lam, agate, *op.qubits, n)
+                sl[0] = s2; sl[1] = l2
+                state, lam = sl[0], sl[1]
             else:  # 4Q (DEXC)
                 from ..simulator.statevector import _apply_four_qubit
-                state = _apply_four_qubit(state, agate, *op.qubits, n, aparams)
-                lam = _apply_four_qubit(lam, agate, *op.qubits, n, aparams)
-                buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+                s2 = _apply_four_qubit(state, agate, *op.qubits, n, aparams)
+                l2 = _apply_four_qubit(lam, agate, *op.qubits, n, aparams)
+                sl[0] = s2; sl[1] = l2
+                state, lam = sl[0], sl[1]
 
         k -= 1
     _flush_diag()
@@ -276,18 +360,26 @@ def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str,
     if observable._matrix is not None:
         lam = observable._matrix @ state
     else:
+        dim = 1 << n
         lam_t = np.zeros(([2] * n), dtype=state.dtype)
         state_t = state.reshape([2] * n)
+        # Batch Z-only terms via popcount parity (avoids per-term state copy)
+        z_terms = [(c, p) for c, p in observable.terms if p and set(p.values()) <= {'Z'}]
+        if z_terms:
+            idx = np.arange(dim, dtype=np.int32)
+            weights = np.zeros(dim, dtype=np.float64)
+            for coeff, paulis in z_terms:
+                mask = sum(1 << (n - 1 - q) for q in paulis)
+                v = idx & mask
+                v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
+                weights += coeff * (1 - 2 * (v & 1))
+            lam_t += (state.reshape(-1) * weights).reshape([2] * n)
         for coeff, paulis in observable.terms:
+            if not paulis: lam_t += coeff * state_t; continue
             types = set(paulis.values())
+            if types <= {'Z'}: continue  # already handled above
             qubits = tuple(paulis.keys())
-            if types <= {'Z'}:
-                t = state_t.copy()
-                for q in qubits:
-                    idx1 = [slice(None)] * n; idx1[q] = 1
-                    t[tuple(idx1)] *= -1
-                lam_t += coeff * t
-            elif types <= {'X'}:
+            if types <= {'X'}:
                 lam_t += coeff * np.flip(state_t, axis=qubits)
             elif types <= {'Y'}:
                 flipped = np.flip(state_t, axis=qubits)
