@@ -7,3 +7,4 @@ b3bf005	2105.5	16/16	keep	baseline
 75a2426	1494.4	16/16	keep	short-circuit 1-pivot pure-X stabilizer (ghz_23 -99%)
 b7e446a	841.6	16/16	keep	single-copy swap + np.take for CX perm
 3cb4cde	858.8	16/16	keep	batch consecutive CZ with phase mask
+67c4864	1490.1	16/16	keep	walrus n_qubits + skip noise check (~noise)

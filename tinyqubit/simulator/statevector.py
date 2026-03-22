@@ -193,8 +193,14 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
     if buf is None: buf = np.empty_like(state)
     if tmp is None: tmp = np.empty(1 << (n - 1), dtype=state.dtype)
     for matrix, qubit in gates:
-        _apply_1q_matmul(state, buf, matrix, qubit, n, tmp)
-        state, buf = buf, state
+        if matrix[0, 1] == 0j and matrix[1, 0] == 0j:
+            nq, nr = 1 << qubit, 1 << (n - qubit - 1)
+            s = state.reshape(nq, 2, nr)
+            s[:, 0, :] *= matrix[0, 0]
+            s[:, 1, :] *= matrix[1, 1]
+        else:
+            _apply_1q_matmul(state, buf, matrix, qubit, n, tmp)
+            state, buf = buf, state
     return state, buf, tmp
 
 
