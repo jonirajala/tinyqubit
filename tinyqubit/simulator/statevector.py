@@ -173,19 +173,21 @@ def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int
     return [(m, q) for q, m in fused.items()], i
 
 def _apply_1q_matmul(state: np.ndarray, buf: np.ndarray, matrix: np.ndarray, qubit: int, n: int, tmp: np.ndarray):
-    """Apply 1Q gate via matmul broadcast (middle qubits) or ufunc out= (edge qubits)."""
+    """Apply 1Q gate via ufunc (edge qubits) or matmul broadcast (middle qubits)."""
     nq, nr = 1 << qubit, 1 << (n - qubit - 1)
-    if nr > 1:
-        np.matmul(matrix, state.reshape(nq, 2, nr), out=buf.reshape(nq, 2, nr))
-    else:
-        st, bt = state.reshape([2] * n), buf.reshape([2] * n)
-        idx0 = [slice(None)] * n; idx0[qubit] = 0
-        idx1 = [slice(None)] * n; idx1[qubit] = 1
-        idx0, idx1 = tuple(idx0), tuple(idx1)
-        s0, s1 = st[idx0], st[idx1]
-        t = tmp[:s0.size].reshape(s0.shape)
-        np.multiply(matrix[0, 0], s0, out=t); np.multiply(matrix[0, 1], s1, out=bt[idx0]); np.add(t, bt[idx0], out=bt[idx0])
-        np.multiply(matrix[1, 0], s0, out=t); np.multiply(matrix[1, 1], s1, out=bt[idx1]); np.add(t, bt[idx1], out=bt[idx1])
+    if nq == 1 or nr <= 1:
+        # Manual ufunc: faster than BLAS for extreme aspect ratios
+        s = state.reshape(nq, 2, nr)
+        b = buf.reshape(nq, 2, nr)
+        t = tmp[:nq * nr].reshape(nq, nr)
+        np.multiply(matrix[0, 0], s[:, 0, :], out=t)
+        np.multiply(matrix[0, 1], s[:, 1, :], out=b[:, 0, :])
+        np.add(t, b[:, 0, :], out=b[:, 0, :])
+        np.multiply(matrix[1, 0], s[:, 0, :], out=t)
+        np.multiply(matrix[1, 1], s[:, 1, :], out=b[:, 1, :])
+        np.add(t, b[:, 1, :], out=b[:, 1, :])
+        return
+    np.matmul(matrix, state.reshape(nq, 2, nr), out=buf.reshape(nq, 2, nr))
 
 def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: int,
                     buf: np.ndarray | None = None, tmp: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
