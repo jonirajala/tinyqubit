@@ -18,6 +18,7 @@ from tinyqubit.measurement.observable import expectation, Z
 BASELINE_PATH = Path(__file__).parent / "simulator_baseline.json"
 N_WARMUP = 1
 N_RUNS = 5
+N_RUNS_FAST = 25  # more samples for sub-ms circuits (n <= 12)
 PERF_WARN = 0.15   # 15% slower = warning
 PERF_FAIL = 0.30   # 30% slower = fail
 CORRECTNESS_TOL = 1e-10
@@ -157,12 +158,13 @@ def run_benchmark(name, builder):
     ez0 = float(expectation(state, Z(0), n_qubits=n))
     p0 = float(np.abs(state[0]) ** 2)
 
-    # Performance: warmup + timed runs (rebuild circuit each time to include full cost)
+    # Performance: more runs for fast circuits to stabilize the median
+    n_runs = N_RUNS_FAST if n <= 12 else N_RUNS
     for _ in range(N_WARMUP):
         simulate(builder())
 
     times = []
-    for _ in range(N_RUNS):
+    for _ in range(n_runs):
         c = builder()
         t0 = time.perf_counter()
         simulate(c)
