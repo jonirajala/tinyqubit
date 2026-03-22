@@ -8,3 +8,4 @@ reverted	0.0	14/14	discard	direct diag application (worse for diag-heavy circuit
 f78d4bb	192.1	14/14	keep	hoist frozenset to module level
 cd2b499	235.2	14/14	keep	cache work circuit, bind_params avoids alloc
 reverted	0.0	13/14	crash	phase absorption breaks gradient extraction (needs phased state)
+78f1572	235.8	14/14	keep	broadcast flush np.multiply(sl, diag_phase, out=sl)
