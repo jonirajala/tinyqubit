@@ -29,27 +29,27 @@ Correctness:
 Performance:
   Circuit              Qubits    Ops   Time(ms)   Baseline     Change
   ----------------------------------------------------------------------------
-  ghz_4                     4      4      0.033      0.032        +3%
-  ghz_12                   12     12      0.208      0.095 +119% REGR!
-  ghz_20                   20     20      0.515      0.602 -14% FASTER
-  ghz_23                   23     23     10.242     11.012 -7% FASTER
-  qft_4                     4     10      0.098      0.043 +128% REGR!
-  qft_10                   10     55      0.249      0.626 -60% FASTER
-  qft_16                   16    136     13.105     15.518 -16% FASTER
-  hea_8                     8    115      1.308      0.560 +134% REGR!
-  hea_14                   14    205      5.856      6.781 -14% FASTER
-  hea_20                   20    295    237.624    225.473        +5%
-  clifford_t_10            10    299      4.354      4.753 -8% FASTER
-  clifford_t_16            16    480     53.304     49.243        +8%
-  toffoli_6                 6     10      0.121      0.053 +128% REGR!
-  toffoli_10               10     18      0.259      0.120 +116% REGR!
-  diag_12                  12    362      2.407      1.618 +49% REGR!
-  diag_20                  20    610    192.077    188.130        +2%
-  qaoa_12                  12    127      3.435      3.367        +2%
-  qaoa_18                  18    193    129.093    142.410 -9% FASTER
-  random_12                12    372      9.429     10.683 -12% FASTER
-  random_18                18    564    285.901    305.224 -6% FASTER
-  swap_route_12            12    296      4.917      5.130        -4%
-  swap_route_18            18    734    264.956    313.725 -16% FASTER
+  ghz_4                     4      4      0.070      0.032 +119% REGR!
+  ghz_12                   12     12      0.210      0.095 +121% REGR!
+  ghz_20                   20     20      0.607      0.602        +1%
+  ghz_23                   23     23     17.819     11.012 +62% REGR!
+  qft_4                     4     10      0.042      0.043        -2%
+  qft_10                   10     55      0.642      0.626        +3%
+  qft_16                   16    136     16.161     15.518        +4%
+  hea_8                     8    115      1.331      0.560 +138% REGR!
+  hea_14                   14    205      6.027      6.781 -11% FASTER
+  hea_20                   20    295    225.846    225.473        +0%
+  clifford_t_10            10    299      4.252      4.753 -11% FASTER
+  clifford_t_16            16    480     46.052     49.243 -6% FASTER
+  toffoli_6                 6     10      0.124      0.053 +134% REGR!
+  toffoli_10               10     18      0.119      0.120        -1%
+  diag_12                  12    362      2.414      1.618 +49% REGR!
+  diag_20                  20    610    199.312    188.130        +6%
+  qaoa_12                  12    127      3.347      3.367        -1%
+  qaoa_18                  18    193    129.052    142.410 -9% FASTER
+  random_12                12    372      9.922     10.683 -7% FASTER
+  random_18                18    564    192.693    305.224 -37% FASTER
+  swap_route_12            12    296      1.312      5.130 -74% FASTER
+  swap_route_18            18    734    110.396    313.725 -65% FASTER
 
-Summary: 22/22 correctness PASS, 10 faster, 6 regressions
+Summary: 22/22 correctness PASS, 8 faster, 6 regressions

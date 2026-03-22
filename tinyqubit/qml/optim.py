@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ..ir import Circuit, Gate, Parameter, ScaledParam, _is_param, _GATE_ADJOINT, _PARAM_GATES, _get_gate_matrix, _SQRT2_INV
 from ..measurement.observable import Observable, expectation, _PAULI_MATRIX
-from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _DIAG_PHASE, _get_cx_perm
+from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _DIAG_PHASE, _get_perm
 
 
 # Gradient computation -------
@@ -166,7 +166,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 start = j
                 if end > start:
                     cx_rev = tuple((bound.ops[i].qubits[0], bound.ops[i].qubits[1]) for i in range(end, start - 1, -1))
-                    cx_block_start[end] = (start, _get_cx_perm(cx_rev, n))
+                    cx_block_start[end] = (start, _get_perm(tuple(('CX', q0, q1) for q0, q1 in cx_rev), n))
             j -= 1
 
     k = len(bound.ops) - 1

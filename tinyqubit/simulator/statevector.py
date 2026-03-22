@@ -151,9 +151,6 @@ def _get_perm(gate_ops: tuple[tuple[str, int, int], ...], n: int) -> np.ndarray:
         _perm_cache[key] = _build_perm(gate_ops, n)
     return _perm_cache[key]
 
-def _get_cx_perm(cx_pairs: tuple[tuple[int, int], ...], n: int) -> np.ndarray:
-    return _get_perm(tuple(('CX', q0, q1) for q0, q1 in cx_pairs), n)
-
 def _collect_perm_block(ops: list, start: int) -> tuple[tuple[tuple[str, int, int], ...] | None, int]:
     i, gate_ops = start, []
     while i < len(ops):
