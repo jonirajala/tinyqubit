@@ -1,0 +1,114 @@
+{
+  "vqe_hea_4q_3l": {
+    "max_err": 0.0,
+    "grad_norm": 1.2991169973,
+    "n_params": 24,
+    "n_qubits": 4,
+    "n_ops": 33,
+    "time_ms": 0.6
+  },
+  "vqe_hea_8q_3l": {
+    "max_err": 0.0,
+    "grad_norm": 1.6538455973,
+    "n_params": 48,
+    "n_qubits": 8,
+    "n_ops": 69,
+    "time_ms": 1.548
+  },
+  "vqe_hea_12q_3l": {
+    "max_err": 1e-10,
+    "grad_norm": 1.5187016107,
+    "n_params": 72,
+    "n_qubits": 12,
+    "n_ops": 105,
+    "time_ms": 5.751
+  },
+  "vqe_hea_16q_3l": {
+    "max_err": 5e-10,
+    "grad_norm": 0.637454443,
+    "n_params": 96,
+    "n_qubits": 16,
+    "n_ops": 141,
+    "time_ms": 67.796
+  },
+  "vqe_hea_8q_heisen": {
+    "max_err": 1e-10,
+    "grad_norm": 2.7612981661,
+    "n_params": 48,
+    "n_qubits": 8,
+    "n_ops": 69,
+    "time_ms": 1.914
+  },
+  "uccsd_4q": {
+    "max_err": 0.0,
+    "grad_norm": 0.9315870306,
+    "n_params": 5,
+    "n_qubits": 4,
+    "n_ops": 19,
+    "time_ms": 0.273
+  },
+  "uccsd_8q": {
+    "max_err": 0.0,
+    "grad_norm": 4.1335492237,
+    "n_params": 19,
+    "n_qubits": 8,
+    "n_ops": 67,
+    "time_ms": 1.204
+  },
+  "qaoa_8q_p3": {
+    "max_err": 0.0,
+    "grad_norm": 0.0,
+    "n_params": 6,
+    "n_qubits": 8,
+    "n_ops": 53,
+    "time_ms": 2.104
+  },
+  "qaoa_14q_p3": {
+    "max_err": 2e-10,
+    "grad_norm": 0.0,
+    "n_params": 6,
+    "n_qubits": 14,
+    "n_ops": 95,
+    "time_ms": 24.783
+  },
+  "reupl_1q_4f_6l": {
+    "max_err": 1e-10,
+    "grad_norm": 2.1170374431,
+    "n_params": 30,
+    "n_qubits": 1,
+    "n_ops": 30,
+    "time_ms": 0.535
+  },
+  "random_8q_d5": {
+    "max_err": 0.0,
+    "grad_norm": 0.4159747862,
+    "n_params": 40,
+    "n_qubits": 8,
+    "n_ops": 75,
+    "time_ms": 2.538
+  },
+  "random_14q_d5": {
+    "max_err": 0.0,
+    "grad_norm": 0.2191639864,
+    "n_params": 70,
+    "n_qubits": 14,
+    "n_ops": 135,
+    "time_ms": 25.108
+  },
+  "pshift_hea_8q_3l": {
+    "max_err": 0.0,
+    "grad_norm": 1.6538455973,
+    "n_params": 48,
+    "n_qubits": 8,
+    "n_ops": 69,
+    "time_ms": 87.806
+  },
+  "backprop_hea_8q": {
+    "max_err": 1.4661e-06,
+    "grad_norm": 0.5590815396,
+    "n_params": 48,
+    "n_qubits": 8,
+    "n_ops": 69,
+    "time_ms": 1.983
+  }
+}

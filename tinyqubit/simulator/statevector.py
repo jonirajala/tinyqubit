@@ -130,13 +130,11 @@ def _build_perm(gate_ops: tuple[tuple[str, int, int], ...], n: int) -> np.ndarra
             np.copyto(single, identity)
             single[(single & (1 << (n - 1 - q0))) != 0] ^= (1 << (n - 1 - q1))
             perm = perm[single]
-        else:  # SWAP
+        else:  # SWAP: XOR both bits where they differ
             b0, b1 = 1 << (n - 1 - q0), 1 << (n - 1 - q1)
             np.copyto(single, identity)
-            # Swap bits q0 and q1: XOR both when they differ
-            diff = (single & b0) != 0
-            diff ^= (single & b1) != 0
-            single[diff] ^= b0 | b1
+            mask = ((single >> (n - 1 - q0)) ^ (single >> (n - 1 - q1))) & 1
+            single ^= mask * (b0 | b1)
             perm = perm[single]
     return perm
 
@@ -172,7 +170,7 @@ def _collect_diag_2q_block(ops: list, start: int) -> tuple[list | None, int]:
 
 _DIAG_2Q = frozenset({Gate.CZ, Gate.CP, Gate.RZZ})
 
-def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], list, int]:
+def _collect_fusable_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], list, int]:
     fused, diag_2q, i, all_diag = {}, [], start, True
     while i < len(ops):
         op = ops[i]
@@ -260,20 +258,22 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             p[:, 1, :] *= matrix[1, 1]
         if diag_2q:
             pt = phase.reshape([2] * n)
+            sl = slice(None)
             for op in diag_2q:
                 q0, q1 = op.qubits
-                def idx2(v0, v1):
-                    idx = [slice(None)] * n; idx[q0] = v0; idx[q1] = v1
-                    return tuple(idx)
+                i11 = [sl] * n; i11[q0] = 1; i11[q1] = 1; i11 = tuple(i11)
                 if op.gate == Gate.CZ:
-                    pt[idx2(1, 1)] *= -1
+                    pt[i11] *= -1
                 elif op.gate == Gate.CP:
-                    pt[idx2(1, 1)] *= np.exp(1j * op.params[0])
+                    pt[i11] *= np.exp(1j * op.params[0])
                 else:  # RZZ
                     t = op.params[0]
                     em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
-                    pt[idx2(0, 0)] *= em; pt[idx2(0, 1)] *= ep
-                    pt[idx2(1, 0)] *= ep; pt[idx2(1, 1)] *= em
+                    i00 = [sl] * n; i00[q0] = 0; i00[q1] = 0
+                    i01 = [sl] * n; i01[q0] = 0; i01[q1] = 1
+                    i10 = [sl] * n; i10[q0] = 1; i10[q1] = 0
+                    pt[tuple(i00)] *= em; pt[tuple(i01)] *= ep
+                    pt[tuple(i10)] *= ep; pt[i11] *= em
         state *= phase
     return state, buf, tmp
 
@@ -303,7 +303,7 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
             state = _apply_reset(state, op.qubits[0], n, rng)
         elif (nq := op.gate.n_qubits) == 1:
             if buf is not None:
-                group, diag_2q_ops, end_i = _collect_1q_block(ops, i)
+                group, diag_2q_ops, end_i = _collect_fusable_block(ops, i)
                 if len(group) > 1 or diag_2q_ops:
                     state, buf, tmp = _apply_batch_1q(state, group, n, buf, tmp, diag_2q_ops or None)
                     for _ in range(end_i - i - 1): next(ops_iter)
