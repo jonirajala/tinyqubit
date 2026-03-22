@@ -206,17 +206,25 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
     diag, non_diag = [], []
     for matrix, qubit in gates:
         (diag if matrix[0, 1] == 0j and matrix[1, 0] == 0j else non_diag).append((matrix, qubit))
-    # Pair adjacent qubits into 4×4 kron matmul to halve state passes
+    # Group adjacent qubits into kron matmul to reduce state passes
     non_diag.sort(key=lambda x: x[1])
     nd_i = 0
     while nd_i < len(non_diag):
-        if nd_i + 1 < len(non_diag) and non_diag[nd_i][1] + 1 == non_diag[nd_i + 1][1]:
-            m0, q0 = non_diag[nd_i]
-            m1, q1 = non_diag[nd_i + 1]
-            nq, nr = 1 << q0, 1 << (n - q1 - 1)
-            np.matmul(np.kron(m0, m1), state.reshape(nq, 4, max(nr, 1)), out=buf.reshape(nq, 4, max(nr, 1)))
+        # Find longest run of consecutive qubits (up to 4)
+        run = 1
+        while run < 4 and nd_i + run < len(non_diag) and non_diag[nd_i + run][1] == non_diag[nd_i][1] + run:
+            run += 1
+        if run >= 2:
+            q_first = non_diag[nd_i][1]
+            q_last = non_diag[nd_i + run - 1][1]
+            combined = non_diag[nd_i][0]
+            for j in range(1, run):
+                combined = np.kron(combined, non_diag[nd_i + j][0])
+            dim = 1 << run
+            nq, nr = 1 << q_first, max(1 << (n - q_last - 1), 1)
+            np.matmul(combined, state.reshape(nq, dim, nr), out=buf.reshape(nq, dim, nr))
             state, buf = buf, state
-            nd_i += 2
+            nd_i += run
         else:
             _apply_1q_matmul(state, buf, non_diag[nd_i][0], non_diag[nd_i][1], n, tmp)
             state, buf = buf, state
