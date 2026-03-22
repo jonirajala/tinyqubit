@@ -194,15 +194,21 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
     if not gates: return state, buf, tmp
     if buf is None: buf = np.empty_like(state)
     if tmp is None: tmp = np.empty(1 << (n - 1), dtype=state.dtype)
+    # Separate diagonal and non-diagonal gates
+    diag, non_diag = [], []
     for matrix, qubit in gates:
-        if matrix[0, 1] == 0j and matrix[1, 0] == 0j:
-            nq, nr = 1 << qubit, 1 << (n - qubit - 1)
-            s = state.reshape(nq, 2, nr)
-            s[:, 0, :] *= matrix[0, 0]
-            s[:, 1, :] *= matrix[1, 1]
-        else:
-            _apply_1q_matmul(state, buf, matrix, qubit, n, tmp)
-            state, buf = buf, state
+        (diag if matrix[0, 1] == 0j and matrix[1, 0] == 0j else non_diag).append((matrix, qubit))
+    for matrix, qubit in non_diag:
+        _apply_1q_matmul(state, buf, matrix, qubit, n, tmp)
+        state, buf = buf, state
+    # Fuse all diagonal gates into single phase vector via kron (MSB→LSB order)
+    if diag:
+        diag_by_q = {q: m for m, q in diag}
+        phase = np.array([1.0 + 0j])
+        for q in range(n):
+            m = diag_by_q.get(q)
+            phase = np.kron(phase, np.array([m[0, 0], m[1, 1]]) if m is not None else np.array([1.0 + 0j, 1.0 + 0j]))
+        state *= phase
     return state, buf, tmp
 
 
