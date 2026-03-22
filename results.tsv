@@ -11,3 +11,5 @@ reverted	0.0	13/14	crash	phase absorption breaks gradient extraction (needs phas
 78f1572	235.8	14/14	keep	broadcast flush np.multiply(sl, diag_phase, out=sl)
 8d02b77		14/14	keep	revert bind_params cache (ADAPT-VQE fix)
 8d02b77	247.4	14/14	keep	revert bind_params cache
+322114f	231.2	14/14	keep	parameter_shift reuse work circuit via bind_params
+b1cf112	200.5	14/14	keep	backward kron-grouping commuting 1Q gates (qaoa_14q -47%)

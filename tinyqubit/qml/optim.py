@@ -212,16 +212,86 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
         else:
             _flush_diag()
 
+            # Collect commuting 1Q gates on different qubits for batch application
+            if anq == 1:
+                batch_1q = []  # (k_idx, op, info_entry)
+                seen_qubits = set()
+                scan = k
+                while scan >= 0:
+                    s_info = adjoint_info[scan]
+                    s_op = bound.ops[scan]
+                    s_anq = s_info[2]
+                    s_is_diag = s_anq == 1 and (s_info[0] == Gate.RZ or s_info[0] in _DIAG_PHASE)
+                    if s_anq != 1: break
+                    if s_is_diag:
+                        break  # diagonal gates need sequential state; let main loop handle
+                    q = s_op.qubits[0]
+                    if q in seen_qubits: break
+                    batch_1q.append((scan, s_op, s_info))
+                    seen_qubits.add(q)
+                    scan -= 1
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                for bk, bop, binfo in batch_1q:
+                    if bk in param_map:
+                        bname, bscale = param_map[bk]
+                        bi0, bi1 = binfo[4]
+                        if bop.gate == Gate.RY:
+                            grad[bname] += bscale * (np.vdot(la[bi1], st[bi0]) - np.vdot(la[bi0], st[bi1])).real
+                        elif bop.gate == Gate.RX:
+                            grad[bname] += bscale * (np.vdot(la[bi0], st[bi1]) + np.vdot(la[bi1], st[bi0])).imag
+                        elif bop.gate in (Gate.CP, Gate.RZZ, Gate.SEXC, Gate.DEXC):
+                            # Rare in 1Q context; fall through to individual handling below
+                            pass
+                # Apply all adjoint gates via kron grouping (sorted by qubit for adjacency)
+                batch_1q.sort(key=lambda x: x[1].qubits[0])
+                bi = 0
+                while bi < len(batch_1q):
+                    # Find adjacent qubit run
+                    run = 1
+                    while run < 5 and bi + run < len(batch_1q) and batch_1q[bi + run][1].qubits[0] == batch_1q[bi][1].qubits[0] + run:
+                        run += 1
+                    if run >= 2:
+                        q_first = batch_1q[bi][1].qubits[0]
+                        q_last = batch_1q[bi + run - 1][1].qubits[0]
+                        combined = batch_1q[bi][2][3]
+                        for j in range(1, run):
+                            b = batch_1q[bi + j][2][3]
+                            combined = (combined[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
+                                combined.shape[0] * 2, combined.shape[1] * 2)
+                        dim_g = 1 << run
+                        nql = 1 << q_first
+                        nr = 1 << (n - q_last - 1)
+                        if nr <= 1:
+                            np.matmul(sl.reshape(2 * nql, dim_g), combined.T, out=buf_sl.reshape(2 * nql, dim_g))
+                        elif nql == 1:
+                            np.matmul(combined, sl.reshape(2, dim_g, nr), out=buf_sl.reshape(2, dim_g, nr))
+                        else:
+                            np.matmul(combined, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
+                        sl, buf_sl = buf_sl, sl
+                        state, lam = sl[0], sl[1]
+                        buf_s, buf_l = buf_sl[0], buf_sl[1]
+                        bi += run
+                    else:
+                        mat = batch_1q[bi][2][3]
+                        qubit = batch_1q[bi][1].qubits[0]
+                        nql, nr = 1 << qubit, 1 << (n - qubit - 1)
+                        if nr <= 1:
+                            np.matmul(sl.reshape(2 * nql, 2), mat.T, out=buf_sl.reshape(2 * nql, 2))
+                        elif nql == 1:
+                            np.matmul(mat, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
+                        else:
+                            np.matmul(mat, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                        sl, buf_sl = buf_sl, sl
+                        state, lam = sl[0], sl[1]
+                        buf_s, buf_l = buf_sl[0], buf_sl[1]
+                        bi += 1
+                # Skip processed gates (scan already advanced past them)
+                k = scan; continue
+            # Non-1Q gate: extract gradient individually
             if k in param_map:
                 name, scale = param_map[k]
                 st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                if op.gate == Gate.RY:
-                    i0, i1 = idxs
-                    grad[name] += scale * (np.vdot(la[i1], st[i0]) - np.vdot(la[i0], st[i1])).real
-                elif op.gate == Gate.RX:
-                    i0, i1 = idxs
-                    grad[name] += scale * (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
-                elif op.gate == Gate.CP:
+                if op.gate == Gate.CP:
                     _, _, _, _, (_, _, _, i11) = adjoint_info[k]
                     grad[name] += scale * -2 * np.vdot(la[i11], st[i11]).imag
                 elif op.gate == Gate.RZZ:
@@ -239,21 +309,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     i0011, i1100 = idx4(0,0,1,1), idx4(1,1,0,0)
                     grad[name] += scale * (np.vdot(la[i1100], st[i0011]) - np.vdot(la[i0011], st[i1100])).real
 
-            if anq == 1:
-                mat = mat_or_phase
-                qubit = op.qubits[0]
-                nql, nr = 1 << qubit, 1 << (n - qubit - 1)
-                if nr <= 1:
-                    # NOTE: 2D GEMM much faster than 3D batch for nr=1
-                    np.matmul(sl.reshape(2 * nql, 2), mat.T, out=buf_sl.reshape(2 * nql, 2))
-                elif nql == 1:
-                    np.matmul(mat, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
-                else:
-                    np.matmul(mat, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
-                sl, buf_sl = buf_sl, sl
-                state, lam = sl[0], sl[1]
-                buf_s, buf_l = buf_sl[0], buf_sl[1]
-            elif anq == 2:
+            if anq == 2:
                 q0, q1 = op.qubits[0], op.qubits[1]
                 _apply_two_qubit(state, agate, q0, q1, n, aparams)
                 _apply_two_qubit(lam, agate, q0, q1, n, aparams)
