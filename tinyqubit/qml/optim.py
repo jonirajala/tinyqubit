@@ -153,8 +153,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
     def _flush_diag():
         nonlocal sl, buf_sl, state, lam, buf_s, buf_l, diag_dirty
         if not diag_dirty: return
-        sl[0] *= diag_phase
-        sl[1] *= diag_phase
+        np.multiply(sl, diag_phase, out=sl)  # broadcast (2, dim) *= (dim,) — one call for both
         diag_phase[:] = 1.0
         diag_dirty = False
 
