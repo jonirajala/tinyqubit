@@ -177,19 +177,24 @@ class StabilizerState:
 
         # Build state: start from seed, project with X-containing generators
         dim = 2 ** n
+        all_bits = dim - 1
         state = np.zeros(dim, dtype=complex)
         state[seed] = 1.0
-        indices = np.arange(dim, dtype=np.int64)
+        indices = None  # lazy allocation
         for ri in range(n_pivots):
             row = row_perm[ri]
             sign = -1.0 if sr[row] else 1.0
             # Vectorized Pauli application: P|b⟩ = phase(b) × |b ⊕ x_mask⟩
             x_mask = sum((1 << (n - 1 - q)) for q in range(n) if sx[row, q])
             z_mask = sum((1 << (n - 1 - q)) for q in range(n) if sz[row, q])
-            b_orig = indices ^ x_mask
-            if z_mask == 0:
-                p_state = state[b_orig]
+            if z_mask == 0 and x_mask == all_bits:
+                p_state = state[::-1]
+            elif z_mask == 0:
+                if indices is None: indices = np.arange(dim, dtype=np.int64)
+                p_state = state[indices ^ x_mask]
             else:
+                if indices is None: indices = np.arange(dim, dtype=np.int64)
+                b_orig = indices ^ x_mask
                 n_y = bin(x_mask & z_mask).count('1')
                 v = (b_orig & z_mask).astype(np.int32)
                 v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
