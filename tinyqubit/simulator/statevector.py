@@ -221,7 +221,7 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 classical[op.classical_bit] = outcome
         elif op.gate == Gate.RESET:
             state = _apply_reset(state, op.qubits[0], n, rng)
-        elif op.gate.n_qubits == 1:
+        elif (nq := op.gate.n_qubits) == 1:
             if buf is not None:
                 group, end_i = _collect_1q_block(ops, i)
                 if len(group) > 1:
@@ -232,8 +232,8 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 state = _apply_diagonal_1q(state, op.gate, op.qubits[0], n, op.params)
             else:
                 state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
-            state = _apply_gate_noise(state, op, noise_model, n, rng)
-        elif op.gate.n_qubits == 2:
+            if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
+        elif nq == 2:
             if buf is not None and noise_model is None:
                 if op.gate == Gate.CX:
                     cx_pairs, end_i = _collect_cx_block(ops, i)
@@ -254,13 +254,13 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                         for _ in range(end_i - i - 1): next(ops_iter)
                         continue
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
-            state = _apply_gate_noise(state, op, noise_model, n, rng)
-        elif op.gate.n_qubits == 3:
+            if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
+        elif nq == 3:
             state = _apply_three_qubit(state, op.gate, *op.qubits, n)
-            state = _apply_gate_noise(state, op, noise_model, n, rng)
+            if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
         else:  # 4Q
             state = _apply_four_qubit(state, op.gate, *op.qubits, n, op.params)
-            state = _apply_gate_noise(state, op, noise_model, n, rng)
+            if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
     assert abs(np.linalg.norm(state) - 1.0) < 1e-10, "statevector norm drifted"
     return state, classical
 
