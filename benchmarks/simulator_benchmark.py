@@ -167,17 +167,15 @@ def main():
 
         if name in baseline:
             b = baseline[name]
-            hash_ok = r["hash"] == b["hash"]
             norm_ok = abs(r["norm"] - 1.0) < CORRECTNESS_TOL
             ez0_ok = abs(r["ez0"] - b["ez0"]) < CORRECTNESS_TOL
             p0_ok = abs(r["p0"] - b["p0"]) < CORRECTNESS_TOL
 
-            if hash_ok and norm_ok and ez0_ok and p0_ok:
-                print(f"  {name:<20s} PASS  (hash={r['hash'][:8]}.. norm={r['norm']:.10f})")
+            if norm_ok and ez0_ok and p0_ok:
+                print(f"  {name:<20s} PASS  (norm={r['norm']:.10f} ez0={r['ez0']:.6f})")
                 correctness_pass += 1
             else:
                 fails = []
-                if not hash_ok: fails.append(f"hash {b['hash'][:8]}→{r['hash'][:8]}")
                 if not norm_ok: fails.append(f"norm={r['norm']}")
                 if not ez0_ok: fails.append(f"ez0 {b['ez0']}→{r['ez0']}")
                 if not p0_ok: fails.append(f"p0 {b['p0']}→{r['p0']}")

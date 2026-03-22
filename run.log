@@ -13,31 +13,31 @@ Correctness:
   hea_8                PASS  (hash=fdb593c6.. norm=1.0000000000)
   hea_14               PASS  (hash=4759c9b8.. norm=1.0000000000)
   hea_20               PASS  (hash=1e4f84f4.. norm=1.0000000000)
-  clifford_t_10        PASS  (hash=30430129.. norm=1.0000000000)
-  clifford_t_16        PASS  (hash=721caacc.. norm=1.0000000000)
+  clifford_t_10        PASS  (hash=52421a92.. norm=1.0000000000)
+  clifford_t_16        PASS  (hash=3b6da76f.. norm=1.0000000000)
   toffoli_6            PASS  (hash=dca70eaf.. norm=1.0000000000)
   toffoli_10           PASS  (hash=2025f54d.. norm=1.0000000000)
-  diag_12              PASS  (hash=1b268a5d.. norm=1.0000000000)
-  diag_20              PASS  (hash=85862d46.. norm=1.0000000000)
+  diag_12              PASS  (hash=db7d8810.. norm=1.0000000000)
+  diag_20              PASS  (hash=7c48a6c4.. norm=1.0000000000)
 
 Performance:
   Circuit              Qubits    Ops   Time(ms)   Baseline     Change
   ----------------------------------------------------------------------------
-  ghz_4                     4      4      0.035      0.037 -5% FASTER
-  ghz_12                   12     12      0.221      0.213        +4%
-  ghz_20                   20     20      0.601      0.622        -3%
-  ghz_23                   23     23     11.693     11.978        -2%
-  qft_4                     4     10      0.102      0.045 +127% REGR!
-  qft_10                   10     55      0.620      0.250 +148% REGR!
-  qft_16                   16    136     14.883     17.091 -13% FASTER
-  hea_8                     8    115      1.398      1.300        +8%
-  hea_14                   14    205      5.526      5.546        -0%
-  hea_20                   20    295    403.250    386.815        +4%
-  clifford_t_10            10    299      2.121      2.458 -14% FASTER
-  clifford_t_16            16    480     68.894     69.071        -0%
-  toffoli_6                 6     10      0.124      0.124        +0%
-  toffoli_10               10     18      0.178      0.178        +0%
-  diag_12                  12    362      3.424      3.980 -14% FASTER
-  diag_20                  20    610    634.240    635.292        -0%
+  ghz_4                     4      4      0.074      0.100 -26% FASTER
+  ghz_12                   12     12      0.100      0.099        +1%
+  ghz_20                   20     20      0.568      0.672 -15% FASTER
+  ghz_23                   23     23     12.477     12.621        -1%
+  qft_4                     4     10      0.104      0.044 +136% REGR!
+  qft_10                   10     55      0.611      0.576        +6%
+  qft_16                   16    136     16.644     13.828  +20% warn
+  hea_8                     8    115      1.155      0.549 +110% REGR!
+  hea_14                   14    205      5.851      5.327       +10%
+  hea_20                   20    295    214.070    224.984        -5%
+  clifford_t_10            10    299      2.115      1.914       +11%
+  clifford_t_16            16    480     55.927     54.042        +3%
+  toffoli_6                 6     10      0.055      0.121 -55% FASTER
+  toffoli_10               10     18      0.182      0.186        -2%
+  diag_12                  12    362      2.416      4.416 -45% FASTER
+  diag_20                  20    610    331.517    285.122  +16% warn
 
-Summary: 16/16 correctness PASS, 4 faster, 2 regressions
+Summary: 16/16 correctness PASS, 4 faster, 4 regressions
