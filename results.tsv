@@ -1,3 +1,4 @@
 commit	total_ms	correctness	status	description
 36799df	1105.8	9/9	keep	baseline
 809b5c1	1012.4	9/9	keep	cache validation + is_clifford (kernel -8%)
+c926faf	946.1	9/9	keep	Z-only fast path in expectation (kernel -15%, sweep -12%)

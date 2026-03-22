@@ -281,16 +281,26 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
 def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops) -> tuple[np.ndarray, dict[int, int]]:
     rng = np.random.default_rng(seed)
     classical = {i: 0 for i in range(circuit.n_classical)}
-    if circuit._initial_state is not None:
+    dim = 1 << n
+    # Reuse cached buffers when available (avoids allocation per call)
+    cache = getattr(circuit, '_sim_bufs', None)
+    if cache is not None and cache[0] == dim:
+        state = cache[1]; state[:] = 0; state[0] = 1.0
+    elif circuit._initial_state is not None:
         state = circuit._initial_state.copy()
     else:
-        state = np.zeros(2**n, dtype=complex)
+        state = np.zeros(dim, dtype=complex)
         state[0] = 1.0
 
     ops, ops_iter = circuit.ops, iter(enumerate(circuit.ops))
     buf = tmp = None
     if batch_ops and noise_model is None and n >= 10:
-        buf, tmp = np.empty_like(state), np.empty(1 << (n - 1), dtype=state.dtype)
+        if cache is not None and cache[0] == dim:
+            buf, tmp = cache[2], cache[3]
+        else:
+            buf, tmp = np.empty(dim, dtype=complex), np.empty(dim >> 1, dtype=complex)
+        if circuit._initial_state is None:
+            circuit._sim_bufs = (dim, state, buf, tmp)
     for i, op in ops_iter:
         if op.condition is not None and classical.get(op.condition[0]) != op.condition[1]: continue
         if op.gate == Gate.MEASURE:
