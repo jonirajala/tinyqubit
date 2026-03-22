@@ -170,8 +170,10 @@ def _collect_cz_block(ops: list, start: int) -> tuple[list[tuple[int, int]] | No
         i += 1
     return (pairs, i) if len(pairs) >= 2 else (None, start)
 
-def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], list[tuple[int, int]], int]:
-    fused, cz_pairs, i, all_diag = {}, [], start, True
+_DIAG_2Q = frozenset({Gate.CZ, Gate.CP, Gate.RZZ})
+
+def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int]], list, int]:
+    fused, diag_2q, i, all_diag = {}, [], start, True
     while i < len(ops):
         op = ops[i]
         if op.condition is not None or op.gate in (Gate.MEASURE, Gate.RESET): break
@@ -181,12 +183,12 @@ def _collect_1q_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray, int
             fused[q] = mat @ fused[q] if q in fused else mat
             if all_diag and (mat[0, 1] != 0j or mat[1, 0] != 0j): all_diag = False
             i += 1
-        elif op.gate == Gate.CZ and all_diag:
-            cz_pairs.append((op.qubits[0], op.qubits[1]))
+        elif op.gate in _DIAG_2Q and all_diag:
+            diag_2q.append(op)
             i += 1
         else:
             break
-    return [(m, q) for q, m in fused.items()], cz_pairs, i
+    return [(m, q) for q, m in fused.items()], diag_2q, i
 
 def _apply_1q_matmul(state: np.ndarray, buf: np.ndarray, matrix: np.ndarray, qubit: int, n: int, tmp: np.ndarray):
     """Apply 1Q gate via ufunc (edge qubits) or matmul broadcast (middle qubits)."""
@@ -207,8 +209,8 @@ def _apply_1q_matmul(state: np.ndarray, buf: np.ndarray, matrix: np.ndarray, qub
 
 def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: int,
                     buf: np.ndarray | None = None, tmp: np.ndarray | None = None,
-                    cz_pairs: list[tuple[int, int]] | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    if not gates and not cz_pairs: return state, buf, tmp
+                    diag_2q: list | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    if not gates and not diag_2q: return state, buf, tmp
     if buf is None: buf = np.empty_like(state)
     if tmp is None: tmp = np.empty(1 << (n - 1), dtype=state.dtype)
     # Separate diagonal and non-diagonal gates
@@ -238,18 +240,29 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             _apply_1q_matmul(state, buf, non_diag[nd_i][0], non_diag[nd_i][1], n, tmp)
             state, buf = buf, state
             nd_i += 1
-    # Fuse diagonal 1Q gates + CZ phases into single phase vector via kron
-    if diag or cz_pairs:
+    # Fuse diagonal 1Q + diagonal 2Q gates into single phase vector via kron
+    if diag or diag_2q:
         diag_by_q = {q: m for m, q in diag}
         phase = np.array([1.0 + 0j])
         for q in range(n):
             m = diag_by_q.get(q)
             phase = np.kron(phase, np.array([m[0, 0], m[1, 1]]) if m is not None else np.array([1.0 + 0j, 1.0 + 0j]))
-        if cz_pairs:
+        if diag_2q:
             pt = phase.reshape([2] * n)
-            for q0, q1 in cz_pairs:
-                idx = [slice(None)] * n; idx[q0] = 1; idx[q1] = 1
-                pt[tuple(idx)] *= -1
+            for op in diag_2q:
+                q0, q1 = op.qubits
+                def idx2(v0, v1):
+                    idx = [slice(None)] * n; idx[q0] = v0; idx[q1] = v1
+                    return tuple(idx)
+                if op.gate == Gate.CZ:
+                    pt[idx2(1, 1)] *= -1
+                elif op.gate == Gate.CP:
+                    pt[idx2(1, 1)] *= np.exp(1j * op.params[0])
+                else:  # RZZ
+                    t = op.params[0]
+                    em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
+                    pt[idx2(0, 0)] *= em; pt[idx2(0, 1)] *= ep
+                    pt[idx2(1, 0)] *= ep; pt[idx2(1, 1)] *= em
         state *= phase
     return state, buf, tmp
 
@@ -279,9 +292,9 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
             state = _apply_reset(state, op.qubits[0], n, rng)
         elif (nq := op.gate.n_qubits) == 1:
             if buf is not None:
-                group, cz_fused, end_i = _collect_1q_block(ops, i)
-                if len(group) > 1 or cz_fused:
-                    state, buf, tmp = _apply_batch_1q(state, group, n, buf, tmp, cz_fused or None)
+                group, diag_2q_ops, end_i = _collect_1q_block(ops, i)
+                if len(group) > 1 or diag_2q_ops:
+                    state, buf, tmp = _apply_batch_1q(state, group, n, buf, tmp, diag_2q_ops or None)
                     for _ in range(end_i - i - 1): next(ops_iter)
                     continue
             if op.gate in _DIAG_PHASE or op.gate == Gate.RZ:
