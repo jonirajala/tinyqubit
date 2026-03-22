@@ -240,13 +240,14 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             _apply_1q_matmul(state, buf, non_diag[nd_i][0], non_diag[nd_i][1], n, tmp)
             state, buf = buf, state
             nd_i += 1
-    # Fuse diagonal 1Q + diagonal 2Q gates into single phase vector via kron
+    # Fuse diagonal 1Q + diagonal 2Q gates into single phase vector
     if diag or diag_2q:
         diag_by_q = {q: m for m, q in diag}
-        phase = np.array([1.0 + 0j])
-        for q in range(n):
+        _ones2 = np.array([1.0 + 0j, 1.0 + 0j])
+        phase = np.array([diag_by_q[0][0, 0], diag_by_q[0][1, 1]]) if 0 in diag_by_q else _ones2.copy()
+        for q in range(1, n):
             m = diag_by_q.get(q)
-            phase = np.kron(phase, np.array([m[0, 0], m[1, 1]]) if m is not None else np.array([1.0 + 0j, 1.0 + 0j]))
+            phase = np.multiply.outer(phase, np.array([m[0, 0], m[1, 1]]) if m is not None else _ones2).ravel()
         if diag_2q:
             pt = phase.reshape([2] * n)
             for op in diag_2q:
