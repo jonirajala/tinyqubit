@@ -13,3 +13,5 @@ reverted	0.0	13/14	crash	phase absorption breaks gradient extraction (needs phas
 8d02b77	247.4	14/14	keep	revert bind_params cache
 322114f	231.2	14/14	keep	parameter_shift reuse work circuit via bind_params
 b1cf112	200.5	14/14	keep	backward kron-grouping commuting 1Q gates (qaoa_14q -47%)
+567df7e	206.7	14/14	keep	backward kron-grouping consecutive non-diag 1Q (qaoa -39%, random -35%)
+reverted	0.0	13/14	crash	RZ-RY fusion: phase correction for RY gradient too complex

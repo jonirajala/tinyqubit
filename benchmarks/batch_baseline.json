@@ -1,0 +1,85 @@
+{
+  "sweep_8q_100pts": {
+    "checksum": 58.40369709,
+    "shape": [
+      100
+    ],
+    "n_qubits": 8,
+    "n_params_or_samples": 48,
+    "time_ms": 92.073
+  },
+  "sweep_14q_50pts": {
+    "checksum": 35.27267999,
+    "shape": [
+      50
+    ],
+    "n_qubits": 14,
+    "n_params_or_samples": 56,
+    "time_ms": 141.273
+  },
+  "eval_8q_50sets": {
+    "checksum": 23.7267201,
+    "shape": [
+      50
+    ],
+    "n_qubits": 8,
+    "n_params_or_samples": 48,
+    "time_ms": 54.747
+  },
+  "eval_12q_30sets": {
+    "checksum": 16.50168394,
+    "shape": [
+      30
+    ],
+    "n_qubits": 12,
+    "n_params_or_samples": 48,
+    "time_ms": 44.294
+  },
+  "eval_8q_heisen": {
+    "checksum": 19.43991798,
+    "shape": [
+      30
+    ],
+    "n_qubits": 8,
+    "n_params_or_samples": 48,
+    "time_ms": 45.141
+  },
+  "kernel_6q_20x20": {
+    "checksum": 37.08372741,
+    "shape": [
+      20,
+      20
+    ],
+    "n_qubits": 6,
+    "n_params_or_samples": 20,
+    "time_ms": 294.38
+  },
+  "kernel_8q_15x15": {
+    "checksum": 19.6955946,
+    "shape": [
+      15,
+      15
+    ],
+    "n_qubits": 8,
+    "n_params_or_samples": 15,
+    "time_ms": 303.729
+  },
+  "grad_batch_8q_20": {
+    "checksum": 41.42048296,
+    "shape": [
+      20
+    ],
+    "n_qubits": 8,
+    "n_params_or_samples": 48,
+    "time_ms": 42.788
+  },
+  "grad_batch_12q_10": {
+    "checksum": 23.62955038,
+    "shape": [
+      10
+    ],
+    "n_qubits": 12,
+    "n_params_or_samples": 48,
+    "time_ms": 38.979
+  }
+}

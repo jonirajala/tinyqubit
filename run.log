@@ -21,19 +21,19 @@ Correctness:
 Performance:
   Benchmark              Qubits Params    Ops   Time(ms)   Baseline     Change
   --------------------------------------------------------------------------
-  vqe_hea_4q_3l               4     24     33      0.779      0.759        +3%
-  vqe_hea_8q_3l               8     48     69      1.654      1.893 -13% FASTER
-  vqe_hea_12q_3l             12     72    105      4.398      5.947 -26% FASTER
-  vqe_hea_16q_3l             16     96    141     64.826     47.592 +36% REGR!
-  vqe_hea_8q_heisen           8     48     69      2.281      2.297        -1%
-  uccsd_4q                    4      5     19      0.281      0.664 -58% FASTER
-  uccsd_8q                    8     19     67      2.679      2.702        -1%
-  qaoa_8q_p3                  8      6     53      2.538      2.420        +5%
-  qaoa_14q_p3                14      6     95     12.769     23.940 -47% FASTER
-  reupl_1q_4f_6l              1     30     30      0.272      0.561 -52% FASTER
-  random_8q_d5                8     40     75      2.464      2.640 -7% FASTER
-  random_14q_d5              14     70    135     18.754     24.273 -23% FASTER
-  pshift_hea_8q_3l            8     48     69     84.295     90.308 -7% FASTER
-  backprop_hea_8q             8     48     69      2.461      2.805 -12% FASTER
+  vqe_hea_4q_3l               4     24     33      0.838      0.580 +44% REGR!
+  vqe_hea_8q_3l               8     48     69      1.450      1.857 -22% FASTER
+  vqe_hea_12q_3l             12     72    105      6.561      6.388        +3%
+  vqe_hea_16q_3l             16     96    141     74.578     75.282        -1%
+  vqe_hea_8q_heisen           8     48     69      2.338      2.436        -4%
+  uccsd_4q                    4      5     19      0.296      0.269       +10%
+  uccsd_8q                    8     19     67      2.647      2.773        -5%
+  qaoa_8q_p3                  8      6     53      2.337      2.344        -0%
+  qaoa_14q_p3                14      6     95     18.676     16.363       +14%
+  reupl_1q_4f_6l              1     30     30      0.271      0.594 -54% FASTER
+  random_8q_d5                8     40     75      2.515      2.576        -2%
+  random_14q_d5              14     70    135     20.870     17.396  +20% warn
+  pshift_hea_8q_3l            8     48     69     93.976     85.889        +9%
+  backprop_hea_8q             8     48     69      2.800      1.745 +60% REGR!
 
-Summary: 14/14 correctness PASS, 9 faster, 1 regressions
+Summary: 14/14 correctness PASS, 2 faster, 3 regressions
