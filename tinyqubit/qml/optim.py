@@ -148,15 +148,15 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
     dim = len(state.reshape(-1))
     # NOTE: Pack state+lam into contiguous (2, dim) pair for fused 1Q matmul
     sl = np.empty((2, dim), dtype=state.dtype)
-    sl[0] = state.reshape(-1); sl[1] = lam.reshape(-1)
+    sl[0] = state.reshape(-1)
+    sl[1] = lam.reshape(-1)
     buf_sl = np.empty_like(sl)
     state, lam = sl[0], sl[1]  # views into sl
-    buf_s, buf_l = buf_sl[0], buf_sl[1]
-    diag_phase = np.ones(dim, dtype=state.dtype)
+    diag_phase = None  # lazy: allocated on first diagonal gate
     diag_dirty = False
 
     def _flush_diag():
-        nonlocal sl, buf_sl, state, lam, buf_s, buf_l, diag_dirty
+        nonlocal diag_dirty
         if not diag_dirty: return
         np.multiply(sl, diag_phase, out=sl)  # broadcast (2, dim) *= (dim,) — one call for both
         diag_phase[:] = 1.0
@@ -193,6 +193,8 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 i0, i1 = idxs
                 grad[name] += scale * (np.vdot(la[i0], st[i0]) - np.vdot(la[i1], st[i1])).imag
 
+            if diag_phase is None:
+                diag_phase = np.ones(dim, dtype=state.dtype)
             dp = diag_phase.reshape([2] * n)
             if agate == Gate.RZ:
                 e0, e1 = mat_or_phase
@@ -207,13 +209,12 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
             np.take(sl[1], perm_inv, out=buf_sl[1])
             sl, buf_sl = buf_sl, sl
             state, lam = sl[0], sl[1]
-            buf_s, buf_l = buf_sl[0], buf_sl[1]
             k = start - 1; continue
         else:
             _flush_diag()
 
             # Collect commuting 1Q gates on different qubits for batch application
-            if anq == 1:
+            if anq == 1 and n >= 10:
                 batch_1q = []  # (k_idx, op, info_entry)
                 seen_qubits = set()
                 scan = k
@@ -269,7 +270,6 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                             np.matmul(combined, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
                         sl, buf_sl = buf_sl, sl
                         state, lam = sl[0], sl[1]
-                        buf_s, buf_l = buf_sl[0], buf_sl[1]
                         bi += run
                     else:
                         mat = batch_1q[bi][2][3]
@@ -283,10 +283,30 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                             np.matmul(mat, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
                         sl, buf_sl = buf_sl, sl
                         state, lam = sl[0], sl[1]
-                        buf_s, buf_l = buf_sl[0], buf_sl[1]
                         bi += 1
                 # Skip processed gates (scan already advanced past them)
                 k = scan; continue
+            if anq == 1:
+                # Small circuit: apply individually (avoids batch scan overhead)
+                if k in param_map:
+                    name, scale = param_map[k]
+                    st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                    i0, i1 = idxs
+                    if op.gate == Gate.RY:
+                        grad[name] += scale * (np.vdot(la[i1], st[i0]) - np.vdot(la[i0], st[i1])).real
+                    elif op.gate == Gate.RX:
+                        grad[name] += scale * (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
+                qubit = op.qubits[0]
+                nql, nr = 1 << qubit, 1 << (n - qubit - 1)
+                if nr <= 1:
+                    np.matmul(sl.reshape(2 * nql, 2), mat_or_phase.T, out=buf_sl.reshape(2 * nql, 2))
+                elif nql == 1:
+                    np.matmul(mat_or_phase, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
+                else:
+                    np.matmul(mat_or_phase, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                sl, buf_sl = buf_sl, sl
+                state, lam = sl[0], sl[1]
+                k -= 1; continue
             # Non-1Q gate: extract gradient individually
             if k in param_map:
                 name, scale = param_map[k]
