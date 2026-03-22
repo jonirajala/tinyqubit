@@ -180,6 +180,17 @@ class StabilizerState:
         all_bits = dim - 1
         state = np.zeros(dim, dtype=complex)
         state[seed] = 1.0
+        # NOTE: 1-pivot pure-X short-circuit: state has only 2 non-zero elements
+        if n_pivots == 1:
+            row = row_perm[0]
+            z_mask = sum((1 << (n - 1 - q)) for q in range(n) if sz[row, q])
+            if z_mask == 0:
+                x_mask = sum((1 << (n - 1 - q)) for q in range(n) if sx[row, q])
+                sign = -1.0 if sr[row] else 1.0
+                inv_sqrt2 = 1.0 / np.sqrt(2)
+                state[seed] = inv_sqrt2
+                state[seed ^ x_mask] = sign * inv_sqrt2
+                return state
         indices = None  # lazy allocation
         for ri in range(n_pivots):
             row = row_perm[ri]
