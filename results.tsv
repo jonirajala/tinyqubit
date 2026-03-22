@@ -9,3 +9,4 @@ b7e446a	841.6	16/16	keep	single-copy swap + np.take for CX perm
 3cb4cde	858.8	16/16	keep	batch consecutive CZ with phase mask
 67c4864	1490.1	16/16	keep	walrus n_qubits + skip noise check (~noise)
 6a31ac5	669.9	16/16	keep	kron phase fusion for diagonal 1Q gates (diag_20 -37%)
+8001f78	740.7	16/16	keep	fuse diagonal 1Q + CZ across block boundaries (diag_20 -32%)

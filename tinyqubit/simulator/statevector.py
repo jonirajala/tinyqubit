@@ -206,9 +206,21 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
     diag, non_diag = [], []
     for matrix, qubit in gates:
         (diag if matrix[0, 1] == 0j and matrix[1, 0] == 0j else non_diag).append((matrix, qubit))
-    for matrix, qubit in non_diag:
-        _apply_1q_matmul(state, buf, matrix, qubit, n, tmp)
-        state, buf = buf, state
+    # Pair adjacent qubits into 4×4 kron matmul to halve state passes
+    non_diag.sort(key=lambda x: x[1])
+    nd_i = 0
+    while nd_i < len(non_diag):
+        if nd_i + 1 < len(non_diag) and non_diag[nd_i][1] + 1 == non_diag[nd_i + 1][1]:
+            m0, q0 = non_diag[nd_i]
+            m1, q1 = non_diag[nd_i + 1]
+            nq, nr = 1 << q0, 1 << (n - q1 - 1)
+            np.matmul(np.kron(m0, m1), state.reshape(nq, 4, max(nr, 1)), out=buf.reshape(nq, 4, max(nr, 1)))
+            state, buf = buf, state
+            nd_i += 2
+        else:
+            _apply_1q_matmul(state, buf, non_diag[nd_i][0], non_diag[nd_i][1], n, tmp)
+            state, buf = buf, state
+            nd_i += 1
     # Fuse diagonal 1Q gates + CZ phases into single phase vector via kron
     if diag or cz_pairs:
         diag_by_q = {q: m for m, q in diag}
