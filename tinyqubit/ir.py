@@ -264,6 +264,7 @@ class Circuit:
                 c.ops.append(Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition))
             else:
                 c.ops.append(op)
+        c._validated = True  # bound circuits have no unbound params and valid qubits
         return c
 
     def bind_params(self, values: dict[str, float]) -> "Circuit":

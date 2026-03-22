@@ -8,7 +8,11 @@ _CLIFFORD_GATES = frozenset({Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.SDG, G
 
 
 def is_clifford(circuit: Circuit) -> bool:
-    return all(op.gate in _CLIFFORD_GATES for op in circuit.ops)
+    cached = getattr(circuit, '_is_clifford', None)
+    if cached is not None: return cached
+    result = all(op.gate in _CLIFFORD_GATES for op in circuit.ops)
+    circuit._is_clifford = result
+    return result
 
 
 def _rowmult_phase(x1, z1, x2, z2, r1: bool, r2: bool, n: int) -> bool:
