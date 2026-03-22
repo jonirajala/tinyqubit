@@ -154,19 +154,22 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
         diag_phase[:] = 1.0
         diag_dirty = False
 
-    # Precompute CX block boundaries for batch permutation in backward traversal
-    cx_block_start = {}  # block_end_k -> (block_start_k, perm_inv)
+    # Precompute CX/SWAP block boundaries for batch permutation in backward traversal
+    perm_block_start = {}  # block_end_k -> (block_start_k, perm_inv)
+    _PERM_GATES = frozenset({Gate.CX, Gate.SWAP})
     if n >= 10:
         j = len(bound.ops) - 1
         while j >= 0:
-            if bound.ops[j].gate == Gate.CX and j not in param_map:
+            if bound.ops[j].gate in _PERM_GATES and j not in param_map:
                 end = j
-                while j > 0 and bound.ops[j - 1].gate == Gate.CX and (j - 1) not in param_map:
+                while j > 0 and bound.ops[j - 1].gate in _PERM_GATES and (j - 1) not in param_map:
                     j -= 1
                 start = j
                 if end > start:
-                    cx_rev = tuple((bound.ops[i].qubits[0], bound.ops[i].qubits[1]) for i in range(end, start - 1, -1))
-                    cx_block_start[end] = (start, _get_perm(tuple(('CX', q0, q1) for q0, q1 in cx_rev), n))
+                    ops_rev = tuple(
+                        ('CX' if bound.ops[i].gate == Gate.CX else 'SWAP', bound.ops[i].qubits[0], bound.ops[i].qubits[1])
+                        for i in range(end, start - 1, -1))
+                    perm_block_start[end] = (start, _get_perm(ops_rev, n))
             j -= 1
 
     k = len(bound.ops) - 1
@@ -193,9 +196,9 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
             else:
                 dp[idxs[1]] *= mat_or_phase
             diag_dirty = True
-        elif k in cx_block_start:
+        elif k in perm_block_start:
             _flush_diag()
-            start, perm_inv = cx_block_start[k]
+            start, perm_inv = perm_block_start[k]
             state = state[perm_inv]
             lam = lam[perm_inv]
             k = start - 1; continue
