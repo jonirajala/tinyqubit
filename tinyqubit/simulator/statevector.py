@@ -247,9 +247,10 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
             _apply_1q_matmul(state, buf, non_diag[nd_i][0], non_diag[nd_i][1], n, tmp)
             state, buf = buf, state
             nd_i += 1
-    # Fuse diagonal 1Q + diagonal 2Q gates into single phase vector
+    # Fuse diagonal 1Q + diagonal 2Q gates into single phase vector (reuse buf to avoid alloc)
     if diag or diag_2q:
-        phase = np.ones(1 << n, dtype=complex)
+        buf[:] = 1.0
+        phase = buf
         for matrix, qubit in diag:
             nq, nr = 1 << qubit, 1 << (n - qubit - 1)
             p = phase.reshape(nq, 2, nr)
