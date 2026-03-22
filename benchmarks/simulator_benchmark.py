@@ -71,6 +71,35 @@ def build_toffoli_chain(n):
     for q in range(n - 2): c.ccx(q, q + 1, q + 2)
     return c
 
+def build_qaoa(n, layers=5):
+    """QAOA-style: RX rotations + RZZ interactions — common in optimization."""
+    c = Circuit(n)
+    rng = np.random.RandomState(42)
+    for q in range(n): c.h(q)
+    for _ in range(layers):
+        for q in range(n - 1):
+            c.rzz(q, q + 1, rng.uniform(0, 2 * np.pi))
+        for q in range(n):
+            c.rx(q, rng.uniform(0, 2 * np.pi))
+    return c
+
+def build_random_circuit(n, depth=20):
+    """Random 1Q rotations + random CX pairs — general stress test."""
+    c = Circuit(n)
+    rng = np.random.RandomState(42)
+    for _ in range(depth):
+        for q in range(n):
+            axis = rng.choice(3)
+            angle = rng.uniform(0, 2 * np.pi)
+            if axis == 0: c.rx(q, angle)
+            elif axis == 1: c.ry(q, angle)
+            else: c.rz(q, angle)
+        for q in range(0, n - 1, 2):
+            if rng.random() < 0.6: c.cx(q, q + 1)
+        for q in range(1, n - 1, 2):
+            if rng.random() < 0.6: c.cx(q, q + 1)
+    return c
+
 def build_diagonal_heavy(n, layers=10):
     """Heavy RZ/S/T/CZ circuit — tests diagonal gate optimizations."""
     c = Circuit(n)
@@ -105,6 +134,10 @@ CIRCUITS = [
     ("toffoli_10",    lambda: build_toffoli_chain(10)),
     ("diag_12",       lambda: build_diagonal_heavy(12)),
     ("diag_20",       lambda: build_diagonal_heavy(20)),
+    ("qaoa_12",       lambda: build_qaoa(12)),
+    ("qaoa_18",       lambda: build_qaoa(18)),
+    ("random_12",     lambda: build_random_circuit(12)),
+    ("random_18",     lambda: build_random_circuit(18)),
 ]
 
 
