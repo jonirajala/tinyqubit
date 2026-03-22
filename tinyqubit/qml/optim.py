@@ -274,9 +274,16 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
 def adjoint_gradient(circuit: Circuit, observable: Observable, params: dict[str, float] | None = None, return_cost: bool = False):
     """Compute all gradients in one forward + backward pass (adjoint differentiation)."""
     if params is None: params = circuit.param_values
-    bound = circuit.bind(params)
-    state, _ = simulate(bound)
-    n = bound.n_qubits
+    # Reuse cached work circuit to avoid per-call bind() allocation
+    work = getattr(circuit, '_adj_work', None)
+    if work is None or work._structure_key() != circuit._structure_key():
+        work = circuit.bind(params)
+        circuit._adj_work = work
+    else:
+        work.bind_params(params)
+    state, _ = simulate(work)
+    n = work.n_qubits
+    bound = work
     if observable._matrix is not None:
         lam = observable._matrix @ state
     else:
