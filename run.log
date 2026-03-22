@@ -23,21 +23,21 @@ Correctness:
 Performance:
   Circuit              Qubits    Ops   Time(ms)   Baseline     Change
   ----------------------------------------------------------------------------
-  ghz_4                     4      4      0.038      0.045 -16% FASTER
-  ghz_12                   12     12      0.113      0.431 -74% FASTER
-  ghz_20                   20     20      5.896    117.943 -95% FASTER
-  ghz_23                   23     23     63.918   1158.048 -94% FASTER
-  qft_4                     4     10      0.046      0.112 -59% FASTER
-  qft_10                   10     55      0.644      0.778 -17% FASTER
-  qft_16                   16    136     13.616     17.496 -22% FASTER
-  hea_8                     8    115      1.366      1.339        +2%
-  hea_14                   14    205      5.476      6.072 -10% FASTER
-  hea_20                   20    295    429.582    228.468 +88% REGR!
-  clifford_t_10            10    299      1.690      0.898 +88% REGR!
-  clifford_t_16            16    480     71.794     69.706        +3%
-  toffoli_6                 6     10      0.126      0.058 +117% REGR!
-  toffoli_10               10     18      0.180      0.085 +112% REGR!
-  diag_12                  12    362      5.360      2.300 +133% REGR!
-  diag_20                  20    610    501.009    504.247        -1%
+  ghz_4                     4      4      0.045      0.045        +0%
+  ghz_12                   12     12      0.243      0.431 -44% FASTER
+  ghz_20                   20     20      0.544    117.943 -100% FASTER
+  ghz_23                   23     23     12.225   1158.048 -99% FASTER
+  qft_4                     4     10      0.049      0.112 -56% FASTER
+  qft_10                   10     55      0.668      0.778 -14% FASTER
+  qft_16                   16    136     14.958     17.496 -15% FASTER
+  hea_8                     8    115      0.561      1.339 -58% FASTER
+  hea_14                   14    205      4.703      6.072 -23% FASTER
+  hea_20                   20    295    420.694    228.468 +84% REGR!
+  clifford_t_10            10    299      1.861      0.898 +107% REGR!
+  clifford_t_16            16    480     67.966     69.706        -2%
+  toffoli_6                 6     10      0.128      0.058 +121% REGR!
+  toffoli_10               10     18      0.183      0.085 +115% REGR!
+  diag_12                  12    362      4.422      2.300 +92% REGR!
+  diag_20                  20    610    965.102    504.247 +91% REGR!
 
-Summary: 16/16 correctness PASS, 8 faster, 5 regressions
+Summary: 16/16 correctness PASS, 8 faster, 6 regressions

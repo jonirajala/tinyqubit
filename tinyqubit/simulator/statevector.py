@@ -44,9 +44,11 @@ def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, pa
         i = [slice(None)] * n
         i[q0], i[q1] = v0, v1
         return tuple(i)
-    if gate == Gate.CX: state[idx(1, 0)], state[idx(1, 1)] = state[idx(1, 1)].copy(), state[idx(1, 0)].copy()
+    if gate == Gate.CX:
+        tmp = state[idx(1, 0)].copy(); state[idx(1, 0)] = state[idx(1, 1)]; state[idx(1, 1)] = tmp
     elif gate == Gate.CZ: state[idx(1, 1)] *= -1
-    elif gate == Gate.SWAP: state[idx(0, 1)], state[idx(1, 0)] = state[idx(1, 0)].copy(), state[idx(0, 1)].copy()
+    elif gate == Gate.SWAP:
+        tmp = state[idx(0, 1)].copy(); state[idx(0, 1)] = state[idx(1, 0)]; state[idx(1, 0)] = tmp
     elif gate == Gate.CP: state[idx(1, 1)] *= np.exp(1j * params[0])
     elif gate == Gate.RZZ:
         t = params[0]
@@ -73,7 +75,7 @@ def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int,
         i = [slice(None)] * n; i[q0], i[q1], i[q2] = v0, v1, v2
         return tuple(i)
     if gate == Gate.CCX:
-        state[idx(1, 1, 0)], state[idx(1, 1, 1)] = state[idx(1, 1, 1)].copy(), state[idx(1, 1, 0)].copy()
+        tmp = state[idx(1, 1, 0)].copy(); state[idx(1, 1, 0)] = state[idx(1, 1, 1)]; state[idx(1, 1, 1)] = tmp
     elif gate == Gate.CCZ:
         state[idx(1, 1, 1)] *= -1
     return state.reshape(-1)
@@ -226,7 +228,8 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
             if buf is not None and op.gate == Gate.CX and noise_model is None:
                 cx_pairs, end_i = _collect_cx_block(ops, i)
                 if cx_pairs is not None:
-                    state = state[_get_cx_perm(cx_pairs, n)]
+                    np.take(state, _get_cx_perm(cx_pairs, n), out=buf)
+                    state, buf = buf, state
                     for _ in range(end_i - i - 1): next(ops_iter)
                     continue
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
