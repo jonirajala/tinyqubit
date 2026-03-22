@@ -139,18 +139,21 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
 
     grad = {p.name: 0.0 for p in circuit.parameters}
 
-    state = state.reshape(-1)
-    lam = lam.reshape(-1)
-    buf_s = np.empty_like(state)
-    buf_l = np.empty_like(lam)
+    dim = len(state.reshape(-1))
+    # NOTE: Pack state+lam into contiguous (2, dim) pair for fused 1Q matmul
+    sl = np.empty((2, dim), dtype=state.dtype)
+    sl[0] = state.reshape(-1); sl[1] = lam.reshape(-1)
+    buf_sl = np.empty_like(sl)
+    state, lam = sl[0], sl[1]  # views into sl
+    buf_s, buf_l = buf_sl[0], buf_sl[1]
     diag_phase = None
     diag_dirty = False
 
     def _flush_diag():
-        nonlocal state, lam, diag_dirty
+        nonlocal sl, buf_sl, state, lam, buf_s, buf_l, diag_dirty
         if not diag_dirty: return
-        state *= diag_phase
-        lam *= diag_phase
+        sl[0] *= diag_phase
+        sl[1] *= diag_phase
         diag_phase[:] = 1.0
         diag_dirty = False
 
@@ -199,8 +202,11 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
         elif k in perm_block_start:
             _flush_diag()
             start, perm_inv = perm_block_start[k]
-            state = state[perm_inv]
-            lam = lam[perm_inv]
+            np.take(sl[0], perm_inv, out=buf_sl[0])
+            np.take(sl[1], perm_inv, out=buf_sl[1])
+            sl, buf_sl = buf_sl, sl
+            state, lam = sl[0], sl[1]
+            buf_s, buf_l = buf_sl[0], buf_sl[1]
             k = start - 1; continue
         else:
             _flush_diag()
@@ -238,29 +244,30 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 nql, nr = 1 << qubit, 1 << (n - qubit - 1)
                 if nr <= 1:
                     # NOTE: 2D GEMM much faster than 3D batch for nr=1
-                    np.matmul(state.reshape(nql, 2), mat.T, out=buf_s.reshape(nql, 2))
-                    np.matmul(lam.reshape(nql, 2), mat.T, out=buf_l.reshape(nql, 2))
+                    np.matmul(sl.reshape(2 * nql, 2), mat.T, out=buf_sl.reshape(2 * nql, 2))
                 elif nql == 1:
-                    np.matmul(mat, state.reshape(2, nr), out=buf_s.reshape(2, nr))
-                    np.matmul(mat, lam.reshape(2, nr), out=buf_l.reshape(2, nr))
+                    np.matmul(mat, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
                 else:
-                    np.matmul(mat, state.reshape(nql, 2, nr), out=buf_s.reshape(nql, 2, nr))
-                    np.matmul(mat, lam.reshape(nql, 2, nr), out=buf_l.reshape(nql, 2, nr))
-                state, buf_s = buf_s, state
-                lam, buf_l = buf_l, lam
+                    np.matmul(mat, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                sl, buf_sl = buf_sl, sl
+                state, lam = sl[0], sl[1]
+                buf_s, buf_l = buf_sl[0], buf_sl[1]
             elif anq == 2:
                 q0, q1 = op.qubits[0], op.qubits[1]
-                state = _apply_two_qubit(state, agate, q0, q1, n, aparams)
-                lam = _apply_two_qubit(lam, agate, q0, q1, n, aparams)
+                _apply_two_qubit(state, agate, q0, q1, n, aparams)
+                _apply_two_qubit(lam, agate, q0, q1, n, aparams)
             elif anq == 3:
-                state = _apply_three_qubit(state, agate, *op.qubits, n)
-                lam = _apply_three_qubit(lam, agate, *op.qubits, n)
-                buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+                # 3Q/4Q gates may reallocate; copy back into sl
+                s2 = _apply_three_qubit(state, agate, *op.qubits, n)
+                l2 = _apply_three_qubit(lam, agate, *op.qubits, n)
+                sl[0] = s2; sl[1] = l2
+                state, lam = sl[0], sl[1]
             else:  # 4Q (DEXC)
                 from ..simulator.statevector import _apply_four_qubit
-                state = _apply_four_qubit(state, agate, *op.qubits, n, aparams)
-                lam = _apply_four_qubit(lam, agate, *op.qubits, n, aparams)
-                buf_s = np.empty_like(state); buf_l = np.empty_like(lam)
+                s2 = _apply_four_qubit(state, agate, *op.qubits, n, aparams)
+                l2 = _apply_four_qubit(lam, agate, *op.qubits, n, aparams)
+                sl[0] = s2; sl[1] = l2
+                state, lam = sl[0], sl[1]
 
         k -= 1
     _flush_diag()
