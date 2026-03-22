@@ -185,6 +185,20 @@ class Circuit:
     def ccx(self, c1: int, c2: int, t: int) -> "Circuit": return self._add(Gate.CCX, (c1, c2, t))
     def ccz(self, a: int, b: int, c: int) -> "Circuit": return self._add(Gate.CCZ, tuple(sorted([a, b, c])))  # Symmetric → canonicalize
 
+    def mcry(self, angle, controls: list[int], target: int) -> "Circuit":
+        """Multi-controlled RY. Decomposes recursively into CX + RY."""
+        n = len(controls)
+        if n == 0: return self.ry(target, angle)
+        if n == 1:
+            self.ry(target, angle / 2)
+            self.cx(controls[0], target)
+            self.ry(target, -angle / 2)
+            return self.cx(controls[0], target)
+        self.mcry(angle / 2, controls[:-1], target)
+        self.cx(controls[-1], target)
+        self.mcry(-angle / 2, controls[:-1], target)
+        return self.cx(controls[-1], target)
+
     def measure(self, q: int, c: int | None = None) -> "Circuit":
         """Measure qubit q, store result in classical bit c (defaults to q)."""
         return self._add(Gate.MEASURE, (q,), (), classical_bit=c if c is not None else q)

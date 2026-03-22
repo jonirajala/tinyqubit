@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from ..ir import Circuit, Gate as _Gate, _GATE_1Q_CACHE
 from ..simulator import simulate, _apply_single_qubit
+from ..simulator.mps import MPSState, mps_expectation
 
 
 class Observable:
@@ -67,7 +68,9 @@ _PAULI_MATRIX = {'X': _GATE_1Q_CACHE[_Gate.X], 'Y': _GATE_1Q_CACHE[_Gate.Y], 'Z'
 
 
 def expectation(circuit_or_state, observable: Observable, n_qubits: int | None = None) -> float:
-    """Compute ⟨ψ|O|ψ⟩ for a Pauli observable. Accepts Circuit or statevector."""
+    """Compute ⟨ψ|O|ψ⟩ for a Pauli observable. Accepts Circuit, statevector, or MPSState."""
+    if isinstance(circuit_or_state, MPSState):
+        return mps_expectation(circuit_or_state.tensors, observable)
     if isinstance(circuit_or_state, np.ndarray):
         state, n = circuit_or_state, n_qubits if n_qubits is not None else int(np.log2(len(circuit_or_state)))
     else:
@@ -77,6 +80,8 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
         if circuit.is_parameterized and circuit.param_values:
             circuit = circuit.bind()
         state, _ = simulate(circuit)
+        if isinstance(state, MPSState):
+            return mps_expectation(state.tensors, observable)
         n = circuit.n_qubits
     if observable._matrix is not None:
         return np.vdot(state, observable._matrix @ state).real
@@ -92,6 +97,18 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
 def expectation_batch(circuits: list[Circuit], observable: Observable) -> np.ndarray:
     """Compute ⟨ψ|O|ψ⟩ for each circuit in a list."""
     return np.array([expectation(c, observable) for c in circuits])
+
+
+def expectation_z(state, qubits: list[int] | None = None) -> np.ndarray:
+    """Compute ⟨Z_q⟩ for each qubit from a statevector or MPSState."""
+    if isinstance(state, MPSState):
+        if qubits is None: qubits = list(range(state.n_qubits))
+        return np.array([mps_expectation(state.tensors, Observable([(1.0, {q: 'Z'})])) for q in qubits])
+    n = int(np.log2(len(state)))
+    if qubits is None: qubits = list(range(n))
+    probs = np.abs(state) ** 2
+    return np.array([float(np.sum(probs * np.array([1 - 2 * ((i >> (n - 1 - q)) & 1) for i in range(len(probs))])))
+                     for q in qubits])
 
 
 def expectation_sweep(circuit: Circuit, param_name: str, values: np.ndarray,

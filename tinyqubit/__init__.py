@@ -12,14 +12,15 @@ from .simulator.noise import (
     NoiseModel, depolarizing, amplitude_damping, phase_damping,
     readout_error, realistic_noise
 )
-from .measurement.observable import Observable, I, X, Y, Z, expectation, expectation_batch, expectation_sweep, state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
+from .measurement.observable import Observable, I, X, Y, Z, expectation, expectation_batch, expectation_z, expectation_sweep, state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
 from .qml.optim import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, backprop_gradient, gradient_landscape, quantum_fisher_information, cost_gradient, Adam, GradientDescent, SPSA, QNG
-from .qml.loss import kl_divergence, mse
+from .qml.loss import kl_divergence, mse, cross_entropy, DiffLoss
 from .qml.circuits import qft, ghz, grover_oracle, qaoa_mixer
-from .qml.layers import hardware_efficient_ansatz, strongly_entangling_layers
+from .qml.layers import hardware_efficient_ansatz, strongly_entangling_layers, amplitude_feature_map
 from .qml.chemistry import (jordan_wigner, molecular_hamiltonian, compute_hamiltonian,
-    exact_diag, hf_state, taper, uccsd_ansatz,
-    excitation_pool, qubit_excitation_pool, apply_excitation, pool_gradients)
+    exact_diag, hamiltonian_matrix, hf_state, taper, uccsd_ansatz,
+    excitation_pool, qubit_excitation_pool, apply_excitation, pool_gradients,
+    adapt_vqe)
 from .measurement.ftqc import resource_estimate, ResourceEstimate
 from .measurement.mitigation import zne, calibration_matrix, mitigate_readout
 
@@ -38,23 +39,24 @@ __all__ = [
     "readout_error", "realistic_noise",
     # Observables & measurement
     "Observable", "I", "X", "Y", "Z",
-    "expectation", "expectation_batch", "expectation_sweep",
+    "expectation", "expectation_batch", "expectation_z", "expectation_sweep",
     # Gradients
     "parameter_shift_gradient", "finite_difference_gradient",
     "adjoint_gradient", "backprop_gradient", "gradient_landscape",
     "quantum_fisher_information", "cost_gradient",
     "Adam", "GradientDescent", "SPSA", "QNG",
-    "kl_divergence", "mse",
+    "kl_divergence", "mse", "cross_entropy", "DiffLoss",
     # Quantum info
     "state_fidelity", "partial_trace", "entanglement_entropy",
     "concurrence", "mutual_information",
     # Circuit library
     "qft", "ghz", "grover_oracle", "hardware_efficient_ansatz", "qaoa_mixer",
-    "strongly_entangling_layers",
+    "strongly_entangling_layers", "amplitude_feature_map",
     # Chemistry
     "jordan_wigner", "molecular_hamiltonian", "compute_hamiltonian",
     "exact_diag", "hf_state", "taper", "uccsd_ansatz",
     "excitation_pool", "qubit_excitation_pool", "apply_excitation", "pool_gradients",
+    "adapt_vqe", "hamiltonian_matrix",
     # Export
     "to_openqasm2", "to_openqasm3", "from_openqasm2", "from_openqasm3",
     "UnsupportedGateError", "submit_ibm", "wait_ibm", "IBMBackend", "BraketBackend",

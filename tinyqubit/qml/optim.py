@@ -392,9 +392,14 @@ def _unpack_args(params_or_circuit, circuit, observable):
 
 
 def _compute_grad(circuit, objective, params, default_grad_fn):
-    """Dispatch gradient: Observable → adjoint, callable → backprop."""
+    """Dispatch gradient: Observable → adjoint, callable → backprop.
+    Falls back to parameter_shift for >28Q circuits (MPS) since adjoint/backprop need statevector."""
     if callable(objective) and not isinstance(objective, Observable):
+        if circuit.n_qubits > 28:
+            raise ValueError("backprop_gradient not supported for >28Q circuits. Use parameter_shift_gradient.")
         return backprop_gradient(circuit, objective, params)
+    if default_grad_fn is adjoint_gradient and circuit.n_qubits > 28:
+        return parameter_shift_gradient(circuit, objective, params)
     return default_grad_fn(circuit, objective, params)
 
 
@@ -411,8 +416,12 @@ class _GradOptimizer:
         params, circuit, observable = _unpack_args(params_or_circuit, circuit, observable)
         if callable(observable) and not isinstance(observable, Observable):
             grad, cost = backprop_gradient(circuit, observable, params, return_cost=True)
-        elif self._grad_fn is adjoint_gradient:
+        elif self._grad_fn is adjoint_gradient and circuit.n_qubits <= 28:
             grad, cost = adjoint_gradient(circuit, observable, params, return_cost=True)
+        elif circuit.n_qubits > 28:
+            # MPS path: use parameter-shift (adjoint/backprop need statevector)
+            grad = parameter_shift_gradient(circuit, observable, params)
+            cost = expectation(circuit.bind(params), observable)
         else:
             grad = self._grad_fn(circuit, observable, params)
             cost = expectation(circuit.bind(params), observable)

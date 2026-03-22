@@ -1,7 +1,8 @@
 """Tests for MPS simulator."""
 import numpy as np
 import pytest
-from tinyqubit import Circuit, simulate, simulate_mps, mps_to_statevector, states_equal, Gate
+from tinyqubit import Circuit, simulate, simulate_mps, mps_to_statevector, states_equal, Gate, sample, expectation, expectation_z, Z
+from tinyqubit.simulator.mps import MPSState, mps_probabilities
 
 
 def _mps_sv(c, **kw):
@@ -164,9 +165,9 @@ def test_50q_ghz_measurement():
 
 def test_auto_dispatch_large():
     c = Circuit(30)
-    c.x(0)
-    sv, cb = simulate(c)
-    assert sv.shape[0] == 0  # too large for statevector, returns empty like stabilizer
+    c.x(0).ry(1, 0.5)  # ry makes it non-Clifford, forcing MPS path
+    state, cb = simulate(c)
+    assert isinstance(state, MPSState)
 
 
 # --- Combined circuit ---
@@ -176,3 +177,44 @@ def test_multi_gate_circuit():
     c.h(0).cx(0, 1).rz(2, 0.5).ry(3, 1.2)
     c.cx(2, 3).cz(0, 2)
     _check(c)
+
+
+# --- MPS dispatch paths ---
+
+def test_mps_sample_dispatch():
+    c = Circuit(3).x(0).h(1).cx(1, 2)
+    tensors, _ = simulate_mps(c)
+    counts = sample(MPSState(tensors, 3), 100, seed=42)
+    assert all(k[0] == '1' for k in counts)
+
+def test_mps_expectation_dispatch():
+    c = Circuit(3).x(0)
+    tensors, _ = simulate_mps(c)
+    val = expectation(MPSState(tensors, 3), Z(0))
+    assert abs(val - (-1.0)) < 1e-10
+
+def test_mps_expectation_vs_statevector():
+    c = Circuit(3).h(0).cx(0, 1)
+    tensors, _ = simulate_mps(c)
+    sv_ref, _ = simulate(c)
+    assert abs(expectation(MPSState(tensors, 3), Z(0)) - expectation(sv_ref, Z(0), n_qubits=3)) < 1e-10
+
+def test_mps_expectation_z_dispatch():
+    c = Circuit(2).x(0)
+    tensors, _ = simulate_mps(c)
+    zvals = expectation_z(MPSState(tensors, 2))
+    assert abs(zvals[0] - (-1.0)) < 1e-10
+    assert abs(zvals[1] - 1.0) < 1e-10
+
+def test_mps_probabilities():
+    c = Circuit(3).x(0)
+    tensors, _ = simulate_mps(c)
+    probs = mps_probabilities(tensors)
+    assert abs(probs[4] - 1.0) < 1e-10  # |100> = index 4
+
+def test_mps_probabilities_marginal():
+    c = Circuit(3).h(0).cx(0, 1)
+    tensors, _ = simulate_mps(c)
+    probs = mps_probabilities(tensors, wires=[0])
+    assert abs(probs[0] - 0.5) < 1e-6
+    assert abs(probs[1] - 0.5) < 1e-6

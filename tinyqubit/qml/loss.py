@@ -27,7 +27,7 @@ def mse_cost(circuit: Circuit, X: np.ndarray, y: np.ndarray,
     return np.mean((predict(circuit, X, observable) - y) ** 2)
 
 
-class _DiffLoss:
+class DiffLoss:
     """Callable loss with analytical gradient for use with backprop_gradient."""
     __slots__ = ('_fn', 'grad')
     def __init__(self, fn, grad): self._fn, self.grad = fn, grad
@@ -42,14 +42,26 @@ def _kl(p, q):
 def kl_divergence(target: np.ndarray, q: np.ndarray | None = None):
     """KL(target || q). With one arg, returns a loss function for use with backprop_gradient."""
     if q is not None: return _kl(target, q)
-    return _DiffLoss(lambda q: _kl(target, q),
-                     lambda q: np.where(target > 1e-12, -target / np.clip(q, 1e-12, None), 0.0))
+    return DiffLoss(lambda q: _kl(target, q),
+                    lambda q: np.where(target > 1e-12, -target / np.clip(q, 1e-12, None), 0.0))
 
 
 def mse(target: np.ndarray):
     """MSE loss factory: returns loss(probs) -> float."""
-    return _DiffLoss(lambda p: float(np.sum((p - target) ** 2)),
-                     lambda p: 2 * (p - target))
+    return DiffLoss(lambda p: float(np.sum((p - target) ** 2)),
+                    lambda p: 2 * (p - target))
+
+
+def cross_entropy(target: np.ndarray):
+    """Binary cross-entropy loss factory: returns loss(probs) -> float. target ∈ [0,1]."""
+    t = np.asarray(target, dtype=float)
+    def _fn(p):
+        q = np.clip(p, 1e-12, 1 - 1e-12)
+        return -float(np.sum(t * np.log(q) + (1 - t) * np.log(1 - q)))
+    def _grad(p):
+        q = np.clip(p, 1e-12, 1 - 1e-12)
+        return -t / q + (1 - t) / (1 - q)
+    return DiffLoss(_fn, _grad)
 
 
 def fidelity_cost(circuit: Circuit, target_state: np.ndarray) -> float:

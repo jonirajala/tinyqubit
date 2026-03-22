@@ -7,15 +7,15 @@ from ..ir import Circuit, Gate, _has_parameter, _get_gate_matrix
 from .statevector import simulate_statevector, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _apply_four_qubit
 from .density import simulate_density
 from .stabilizer import is_clifford, simulate_stabilizer
-from .mps import simulate_mps, mps_to_statevector
+from .mps import simulate_mps, mps_to_statevector, MPSState, mps_expectation, mps_sample, mps_probabilities
 
 if TYPE_CHECKING:
     from .noise import NoiseModel
 
 
 def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel | None" = None,
-             batch_ops: bool = True) -> tuple[np.ndarray, dict[int, int]]:
-    """Simulate circuit. Returns (statevector, classical_bits dict).
+             batch_ops: bool = True) -> tuple[np.ndarray | MPSState, dict[int, int]]:
+    """Simulate circuit. Returns (statevector or MPSState, classical_bits dict).
 
     Auto-dispatches: Clifford circuits → stabilizer tableau, >28 qubits → MPS,
     otherwise statevector. Noise or custom initial state forces statevector path.
@@ -35,20 +35,24 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
 
     if noise_model is None and circuit._initial_state is None and n > 28:
         tensors, classical = simulate_mps(circuit, seed=seed)
-        return mps_to_statevector(tensors), classical
+        return MPSState(tensors, n), classical
 
     return simulate_statevector(circuit, n, seed, noise_model, batch_ops)
 
 
 def states_equal(a: np.ndarray, b: np.ndarray, tol: float = 1e-10) -> bool:
     """Check if two states are equal up to global phase."""
+    if isinstance(a, MPSState) or isinstance(b, MPSState):
+        raise TypeError("states_equal does not support MPSState. Convert to statevector first.")
     if a.shape != b.shape: return False
     norm_a, norm_b = np.linalg.norm(a), np.linalg.norm(b)
     if norm_a < tol or norm_b < tol: return norm_a < tol and norm_b < tol
     return np.isclose(np.abs(np.vdot(a, b)) / (norm_a * norm_b), 1.0, atol=tol)
 
-def sample(state: np.ndarray, shots: int, seed: int = None) -> dict[str, int]:
-    """Sample measurement outcomes from statevector. Returns {bitstring: count}."""
+def sample(state, shots: int, seed: int = None) -> dict[str, int]:
+    """Sample measurement outcomes from statevector or MPSState. Returns {bitstring: count}."""
+    if isinstance(state, MPSState):
+        return mps_sample(state.tensors, shots, seed)
     rng = np.random.default_rng(seed)
     probs = np.abs(state) ** 2
     probs /= probs.sum()  # Normalize to handle numerical drift
@@ -62,6 +66,8 @@ def probabilities(circuit: Circuit, wires: list[int] | None = None, seed: int | 
     if circuit.is_parameterized and circuit.param_values:
         circuit = circuit.bind()
     state, _ = simulate(circuit, seed=seed)
+    if isinstance(state, MPSState):
+        return mps_probabilities(state.tensors, wires)
     probs = np.abs(state) ** 2
     if wires is None: return probs
     n = circuit.n_qubits

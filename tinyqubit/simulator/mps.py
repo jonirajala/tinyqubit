@@ -5,6 +5,16 @@ from ..ir import Circuit, Gate, _has_parameter, _get_gate_matrix, _GATE_1Q_CACHE
 from .statevector import _build_gate_unitary
 
 _SWAP4 = np.array([[1,0,0,0],[0,0,1,0],[0,1,0,0],[0,0,0,1]], dtype=complex)
+_PAULI = {'X': np.array([[0,1],[1,0]], dtype=complex), 'Y': np.array([[0,-1j],[1j,0]], dtype=complex),
+          'Z': np.array([[1,0],[0,-1]], dtype=complex), 'I': np.eye(2, dtype=complex)}
+
+
+class MPSState:
+    """Lightweight wrapper around MPS tensors for dispatch."""
+    __slots__ = ('tensors', 'n_qubits')
+    def __init__(self, tensors: list[np.ndarray], n_qubits: int):
+        self.tensors = tensors
+        self.n_qubits = n_qubits
 
 
 def _mps_init(n: int) -> list[np.ndarray]:
@@ -163,3 +173,103 @@ def simulate_mps(circuit: Circuit, max_bond_dim: int = 256, seed: int | None = N
             _mps_apply_3q(tensors, op.qubits[0], op.qubits[1], op.qubits[2], U8, max_bond_dim)
 
     return tensors, classical
+
+
+# --- MPS-native measurement functions (no statevector conversion) ---
+
+def mps_expectation(tensors: list[np.ndarray], observable) -> float:
+    """Compute ⟨ψ|O|ψ⟩ from MPS tensors via transfer matrix contraction.
+    Observable must have .terms attribute: list of (coeff, {qubit: pauli_str}).
+    Cost: O(n · χ⁴ · |terms|) per term (χ⁴ from χ²×χ² matrix multiply)."""
+    n = len(tensors)
+    if hasattr(observable, '_matrix') and observable._matrix is not None:
+        if n > 25:
+            raise ValueError("Dense-matrix observable not supported for MPS with >25 qubits. Use Pauli-sum observables.")
+        sv = mps_to_statevector(tensors)
+        return np.vdot(sv, observable._matrix @ sv).real
+    result = 0.0
+    for coeff, paulis in observable.terms:
+        tm = np.array([[1.0 + 0j]])  # 1×1 seed
+        for q in range(n):
+            T = tensors[q]
+            P = _PAULI[paulis[q]] if q in paulis else _PAULI['I']
+            # Transfer matrix: ⟨T| P |T⟩ contracted over physical index
+            local = np.einsum('aib,ij,cjd->acbd', T.conj(), P, T)
+            local = local.reshape(T.shape[0] * T.shape[0], T.shape[2] * T.shape[2])
+            tm = tm @ local
+        result += coeff * tm.item()
+    return float(result.real)
+
+
+def mps_sample(tensors: list[np.ndarray], shots: int, seed: int | None = None) -> dict[str, int]:
+    """Sample bitstrings from MPS via sequential left-to-right conditional sampling.
+    Left-canonicalizes once, then samples each shot in O(n·χ²)."""
+    rng = np.random.default_rng(seed)
+    n = len(tensors)
+    canon = [t.copy() for t in tensors]
+    _mps_left_canonicalize(canon, n - 1)
+    counts: dict[str, int] = {}
+    for _ in range(shots):
+        bits = []
+        env = np.ones((1, 1), dtype=complex)
+        for q in range(n):
+            T = canon[q]
+            p = np.zeros(2)
+            for b in range(2):
+                v = env @ T[:, b, :]
+                p[b] = np.sum(np.abs(v) ** 2).real
+            total = p.sum()
+            if total > 1e-15:
+                p /= total
+            outcome = 0 if rng.random() < p[0] else 1
+            bits.append(str(outcome))
+            env = env @ T[:, outcome, :]
+            norm = np.linalg.norm(env)
+            if norm > 1e-15:
+                env = env / norm
+        bs = ''.join(bits)
+        counts[bs] = counts.get(bs, 0) + 1
+    return counts
+
+
+def mps_probabilities(tensors: list[np.ndarray], wires: list[int] | None = None) -> np.ndarray:
+    """Compute measurement probabilities from MPS.
+    If wires is None and n ≤ 25: full probability vector via statevector conversion.
+    If wires is specified (≤12 qubits): marginal probabilities via partial contraction.
+    """
+    n = len(tensors)
+    if wires is None:
+        sv = mps_to_statevector(tensors)
+        if len(sv) == 0:
+            raise ValueError("Full probabilities for >25 qubits requires too much memory. Use wires= for marginals.")
+        return np.abs(sv) ** 2
+    if len(wires) > 12:
+        raise ValueError(f"Marginal over {len(wires)} wires too large (max 12).")
+    # Marginal probabilities via transfer matrix contraction over all 2^|wires| outcomes
+    wire_set = set(wires)
+    n_marginal = len(wires)
+    probs = np.zeros(2 ** n_marginal)
+    # For each outcome bitstring on the target wires
+    for idx in range(2 ** n_marginal):
+        bits = [(idx >> (n_marginal - 1 - k)) & 1 for k in range(n_marginal)]
+        wire_bits = dict(zip(wires, bits))
+        # Contract MPS with projectors on target wires, identity on rest
+        tm = np.ones((1, 1), dtype=complex)
+        for q in range(n):
+            T = tensors[q]
+            if q in wire_set:
+                b = wire_bits[q]
+                # Project onto |b⟩: ⟨T[:,b,:]|T[:,b,:]⟩
+                local = np.einsum('ai,ci->ac', T[:, b, :].conj(), T[:, b, :])
+            else:
+                # Trace over physical index: sum_b ⟨T[:,b,:]|T[:,b,:]⟩
+                local = np.einsum('aib,cid->ac', T.conj(), T)
+            # local is (chi_l, chi_l) but we need (chi_l², chi_r²) format
+            # Actually for projection/trace, the bra and ket bond dims don't mix
+            tm = np.einsum('ac,cd->ad', tm, local)
+        probs[idx] = tm.item().real
+    probs = np.clip(probs, 0, None)
+    total = probs.sum()
+    if total > 1e-15:
+        probs /= total
+    return probs

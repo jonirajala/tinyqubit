@@ -199,15 +199,21 @@ _PAULI_MAT = {'X': np.array([[0,1],[1,0]], dtype=complex), 'Y': np.array([[0,-1j
               'Z': np.array([[1,0],[0,-1]], dtype=complex)}
 _I2 = np.eye(2, dtype=complex)
 
-def exact_diag(H: Observable, n_qubits: int) -> float:
-    """Ground state energy by exact diagonalization."""
+def hamiltonian_matrix(H: Observable, n_qubits: int) -> np.ndarray:
+    """Build the full 2^n × 2^n matrix representation of a Pauli observable."""
     H_mat = np.zeros((2**n_qubits, 2**n_qubits), dtype=complex)
     for coeff, paulis in H.terms:
         term = np.array([[1]], dtype=complex)
         for q in range(n_qubits):
             term = np.kron(term, _PAULI_MAT[paulis[q]] if q in paulis else _I2)
         H_mat += coeff * term
-    return float(np.linalg.eigvalsh(H_mat).real.min())
+    return H_mat
+
+
+def exact_diag(H: Observable, n_qubits: int, k: int = 1) -> float | np.ndarray:
+    """Exact diagonalization. Returns ground state energy (k=1) or lowest k eigenvalues."""
+    eigvals = np.linalg.eigvalsh(hamiltonian_matrix(H, n_qubits)).real
+    return float(eigvals[0]) if k == 1 else eigvals[:k]
 
 
 def hf_state(n_qubits: int, n_electrons: int) -> Circuit:
