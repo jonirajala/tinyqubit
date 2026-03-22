@@ -3,3 +3,4 @@ commit	total_ms	correctness	status	description
 5ae0715	186.6	14/14	keep	2D GEMM edge-case in backward 1Q matmul (hea_16q -42%)
 4b4a5de	217.3	14/14	keep	extend backward perm batching to SWAP+CX
 reverted	0.0	14/14	discard	direct diag application (worse for diag-heavy circuits)
+444951c	231.2	14/14	keep	vectorize Z-only lambda via popcount parity

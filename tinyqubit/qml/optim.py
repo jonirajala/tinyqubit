@@ -146,7 +146,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
     buf_sl = np.empty_like(sl)
     state, lam = sl[0], sl[1]  # views into sl
     buf_s, buf_l = buf_sl[0], buf_sl[1]
-    diag_phase = None
+    diag_phase = np.ones(dim, dtype=state.dtype)
     diag_dirty = False
 
     def _flush_diag():
@@ -189,9 +189,6 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                 i0, i1 = idxs
                 grad[name] += scale * (np.vdot(la[i0], st[i0]) - np.vdot(la[i1], st[i1])).imag
 
-            # Accumulate phase instead of applying immediately
-            if diag_phase is None:
-                diag_phase = np.ones(len(state), dtype=state.dtype)
             dp = diag_phase.reshape([2] * n)
             if agate == Gate.RZ:
                 e0, e1 = mat_or_phase
