@@ -161,14 +161,14 @@ def _collect_perm_block(ops: list, start: int) -> tuple[tuple[tuple[str, int, in
     return (tuple(gate_ops), i) if len(gate_ops) >= 2 else (None, start)
 
 
-def _collect_cz_block(ops: list, start: int) -> tuple[list[tuple[int, int]] | None, int]:
-    i, pairs = start, []
+def _collect_diag_2q_block(ops: list, start: int) -> tuple[list | None, int]:
+    i, block = start, []
     while i < len(ops):
         op = ops[i]
-        if op.gate != Gate.CZ or op.condition is not None: break
-        pairs.append((op.qubits[0], op.qubits[1]))
+        if op.gate not in _DIAG_2Q or op.condition is not None: break
+        block.append(op)
         i += 1
-    return (pairs, i) if len(pairs) >= 2 else (None, start)
+    return (block, i) if len(block) >= 2 else (None, start)
 
 _DIAG_2Q = frozenset({Gate.CZ, Gate.CP, Gate.RZZ})
 
@@ -312,15 +312,10 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                         state, buf = buf, state
                         for _ in range(end_i - i - 1): next(ops_iter)
                         continue
-                elif op.gate == Gate.CZ:
-                    cz_pairs, end_i = _collect_cz_block(ops, i)
-                    if cz_pairs is not None:
-                        mask = np.ones(1 << n, dtype=np.float64)
-                        mt = mask.reshape([2] * n)
-                        for q0, q1 in cz_pairs:
-                            idx = [slice(None)] * n; idx[q0] = 1; idx[q1] = 1
-                            mt[tuple(idx)] *= -1
-                        state *= mask
+                elif op.gate in _DIAG_2Q:
+                    d2q_block, end_i = _collect_diag_2q_block(ops, i)
+                    if d2q_block is not None:
+                        state, buf, tmp = _apply_batch_1q(state, [], n, buf, tmp, d2q_block)
                         for _ in range(end_i - i - 1): next(ops_iter)
                         continue
             state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)

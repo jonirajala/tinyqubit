@@ -16,3 +16,4 @@ b7f3b85	710.3	16/16	keep	pair adjacent 1Q into 4x4 kron matmul (clifford_t -28%)
 96139c4	0.0	22/22	discard	group-of-10 too large (hea_20 compute-bound, 10x slower)
 d091da0	766.5	22/22	keep	fuse RZZ/CP into diagonal phase vector (qaoa_18 -50%)
 2317d24	661.0	22/22	keep	np.multiply.outer replaces np.kron
+704e661	0.0	20/22	crash	unified CZ/RZZ into _collect_1q_block (ordering bug: RZZ before RX)
