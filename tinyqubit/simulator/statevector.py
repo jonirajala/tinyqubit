@@ -109,18 +109,6 @@ def _apply_four_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, 
         state[idx(1, 1, 0, 0)] = s * s0011 + c * s1100
     return state.reshape(-1)
 
-def _apply_gate_noise(state: np.ndarray, op, noise_model, n: int, rng) -> np.ndarray:
-    if noise_model is None: return state
-    noise_list = noise_model.gate_noise.get(op.gate, noise_model.default_noise)
-    if not noise_list: return state
-    qubits = op.qubits
-    if len(qubits) == 1:
-        q = qubits[0]
-        for noise_fn in noise_list: state = noise_fn(state, q, n, rng)
-    else:
-        for noise_fn in noise_list:
-            for q in qubits: state = noise_fn(state, q, n, rng)
-    return state
 
 def _apply_measure(state: np.ndarray, qubit: int, n: int, rng) -> tuple[np.ndarray, int]:
     state = state.reshape([2] * n)
@@ -311,11 +299,10 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
 
     ops, ops_iter = circuit.ops, iter(enumerate(circuit.ops))
     # Pre-build per-gate noise lookup to avoid dict.get() + hash per gate in hot loop
-    _nfg = None
+    nfg = None
     if noise_model is not None:
-        _dn = noise_model.default_noise
-        _gn = noise_model.gate_noise
-        _nfg = {g: _gn.get(g, _dn) for g in set(op.gate for op in ops)}
+        dn, gn = noise_model.default_noise, noise_model.gate_noise
+        nfg = {g: gn.get(g, dn) for g in set(op.gate for op in ops)}
     buf = tmp = None
     if batch_ops and noise_model is None and n >= 10:
         if cache is not None and cache[0] == dim:
@@ -332,8 +319,10 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 if noise_model is not None and noise_model.readout_error_fn is not None:
                     outcome = noise_model.readout_error_fn(outcome, rng)
                 classical[op.classical_bit] = outcome
+            continue
         elif op.gate == Gate.RESET:
             state = _apply_reset(state, op.qubits[0], n, rng)
+            continue
         elif (nq := _GATE_NQ[op.gate]) == 1:
             if buf is not None:
                 group, diag_2q_ops, end_i = _collect_fusable_block(ops, i)
@@ -353,11 +342,6 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 state = _apply_diagonal_1q(state, g, op.qubits[0], n, op.params)
             else:
                 state = _apply_single_qubit(state, _get_gate_matrix(g, op.params), op.qubits[0], n)
-            if _nfg is not None:
-                _nl = _nfg.get(op.gate)
-                if _nl:
-                    for _fn in _nl:
-                        for _q in op.qubits: state = _fn(state, _q, n, rng)
         elif nq == 2:
             if buf is not None and noise_model is None:
                 if op.gate in (Gate.CX, Gate.SWAP):
@@ -375,29 +359,18 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                         continue
             g2 = op.gate
             if g2 == Gate.CZ:
-                # Inline CZ: just negate the |11⟩ component
                 state.reshape([2] * n)[_get_2q_idx(n, op.qubits[0], op.qubits[1])[3]] *= -1
             else:
                 state = _apply_two_qubit(state, g2, op.qubits[0], op.qubits[1], n, op.params)
-            if _nfg is not None:
-                _nl = _nfg.get(op.gate)
-                if _nl:
-                    for _fn in _nl:
-                        for _q in op.qubits: state = _fn(state, _q, n, rng)
         elif nq == 3:
             state = _apply_three_qubit(state, op.gate, *op.qubits, n)
-            if _nfg is not None:
-                _nl = _nfg.get(op.gate)
-                if _nl:
-                    for _fn in _nl:
-                        for _q in op.qubits: state = _fn(state, _q, n, rng)
         else:  # 4Q
             state = _apply_four_qubit(state, op.gate, *op.qubits, n, op.params)
-            if _nfg is not None:
-                _nl = _nfg.get(op.gate)
-                if _nl:
-                    for _fn in _nl:
-                        for _q in op.qubits: state = _fn(state, _q, n, rng)
+        if nfg is not None:
+            nl = nfg.get(op.gate)
+            if nl:
+                for fn in nl:
+                    for q in op.qubits: state = fn(state, q, n, rng)
     assert abs(np.linalg.norm(state) - 1.0) < 1e-10, "statevector norm drifted"
     return state, classical
 

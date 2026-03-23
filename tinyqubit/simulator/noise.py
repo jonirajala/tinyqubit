@@ -4,19 +4,12 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Callable
 from ..ir import Gate, _get_gate_matrix
-from .statevector import _apply_single_qubit, _get_1q_idx
+from .statevector import _get_1q_idx
 
 NoiseFn = Callable[[np.ndarray, int, int, np.random.Generator], np.ndarray]
 
 def _check(val: float, name: str) -> None:
     if not 0 <= val <= 1: raise ValueError(f"{name} must be in [0,1], got {val}")
-
-_PAULI_XYZ = None
-def _get_pauli_xyz():
-    global _PAULI_XYZ
-    if _PAULI_XYZ is None:
-        _PAULI_XYZ = [_get_gate_matrix(Gate.X, ()), _get_gate_matrix(Gate.Y, ()), _get_gate_matrix(Gate.Z, ())]
-    return _PAULI_XYZ
 
 def depolarizing(p: float) -> NoiseFn:
     """Apply random Pauli X/Y/Z with probability p."""
