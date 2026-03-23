@@ -332,10 +332,17 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                     state, buf, tmp = _apply_batch_1q(state, group, n, buf, tmp, diag_2q_ops or None)
                     for _ in range(end_i - i - 1): next(ops_iter)
                     continue
-            if op.gate in _DIAG_PHASE or op.gate == Gate.RZ:
-                state = _apply_diagonal_1q(state, op.gate, op.qubits[0], n, op.params)
+            g = op.gate
+            if g == Gate.RZ:
+                i0, i1 = _get_1q_idx(n, op.qubits[0])
+                t = op.params[0]
+                st = state.reshape([2] * n)
+                st[i0] *= np.exp(-1j * t / 2); st[i1] *= np.exp(1j * t / 2)
+                state = st.reshape(-1)
+            elif g in _DIAG_PHASE:
+                state = _apply_diagonal_1q(state, g, op.qubits[0], n, op.params)
             else:
-                state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
+                state = _apply_single_qubit(state, _get_gate_matrix(g, op.params), op.qubits[0], n)
             if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif nq == 2:
             if buf is not None and noise_model is None:
