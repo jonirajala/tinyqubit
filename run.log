@@ -18,16 +18,16 @@ Correctness:
 Performance:
   Benchmark                Qubits  Evals   Time(ms)   Baseline     Change
   ----------------------------------------------------------------------
-  depol_hea_4q                  4    100     30.919     26.944       +15%
-  depol_hea_8q                  8     50     35.694     40.327 -11% FASTER
-  depol_hea_12q                12     20     37.043     27.859 +33% REGR!
-  depol_hea_16q                16     10    227.917    218.118        +4%
-  ampdamp_ghz_8q                8     50     12.308     16.529 -26% FASTER
-  realistic_hea_8q              8     30     49.678     76.560 -35% FASTER
-  realistic_uccsd_8q            8     30     44.107     64.554 -32% FASTER
-  realistic_qaoa_10q           10     20     37.650     48.728 -23% FASTER
-  zne_hea_8q                    8     90    189.537    205.032 -8% FASTER
-  highnoise_hea_8q              8     50     36.079     40.909 -12% FASTER
-  noisy_exp_8q_200              8    200    154.748    182.077 -15% FASTER
+  depol_hea_4q                  4    100     28.398     26.944        +5%
+  depol_hea_8q                  8     50     37.391     40.327 -7% FASTER
+  depol_hea_12q                12     20     35.173     27.859  +26% warn
+  depol_hea_16q                16     10    221.874    218.118        +2%
+  ampdamp_ghz_8q                8     50     12.557     16.529 -24% FASTER
+  realistic_hea_8q              8     30     52.254     76.560 -32% FASTER
+  realistic_uccsd_8q            8     30     46.670     64.554 -28% FASTER
+  realistic_qaoa_10q           10     20     36.815     48.728 -24% FASTER
+  zne_hea_8q                    8     90    205.625    205.032        +0%
+  highnoise_hea_8q              8     50     36.715     40.909 -10% FASTER
+  noisy_exp_8q_200              8    200    162.323    182.077 -11% FASTER
 
-Summary: 11/11 correctness PASS, 8 faster, 1 regressions
+Summary: 11/11 correctness PASS, 7 faster, 0 regressions

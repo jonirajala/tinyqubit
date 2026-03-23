@@ -2,3 +2,4 @@ commit	total_ms	correctness	status	description
 0d32898	934.5	11/11	keep	baseline
 421e918	916.3	11/11	keep	cached indices + vdot norm + cached Paulis (realistic -32%)
 b2fed54	855.7	11/11	keep	streamline _apply_gate_noise
+f69de34	875.8	11/11	keep	inline Pauli in depolarizing
