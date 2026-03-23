@@ -32,7 +32,7 @@ class ScaledParam:
 
 
 def _is_param(p) -> bool: return isinstance(p, (Parameter, ScaledParam))
-def _has_parameter(params: tuple) -> bool: return any(_is_param(p) for p in params)
+def _has_parameter(params: tuple) -> bool: return bool(params) and any(_is_param(p) for p in params)
 def _resolve(p, values: dict):
     if isinstance(p, ScaledParam) and p.param.name in values: return p.scale * values[p.param.name]
     if isinstance(p, Parameter) and p.name in values: return values[p.name]

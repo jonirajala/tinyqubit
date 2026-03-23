@@ -7,3 +7,4 @@ f246ea7	977.9	9/9	keep	cache sim buffers on circuit (sweep/eval -12%)
 9af703d	984.6	9/9	keep	cache z_idx array across Z-only terms
 d8911cd	985.1	9/9	keep	_GATE_NQ dict for O(1) n_qubits lookup (eval_12q -29%)
 c084877	952.8	9/9	keep	cache 1Q index tuples (kernel -12%)
+41a1c46	938.7	9/9	keep	cache 2Q index tuples (all 9 benchmarks faster)
