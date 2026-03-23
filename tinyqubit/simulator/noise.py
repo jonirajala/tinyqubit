@@ -32,7 +32,7 @@ def depolarizing(p: float) -> NoiseFn:
             tmp = st[i0].copy(); st[i0] = 1j * st[i1]; st[i1] = -1j * tmp
         else:  # Z: negate |1⟩
             st[i1] *= -1
-        return state.reshape(-1)
+        return state
     return apply
 
 def amplitude_damping(gamma: float) -> NoiseFn:
@@ -43,15 +43,15 @@ def amplitude_damping(gamma: float) -> NoiseFn:
         if gamma <= 0: return state
         i0, i1 = _get_1q_idx(n, qubit)
         st = state.reshape([2] * n)
-        p1 = np.vdot(st[i1], st[i1]).real  # faster than sum(abs²)
+        p1 = np.vdot(st[i1], st[i1]).real
         if rng.random() < p1 * gamma:
             st[i0] = st[i1]; st[i1] = 0.0
-            # NOTE: norm = sqrt(p1), pre-computed from p1 above
             norm = np.sqrt(p1)
         else:
             st[i1] *= _sqrt_1mg
             norm = np.sqrt(1 - p1 * gamma)
-        return (state / norm if norm > 1e-10 else state).reshape(-1)
+        if norm > 1e-10: state /= norm
+        return state
     return apply
 
 def phase_damping(lam: float) -> NoiseFn:
@@ -63,12 +63,11 @@ def phase_damping(lam: float) -> NoiseFn:
         st = state.reshape([2] * n)
         p0 = np.vdot(st[i0], st[i0]).real
         if rng.random() < p0:
-            st[i1] = 0.0
-            norm = np.sqrt(p0)
+            st[i1] = 0.0; norm = np.sqrt(p0)
         else:
-            st[i0] = 0.0
-            norm = np.sqrt(1 - p0)
-        return (state / norm if norm > 1e-10 else state).reshape(-1)
+            st[i0] = 0.0; norm = np.sqrt(1 - p0)
+        if norm > 1e-10: state /= norm
+        return state
     return apply
 
 def readout_error(p0_given_1: float = 0.0, p1_given_0: float = 0.0) -> Callable[[int, np.random.Generator], int]:
