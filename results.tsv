@@ -6,3 +6,4 @@ f69de34	875.8	11/11	keep	inline Pauli in depolarizing
 450e47d	889.3	10/11	crash	combined noise changes 2Q gate RNG ordering
 e528934	877.3	11/11	keep	remove reshape(-1) from noise channels
 9abc193	868.6	11/11	keep	skip amp_damp norm for tiny gamma (ZNE -10%)
+fd6a4a1	900.6	11/11	keep	tiny gamma/lam fast path (realistic -37%)
