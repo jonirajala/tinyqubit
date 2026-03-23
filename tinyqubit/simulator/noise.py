@@ -22,9 +22,17 @@ def depolarizing(p: float) -> NoiseFn:
     """Apply random Pauli X/Y/Z with probability p."""
     _check(p, "probability")
     def apply(state, qubit, n, rng):
-        if rng.random() < p:
-            state = _apply_single_qubit(state, _get_pauli_xyz()[rng.integers(3)], qubit, n)
-        return state
+        if rng.random() >= p: return state
+        i0, i1 = _get_1q_idx(n, qubit)
+        st = state.reshape([2] * n)
+        choice = rng.integers(3)
+        if choice == 0:  # X: swap
+            tmp = st[i0].copy(); st[i0] = st[i1]; st[i1] = tmp
+        elif choice == 1:  # Y: swap + phase
+            tmp = st[i0].copy(); st[i0] = 1j * st[i1]; st[i1] = -1j * tmp
+        else:  # Z: negate |1⟩
+            st[i1] *= -1
+        return state.reshape(-1)
     return apply
 
 def amplitude_damping(gamma: float) -> NoiseFn:
