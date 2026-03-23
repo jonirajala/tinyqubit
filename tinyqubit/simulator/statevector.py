@@ -113,11 +113,14 @@ def _apply_gate_noise(state: np.ndarray, op, noise_model, n: int, rng) -> np.nda
     if noise_model is None: return state
     noise_list = noise_model.gate_noise.get(op.gate, noise_model.default_noise)
     if not noise_list: return state
-    state = state.reshape([2] * n)
-    for noise_fn in noise_list:
-        for q in op.qubits: state = noise_fn(state, q, n, rng)
-
-    return state.reshape(-1)
+    qubits = op.qubits
+    if len(qubits) == 1:
+        q = qubits[0]
+        for noise_fn in noise_list: state = noise_fn(state, q, n, rng)
+    else:
+        for noise_fn in noise_list:
+            for q in qubits: state = noise_fn(state, q, n, rng)
+    return state
 
 def _apply_measure(state: np.ndarray, qubit: int, n: int, rng) -> tuple[np.ndarray, int]:
     state = state.reshape([2] * n)
