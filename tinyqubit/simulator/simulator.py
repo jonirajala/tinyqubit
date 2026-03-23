@@ -22,7 +22,7 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
     """
     n = circuit.n_qubits
 
-    if not getattr(circuit, '_validated', False):
+    if not circuit._validated:
         for op in circuit.ops:
             if _has_parameter(op.params):
                 raise TypeError(f"Cannot simulate: {op.gate.name} has unbound Parameter. Call circuit.bind() first.")

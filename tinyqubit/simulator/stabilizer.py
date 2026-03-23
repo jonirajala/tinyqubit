@@ -8,8 +8,7 @@ _CLIFFORD_GATES = frozenset({Gate.X, Gate.Y, Gate.Z, Gate.H, Gate.S, Gate.SDG, G
 
 
 def is_clifford(circuit: Circuit) -> bool:
-    cached = getattr(circuit, '_is_clifford', None)
-    if cached is not None: return cached
+    if circuit._is_clifford is not None: return circuit._is_clifford
     result = all(op.gate in _CLIFFORD_GATES for op in circuit.ops)
     circuit._is_clifford = result
     return result

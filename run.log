@@ -16,14 +16,14 @@ Correctness:
 Performance:
   Benchmark              Qubits      N   Time(ms)   Baseline     Change
   --------------------------------------------------------------------
-  sweep_8q_100pts             8     48     86.609     92.073 -6% FASTER
-  sweep_14q_50pts            14     56    136.764    141.273        -3%
-  eval_8q_50sets              8     48     46.900     54.747 -14% FASTER
-  eval_12q_30sets            12     48     41.447     44.294 -6% FASTER
-  eval_8q_heisen              8     48     39.903     45.141 -12% FASTER
-  kernel_6q_20x20             6     20    258.020    294.380 -12% FASTER
-  kernel_8q_15x15             8     15    260.259    303.729 -14% FASTER
-  grad_batch_8q_20            8     48     35.692     42.788 -17% FASTER
-  grad_batch_12q_10          12     48     39.966     38.979        +3%
+  sweep_8q_100pts             8     48     88.240     92.073        -4%
+  sweep_14q_50pts            14     56    142.435    141.273        +1%
+  eval_8q_50sets              8     48     45.667     54.747 -17% FASTER
+  eval_12q_30sets            12     48     36.627     44.294 -17% FASTER
+  eval_8q_heisen              8     48     39.889     45.141 -12% FASTER
+  kernel_6q_20x20             6     20    235.463    294.380 -20% FASTER
+  kernel_8q_15x15             8     15    261.184    303.729 -14% FASTER
+  grad_batch_8q_20            8     48     36.860     42.788 -14% FASTER
+  grad_batch_12q_10          12     48     41.657     38.979        +7%
 
-Summary: 9/9 correctness PASS, 7 faster, 0 regressions
+Summary: 9/9 correctness PASS, 6 faster, 0 regressions

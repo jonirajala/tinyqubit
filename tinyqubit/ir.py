@@ -152,6 +152,10 @@ class Circuit:
         self._current_condition: tuple[int, int] | None = None  # For c_if context manager
         self._initial_state: np.ndarray | None = None
         self.backend = None  # Callable[[Circuit, Observable], float] | None
+        self._validated = False
+        self._is_clifford = None
+        self._bind_slots = None
+        self._sim_bufs = None
 
     def _add(self, gate: Gate, qubits: tuple, params: tuple = (),
              classical_bit: int | None = None) -> "Circuit":
@@ -161,6 +165,10 @@ class Circuit:
         if len(qubits) != len(set(qubits)):
             raise ValueError(f"Gate {gate.name} has duplicate qubits: {qubits}")
         self.ops.append(Operation(gate, qubits, params, classical_bit, self._current_condition))
+        self._validated = False
+        self._is_clifford = None
+        self._bind_slots = None
+        self._sim_bufs = None
         return self
 
     def x(self, q: int) -> "Circuit": return self._add(Gate.X, (q,))
@@ -260,7 +268,7 @@ class Circuit:
         c._initial_state = self._initial_state
         c.backend = self.backend
         # Cache param slots for fast repeated bind on same structure
-        slots = getattr(self, '_bind_slots', None)
+        slots = self._bind_slots
         if slots is None:
             slots = [i for i, op in enumerate(self.ops) if _has_parameter(op.params)]
             self._bind_slots = slots

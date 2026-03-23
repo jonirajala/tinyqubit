@@ -78,9 +78,9 @@ def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, pa
     elif gate == Gate.SEXC:
         t = params[0]
         c, s = np.cos(t / 2), np.sin(t / 2)
-        s01, s10 = state[idx(0, 1)].copy(), state[idx(1, 0)].copy()
-        state[idx(0, 1)] = c * s01 - s * s10
-        state[idx(1, 0)] = s * s01 + c * s10
+        s01, s10 = state[i01].copy(), state[i10].copy()
+        state[i01] = c * s01 - s * s10
+        state[i10] = s * s01 + c * s10
     return state.reshape(-1)
 
 def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, n: int) -> np.ndarray:
@@ -297,8 +297,8 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
     classical = {i: 0 for i in range(circuit.n_classical)}
     dim = 1 << n
     # Reuse cached buffers when available (avoids allocation per call)
-    cache = getattr(circuit, '_sim_bufs', None)
-    if cache is not None and cache[0] == dim:
+    cache = circuit._sim_bufs
+    if cache is not None and cache[0] == dim and circuit._initial_state is None:
         state = cache[1]; state[:] = 0; state[0] = 1.0
     elif circuit._initial_state is not None:
         state = circuit._initial_state.copy()
@@ -334,6 +334,7 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                     continue
             g = op.gate
             if g == Gate.RZ:
+                # NOTE: inlined from _apply_diagonal_1q for hot-path performance
                 i0, i1 = _get_1q_idx(n, op.qubits[0])
                 t = op.params[0]
                 st = state.reshape([2] * n)
