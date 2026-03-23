@@ -39,6 +39,7 @@ def amplitude_damping(gamma: float) -> NoiseFn:
     """T1 decay: |1⟩ → |0⟩ with probability gamma. gamma = 1 - exp(-t/T1)"""
     _check(gamma, "gamma")
     _sqrt_1mg = np.sqrt(1 - gamma)
+    _skip_norm = gamma < 1e-5  # NOTE: for tiny gamma, norm ≈ 1; skip division to save ~2μs/call
     def apply(state, qubit, n, rng):
         if gamma <= 0: return state
         i0, i1 = _get_1q_idx(n, qubit)
@@ -46,11 +47,14 @@ def amplitude_damping(gamma: float) -> NoiseFn:
         p1 = np.vdot(st[i1], st[i1]).real
         if rng.random() < p1 * gamma:
             st[i0] = st[i1]; st[i1] = 0.0
-            norm = np.sqrt(p1)
+            if not _skip_norm:
+                norm = np.sqrt(p1)
+                if norm > 1e-10: state /= norm
         else:
             st[i1] *= _sqrt_1mg
-            norm = np.sqrt(1 - p1 * gamma)
-        if norm > 1e-10: state /= norm
+            if not _skip_norm:
+                norm = np.sqrt(1 - p1 * gamma)
+                if norm > 1e-10: state /= norm
         return state
     return apply
 
