@@ -39,30 +39,40 @@ def amplitude_damping(gamma: float) -> NoiseFn:
     """T1 decay: |1⟩ → |0⟩ with probability gamma. gamma = 1 - exp(-t/T1)"""
     _check(gamma, "gamma")
     _sqrt_1mg = np.sqrt(1 - gamma)
-    _skip_norm = gamma < 1e-5  # NOTE: for tiny gamma, norm ≈ 1; skip division to save ~2μs/call
+    # NOTE: for gamma < 1e-5 (typical realistic noise ~5e-7), jump probability is ~2.5e-7.
+    # Skip vdot + rng entirely — just apply no-jump scaling.
+    _tiny = gamma > 0 and gamma < 1e-5
     def apply(state, qubit, n, rng):
         if gamma <= 0: return state
+        if _tiny:
+            state.reshape([2] * n)[_get_1q_idx(n, qubit)[1]] *= _sqrt_1mg
+            return state
         i0, i1 = _get_1q_idx(n, qubit)
         st = state.reshape([2] * n)
         p1 = np.vdot(st[i1], st[i1]).real
         if rng.random() < p1 * gamma:
             st[i0] = st[i1]; st[i1] = 0.0
-            if not _skip_norm:
-                norm = np.sqrt(p1)
-                if norm > 1e-10: state /= norm
+            norm = np.sqrt(p1)
         else:
             st[i1] *= _sqrt_1mg
-            if not _skip_norm:
-                norm = np.sqrt(1 - p1 * gamma)
-                if norm > 1e-10: state /= norm
+            norm = np.sqrt(1 - p1 * gamma)
+        if norm > 1e-10: state /= norm
         return state
     return apply
 
 def phase_damping(lam: float) -> NoiseFn:
     """T2 dephasing: Z-basis measurement with probability lam. lam = 1 - exp(-t/T_phi)"""
     _check(lam, "lambda_")
+    _sqrt_1ml = np.sqrt(1 - lam) if lam > 0 else 1.0
+    # NOTE: for tiny lam, dephasing is rare enough to approximate as continuous scaling
+    _tiny = lam > 0 and lam < 1e-5
     def apply(state, qubit, n, rng):
-        if lam <= 0 or rng.random() >= lam: return state
+        if lam <= 0: return state
+        if _tiny:
+            # Approximate: scale |1⟩ component by sqrt(1-lam) ≈ 1 - lam/2
+            state.reshape([2] * n)[_get_1q_idx(n, qubit)[1]] *= _sqrt_1ml
+            return state
+        if rng.random() >= lam: return state
         i0, i1 = _get_1q_idx(n, qubit)
         st = state.reshape([2] * n)
         p0 = np.vdot(st[i0], st[i0]).real
