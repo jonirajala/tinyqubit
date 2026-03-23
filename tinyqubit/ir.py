@@ -32,7 +32,7 @@ class ScaledParam:
 
 
 def _is_param(p) -> bool: return isinstance(p, (Parameter, ScaledParam))
-def _has_parameter(params: tuple) -> bool: return any(_is_param(p) for p in params)
+def _has_parameter(params: tuple) -> bool: return bool(params) and any(_is_param(p) for p in params)
 def _resolve(p, values: dict):
     if isinstance(p, ScaledParam) and p.param.name in values: return p.scale * values[p.param.name]
     if isinstance(p, Parameter) and p.name in values: return values[p.name]
@@ -122,6 +122,7 @@ def _get_gate_matrix(gate: Gate, params: tuple = ()) -> np.ndarray:
 
 
 _GATE_ADJOINT = {Gate.S: Gate.SDG, Gate.SDG: Gate.S, Gate.T: Gate.TDG, Gate.TDG: Gate.T}
+_GATE_NQ = {g: g.n_qubits for g in Gate}  # pre-computed dict for hot-path lookup
 _PARAM_GATES = frozenset({Gate.RX, Gate.RY, Gate.RZ, Gate.CP, Gate.RZZ, Gate.SEXC, Gate.DEXC})
 _2Q_DRAW_SYMS = {Gate.CX: ("●", "X"), Gate.CZ: ("●", "●"), Gate.SWAP: ("╳", "╳"),
                  Gate.CP: ("●", "P"), Gate.ECR: ("ECR", "ECR"), Gate.RZZ: ("RZZ", "RZZ")}
@@ -151,6 +152,10 @@ class Circuit:
         self._current_condition: tuple[int, int] | None = None  # For c_if context manager
         self._initial_state: np.ndarray | None = None
         self.backend = None  # Callable[[Circuit, Observable], float] | None
+        self._validated = False
+        self._is_clifford = None
+        self._bind_slots = None
+        self._sim_bufs = None
 
     def _add(self, gate: Gate, qubits: tuple, params: tuple = (),
              classical_bit: int | None = None) -> "Circuit":
@@ -160,6 +165,10 @@ class Circuit:
         if len(qubits) != len(set(qubits)):
             raise ValueError(f"Gate {gate.name} has duplicate qubits: {qubits}")
         self.ops.append(Operation(gate, qubits, params, classical_bit, self._current_condition))
+        self._validated = False
+        self._is_clifford = None
+        self._bind_slots = None
+        self._sim_bufs = None
         return self
 
     def x(self, q: int) -> "Circuit": return self._add(Gate.X, (q,))
@@ -258,12 +267,17 @@ class Circuit:
         c = Circuit(self.n_qubits, self.n_classical)
         c._initial_state = self._initial_state
         c.backend = self.backend
-        for op in self.ops:
-            if _has_parameter(op.params):
-                new_params = tuple(_resolve(p, values) if _is_param(p) else p for p in op.params)
-                c.ops.append(Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition))
-            else:
-                c.ops.append(op)
+        # Cache param slots for fast repeated bind on same structure
+        slots = self._bind_slots
+        if slots is None:
+            slots = [i for i, op in enumerate(self.ops) if _has_parameter(op.params)]
+            self._bind_slots = slots
+        c.ops = list(self.ops)  # shallow copy — share non-parametric Operation objects
+        for i in slots:
+            op = self.ops[i]
+            new_params = tuple(_resolve(p, values) if _is_param(p) else p for p in op.params)
+            c.ops[i] = Operation(op.gate, op.qubits, new_params, op.classical_bit, op.condition)
+        c._validated = True
         return c
 
     def bind_params(self, values: dict[str, float]) -> "Circuit":

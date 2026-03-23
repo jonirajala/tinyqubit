@@ -7,66 +7,80 @@ from __future__ import annotations
 import numpy as np
 from math import pi
 from typing import TYPE_CHECKING
-from ..ir import Circuit, Gate, _has_parameter, _SQRT2_INV, _GATE_1Q_CACHE, _get_gate_matrix
+from ..ir import Circuit, Gate, _has_parameter, _SQRT2_INV, _GATE_1Q_CACHE, _get_gate_matrix, _GATE_NQ
 
 if TYPE_CHECKING:
     from .noise import NoiseModel
 
 _DIAG_PHASE = {Gate.Z: -1, Gate.S: 1j, Gate.SDG: -1j,
                Gate.T: np.exp(1j * pi / 4), Gate.TDG: np.exp(-1j * pi / 4)}
+_1Q_IDX_CACHE: dict[tuple[int, int], tuple[tuple, tuple]] = {}
+
+def _get_1q_idx(n: int, qubit: int) -> tuple[tuple, tuple]:
+    key = (n, qubit)
+    if key not in _1Q_IDX_CACHE:
+        i0 = [slice(None)] * n; i0[qubit] = 0
+        i1 = [slice(None)] * n; i1[qubit] = 1
+        _1Q_IDX_CACHE[key] = (tuple(i0), tuple(i1))
+    return _1Q_IDX_CACHE[key]
 
 def _apply_diagonal_1q(state: np.ndarray, gate: Gate, qubit: int, n: int, params: tuple) -> np.ndarray:
     state = state.reshape([2] * n)
-    idx1 = [slice(None)] * n; idx1[qubit] = 1
+    i0, i1 = _get_1q_idx(n, qubit)
     if gate == Gate.RZ:
-        idx0 = [slice(None)] * n; idx0[qubit] = 0
         t = params[0]
-        state[tuple(idx0)] *= np.exp(-1j * t / 2)
-        state[tuple(idx1)] *= np.exp(1j * t / 2)
+        state[i0] *= np.exp(-1j * t / 2)
+        state[i1] *= np.exp(1j * t / 2)
     else:
-        state[tuple(idx1)] *= _DIAG_PHASE[gate]
+        state[i1] *= _DIAG_PHASE[gate]
     return state.reshape(-1)
 
 def _apply_single_qubit(state: np.ndarray, matrix: np.ndarray, qubit: int, n: int) -> np.ndarray:
     state = state.reshape([2] * n)
-    idx0 = [slice(None)] * n; idx0[qubit] = 0
-    idx1 = [slice(None)] * n; idx1[qubit] = 1
-    idx0, idx1 = tuple(idx0), tuple(idx1)
-    s0, s1 = state[idx0], state[idx1]
+    i0, i1 = _get_1q_idx(n, qubit)
+    s0, s1 = state[i0], state[i1]
     out = np.empty_like(state)
-    out[idx0] = matrix[0, 0] * s0 + matrix[0, 1] * s1
-    out[idx1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
+    out[i0] = matrix[0, 0] * s0 + matrix[0, 1] * s1
+    out[i1] = matrix[1, 0] * s0 + matrix[1, 1] * s1
     return out.reshape(-1)
+
+_2Q_IDX_CACHE: dict[tuple[int, int, int], tuple[tuple, tuple, tuple, tuple]] = {}
+
+def _get_2q_idx(n: int, q0: int, q1: int) -> tuple[tuple, tuple, tuple, tuple]:
+    key = (n, q0, q1)
+    if key not in _2Q_IDX_CACHE:
+        sl = slice(None)
+        def _mk(v0, v1):
+            i = [sl] * n; i[q0] = v0; i[q1] = v1; return tuple(i)
+        _2Q_IDX_CACHE[key] = (_mk(0, 0), _mk(0, 1), _mk(1, 0), _mk(1, 1))
+    return _2Q_IDX_CACHE[key]
 
 def _apply_two_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, n: int, params: tuple = ()) -> np.ndarray:
     state = state.reshape([2] * n)
-    def idx(v0, v1):
-        i = [slice(None)] * n
-        i[q0], i[q1] = v0, v1
-        return tuple(i)
+    i00, i01, i10, i11 = _get_2q_idx(n, q0, q1)
     if gate == Gate.CX:
-        tmp = state[idx(1, 0)].copy(); state[idx(1, 0)] = state[idx(1, 1)]; state[idx(1, 1)] = tmp
-    elif gate == Gate.CZ: state[idx(1, 1)] *= -1
+        tmp = state[i10].copy(); state[i10] = state[i11]; state[i11] = tmp
+    elif gate == Gate.CZ: state[i11] *= -1
     elif gate == Gate.SWAP:
-        tmp = state[idx(0, 1)].copy(); state[idx(0, 1)] = state[idx(1, 0)]; state[idx(1, 0)] = tmp
-    elif gate == Gate.CP: state[idx(1, 1)] *= np.exp(1j * params[0])
+        tmp = state[i01].copy(); state[i01] = state[i10]; state[i10] = tmp
+    elif gate == Gate.CP: state[i11] *= np.exp(1j * params[0])
     elif gate == Gate.RZZ:
         t = params[0]
         em, ep = np.exp(-1j * t / 2), np.exp(1j * t / 2)
-        state[idx(0, 0)] *= em; state[idx(0, 1)] *= ep
-        state[idx(1, 0)] *= ep; state[idx(1, 1)] *= em
+        state[i00] *= em; state[i01] *= ep
+        state[i10] *= ep; state[i11] *= em
     elif gate == Gate.ECR:
-        s00, s01, s10, s11 = state[idx(0,0)].copy(), state[idx(0,1)].copy(), state[idx(1,0)].copy(), state[idx(1,1)].copy()
-        state[idx(0,0)] = _SQRT2_INV * (s10 + 1j * s11)
-        state[idx(0,1)] = _SQRT2_INV * (1j * s10 + s11)
-        state[idx(1,0)] = _SQRT2_INV * (s00 - 1j * s01)
-        state[idx(1,1)] = _SQRT2_INV * (-1j * s00 + s01)
+        s00, s01, s10, s11 = state[i00].copy(), state[i01].copy(), state[i10].copy(), state[i11].copy()
+        state[i00] = _SQRT2_INV * (s10 + 1j * s11)
+        state[i01] = _SQRT2_INV * (1j * s10 + s11)
+        state[i10] = _SQRT2_INV * (s00 - 1j * s01)
+        state[i11] = _SQRT2_INV * (-1j * s00 + s01)
     elif gate == Gate.SEXC:
         t = params[0]
         c, s = np.cos(t / 2), np.sin(t / 2)
-        s01, s10 = state[idx(0, 1)].copy(), state[idx(1, 0)].copy()
-        state[idx(0, 1)] = c * s01 - s * s10
-        state[idx(1, 0)] = s * s01 + c * s10
+        s01, s10 = state[i01].copy(), state[i10].copy()
+        state[i01] = c * s01 - s * s10
+        state[i10] = s * s01 + c * s10
     return state.reshape(-1)
 
 def _apply_three_qubit(state: np.ndarray, gate: Gate, q0: int, q1: int, q2: int, n: int) -> np.ndarray:
@@ -175,7 +189,7 @@ def _collect_fusable_block(ops: list, start: int) -> tuple[list[tuple[np.ndarray
     while i < len(ops):
         op = ops[i]
         if op.condition is not None or op.gate in (Gate.MEASURE, Gate.RESET): break
-        if op.gate.n_qubits == 1:
+        if _GATE_NQ[op.gate] == 1:
             q = op.qubits[0]
             mat = _get_gate_matrix(op.gate, op.params)
             fused[q] = mat @ fused[q] if q in fused else mat
@@ -281,16 +295,26 @@ def _apply_batch_1q(state: np.ndarray, gates: list[tuple[np.ndarray, int]], n: i
 def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops) -> tuple[np.ndarray, dict[int, int]]:
     rng = np.random.default_rng(seed)
     classical = {i: 0 for i in range(circuit.n_classical)}
-    if circuit._initial_state is not None:
+    dim = 1 << n
+    # Reuse cached buffers when available (avoids allocation per call)
+    cache = circuit._sim_bufs
+    if cache is not None and cache[0] == dim and circuit._initial_state is None:
+        state = cache[1]; state[:] = 0; state[0] = 1.0
+    elif circuit._initial_state is not None:
         state = circuit._initial_state.copy()
     else:
-        state = np.zeros(2**n, dtype=complex)
+        state = np.zeros(dim, dtype=complex)
         state[0] = 1.0
 
     ops, ops_iter = circuit.ops, iter(enumerate(circuit.ops))
     buf = tmp = None
     if batch_ops and noise_model is None and n >= 10:
-        buf, tmp = np.empty_like(state), np.empty(1 << (n - 1), dtype=state.dtype)
+        if cache is not None and cache[0] == dim:
+            buf, tmp = cache[2], cache[3]
+        else:
+            buf, tmp = np.empty(dim, dtype=complex), np.empty(dim >> 1, dtype=complex)
+        if circuit._initial_state is None:
+            circuit._sim_bufs = (dim, state, buf, tmp)
     for i, op in ops_iter:
         if op.condition is not None and classical.get(op.condition[0]) != op.condition[1]: continue
         if op.gate == Gate.MEASURE:
@@ -301,17 +325,25 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                 classical[op.classical_bit] = outcome
         elif op.gate == Gate.RESET:
             state = _apply_reset(state, op.qubits[0], n, rng)
-        elif (nq := op.gate.n_qubits) == 1:
+        elif (nq := _GATE_NQ[op.gate]) == 1:
             if buf is not None:
                 group, diag_2q_ops, end_i = _collect_fusable_block(ops, i)
                 if len(group) > 1 or diag_2q_ops:
                     state, buf, tmp = _apply_batch_1q(state, group, n, buf, tmp, diag_2q_ops or None)
                     for _ in range(end_i - i - 1): next(ops_iter)
                     continue
-            if op.gate in _DIAG_PHASE or op.gate == Gate.RZ:
-                state = _apply_diagonal_1q(state, op.gate, op.qubits[0], n, op.params)
+            g = op.gate
+            if g == Gate.RZ:
+                # NOTE: inlined from _apply_diagonal_1q for hot-path performance
+                i0, i1 = _get_1q_idx(n, op.qubits[0])
+                t = op.params[0]
+                st = state.reshape([2] * n)
+                st[i0] *= np.exp(-1j * t / 2); st[i1] *= np.exp(1j * t / 2)
+                state = st.reshape(-1)
+            elif g in _DIAG_PHASE:
+                state = _apply_diagonal_1q(state, g, op.qubits[0], n, op.params)
             else:
-                state = _apply_single_qubit(state, _get_gate_matrix(op.gate, op.params), op.qubits[0], n)
+                state = _apply_single_qubit(state, _get_gate_matrix(g, op.params), op.qubits[0], n)
             if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif nq == 2:
             if buf is not None and noise_model is None:
@@ -328,7 +360,12 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                         state, buf, tmp = _apply_batch_1q(state, [], n, buf, tmp, d2q_block)
                         for _ in range(end_i - i - 1): next(ops_iter)
                         continue
-            state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
+            g2 = op.gate
+            if g2 == Gate.CZ:
+                # Inline CZ: just negate the |11⟩ component
+                state.reshape([2] * n)[_get_2q_idx(n, op.qubits[0], op.qubits[1])[3]] *= -1
+            else:
+                state = _apply_two_qubit(state, g2, op.qubits[0], op.qubits[1], n, op.params)
             if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif nq == 3:
             state = _apply_three_qubit(state, op.gate, *op.qubits, n)

@@ -22,13 +22,14 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
     """
     n = circuit.n_qubits
 
-    # Validate qubit indices and unbound parameters
-    for op in circuit.ops:
-        if _has_parameter(op.params):
-            raise TypeError(f"Cannot simulate: {op.gate.name} has unbound Parameter. Call circuit.bind() first.")
-        for q in op.qubits:
-            if not (0 <= q < n):
-                raise ValueError(f"Invalid qubit index {q} for {n}-qubit circuit in {op.gate.name}")
+    if not circuit._validated:
+        for op in circuit.ops:
+            if _has_parameter(op.params):
+                raise TypeError(f"Cannot simulate: {op.gate.name} has unbound Parameter. Call circuit.bind() first.")
+            for q in op.qubits:
+                if not (0 <= q < n):
+                    raise ValueError(f"Invalid qubit index {q} for {n}-qubit circuit in {op.gate.name}")
+        circuit._validated = True
 
     if noise_model is None and circuit._initial_state is None and is_clifford(circuit):
         return simulate_stabilizer(circuit, seed)

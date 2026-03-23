@@ -1,39 +1,29 @@
-=== TinyQubit Gradient Benchmark ===
+=== TinyQubit Batch Evaluation Benchmark ===
 
-Baseline loaded: gradient_baseline.json (14 benchmarks)
+Baseline loaded: batch_baseline.json (9 benchmarks)
 
 Correctness:
-  vqe_hea_4q_3l          PASS  (err=0.00e+00 |g|=1.299117)
-  vqe_hea_8q_3l          PASS  (err=0.00e+00 |g|=1.653846)
-  vqe_hea_12q_3l         PASS  (err=1.00e-10 |g|=1.518702)
-  vqe_hea_16q_3l         PASS  (err=5.00e-10 |g|=0.637454)
-  vqe_hea_8q_heisen      PASS  (err=1.00e-10 |g|=2.761298)
-  uccsd_4q               PASS  (err=0.00e+00 |g|=0.931587)
-  uccsd_8q               PASS  (err=0.00e+00 |g|=4.133549)
-  qaoa_8q_p3             PASS  (err=0.00e+00 |g|=0.000000)
-  qaoa_14q_p3            PASS  (err=2.00e-10 |g|=0.000000)
-  reupl_1q_4f_6l         PASS  (err=1.00e-10 |g|=2.117037)
-  random_8q_d5           PASS  (err=0.00e+00 |g|=0.415975)
-  random_14q_d5          PASS  (err=0.00e+00 |g|=0.219164)
-  pshift_hea_8q_3l       PASS  (err=0.00e+00 |g|=1.653846)
-  backprop_hea_8q        PASS  (err=1.47e-06 |g|=0.559082)
+  sweep_8q_100pts        PASS  (chk=58.4037 shape=[100])
+  sweep_14q_50pts        PASS  (chk=35.2727 shape=[50])
+  eval_8q_50sets         PASS  (chk=23.7267 shape=[50])
+  eval_12q_30sets        PASS  (chk=16.5017 shape=[30])
+  eval_8q_heisen         PASS  (chk=19.4399 shape=[30])
+  kernel_6q_20x20        PASS  (chk=37.0837 shape=[20, 20])
+  kernel_8q_15x15        PASS  (chk=19.6956 shape=[15, 15])
+  grad_batch_8q_20       PASS  (chk=41.4205 shape=[20])
+  grad_batch_12q_10      PASS  (chk=23.6296 shape=[10])
 
 Performance:
-  Benchmark              Qubits Params    Ops   Time(ms)   Baseline     Change
-  --------------------------------------------------------------------------
-  vqe_hea_4q_3l               4     24     33      0.838      0.580 +44% REGR!
-  vqe_hea_8q_3l               8     48     69      1.450      1.857 -22% FASTER
-  vqe_hea_12q_3l             12     72    105      6.561      6.388        +3%
-  vqe_hea_16q_3l             16     96    141     74.578     75.282        -1%
-  vqe_hea_8q_heisen           8     48     69      2.338      2.436        -4%
-  uccsd_4q                    4      5     19      0.296      0.269       +10%
-  uccsd_8q                    8     19     67      2.647      2.773        -5%
-  qaoa_8q_p3                  8      6     53      2.337      2.344        -0%
-  qaoa_14q_p3                14      6     95     18.676     16.363       +14%
-  reupl_1q_4f_6l              1     30     30      0.271      0.594 -54% FASTER
-  random_8q_d5                8     40     75      2.515      2.576        -2%
-  random_14q_d5              14     70    135     20.870     17.396  +20% warn
-  pshift_hea_8q_3l            8     48     69     93.976     85.889        +9%
-  backprop_hea_8q             8     48     69      2.800      1.745 +60% REGR!
+  Benchmark              Qubits      N   Time(ms)   Baseline     Change
+  --------------------------------------------------------------------
+  sweep_8q_100pts             8     48     88.240     92.073        -4%
+  sweep_14q_50pts            14     56    142.435    141.273        +1%
+  eval_8q_50sets              8     48     45.667     54.747 -17% FASTER
+  eval_12q_30sets            12     48     36.627     44.294 -17% FASTER
+  eval_8q_heisen              8     48     39.889     45.141 -12% FASTER
+  kernel_6q_20x20             6     20    235.463    294.380 -20% FASTER
+  kernel_8q_15x15             8     15    261.184    303.729 -14% FASTER
+  grad_batch_8q_20            8     48     36.860     42.788 -14% FASTER
+  grad_batch_12q_10          12     48     41.657     38.979        +7%
 
-Summary: 14/14 correctness PASS, 2 faster, 3 regressions
+Summary: 9/9 correctness PASS, 6 faster, 0 regressions

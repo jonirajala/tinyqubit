@@ -86,11 +86,25 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
     if observable._matrix is not None:
         return np.vdot(state, observable._matrix @ state).real
     result = 0.0
+    probs = None  # lazy: only computed if Z-only terms exist
+    z_idx = None
     for coeff, paulis in observable.terms:
-        psi = state.copy()
-        for qubit, pauli in paulis.items():
-            psi = _apply_single_qubit(psi, _PAULI_MATRIX[pauli], qubit, n)
-        result += coeff * np.vdot(state, psi)
+        if not paulis:
+            result += coeff; continue
+        # Z-only fast path: ⟨Z⟩ = sum(|ψ_i|² × sign_i), no state copy needed
+        if all(p == 'Z' for p in paulis.values()):
+            if probs is None:
+                probs = np.abs(state) ** 2
+                z_idx = np.arange(len(state), dtype=np.int32)
+            mask = sum(1 << (n - 1 - q) for q in paulis)
+            v = z_idx & mask
+            v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
+            result += coeff * float(np.sum(probs * (1 - 2 * (v & 1))))
+        else:
+            psi = state.copy()
+            for qubit, pauli in paulis.items():
+                psi = _apply_single_qubit(psi, _PAULI_MATRIX[pauli], qubit, n)
+            result += coeff * np.vdot(state, psi)
     return result.real
 
 
