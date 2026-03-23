@@ -1,0 +1,79 @@
+{
+  "depol_hea_4q": {
+    "mean": -0.283448,
+    "std": 0.062753,
+    "n_qubits": 4,
+    "n_evals": 100,
+    "time_ms": 26.944
+  },
+  "depol_hea_8q": {
+    "mean": -0.354558,
+    "std": 0.083853,
+    "n_qubits": 8,
+    "n_evals": 50,
+    "time_ms": 40.327
+  },
+  "depol_hea_12q": {
+    "mean": 0.476557,
+    "std": 0.230807,
+    "n_qubits": 12,
+    "n_evals": 20,
+    "time_ms": 27.859
+  },
+  "depol_hea_16q": {
+    "mean": -0.86408,
+    "std": 0.0,
+    "n_qubits": 16,
+    "n_evals": 10,
+    "time_ms": 218.118
+  },
+  "ampdamp_ghz_8q": {
+    "mean": 0.069216,
+    "std": 0.283578,
+    "n_qubits": 8,
+    "n_evals": 50,
+    "time_ms": 16.529
+  },
+  "realistic_hea_8q": {
+    "mean": -0.330047,
+    "std": 0.134649,
+    "n_qubits": 8,
+    "n_evals": 30,
+    "time_ms": 76.56
+  },
+  "realistic_uccsd_8q": {
+    "mean": -0.866667,
+    "std": 0.498888,
+    "n_qubits": 8,
+    "n_evals": 30,
+    "time_ms": 64.554
+  },
+  "realistic_qaoa_10q": {
+    "mean": 0.000402,
+    "std": 3e-06,
+    "n_qubits": 10,
+    "n_evals": 20,
+    "time_ms": 48.728
+  },
+  "zne_hea_8q": {
+    "mean": -0.231257,
+    "std": 0.070099,
+    "n_qubits": 8,
+    "n_evals": 90,
+    "time_ms": 205.032
+  },
+  "highnoise_hea_8q": {
+    "mean": -0.283256,
+    "std": 0.270373,
+    "n_qubits": 8,
+    "n_evals": 50,
+    "time_ms": 40.909
+  },
+  "noisy_exp_8q_200": {
+    "mean": -0.706261,
+    "std": 0.139403,
+    "n_qubits": 8,
+    "n_evals": 200,
+    "time_ms": 182.077
+  }
+}
