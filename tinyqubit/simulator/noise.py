@@ -4,39 +4,45 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Callable
 from ..ir import Gate, _get_gate_matrix
-from .statevector import _apply_single_qubit
+from .statevector import _apply_single_qubit, _get_1q_idx
 
 NoiseFn = Callable[[np.ndarray, int, int, np.random.Generator], np.ndarray]
 
 def _check(val: float, name: str) -> None:
     if not 0 <= val <= 1: raise ValueError(f"{name} must be in [0,1], got {val}")
 
+_PAULI_XYZ = None
+def _get_pauli_xyz():
+    global _PAULI_XYZ
+    if _PAULI_XYZ is None:
+        _PAULI_XYZ = [_get_gate_matrix(Gate.X, ()), _get_gate_matrix(Gate.Y, ()), _get_gate_matrix(Gate.Z, ())]
+    return _PAULI_XYZ
+
 def depolarizing(p: float) -> NoiseFn:
     """Apply random Pauli X/Y/Z with probability p."""
     _check(p, "probability")
     def apply(state, qubit, n, rng):
         if rng.random() < p:
-            state = _apply_single_qubit(state, _get_gate_matrix(rng.choice([Gate.X, Gate.Y, Gate.Z]), ()), qubit, n)
+            state = _apply_single_qubit(state, _get_pauli_xyz()[rng.integers(3)], qubit, n)
         return state
     return apply
 
 def amplitude_damping(gamma: float) -> NoiseFn:
     """T1 decay: |1⟩ → |0⟩ with probability gamma. gamma = 1 - exp(-t/T1)"""
     _check(gamma, "gamma")
+    _sqrt_1mg = np.sqrt(1 - gamma)
     def apply(state, qubit, n, rng):
         if gamma <= 0: return state
-        state = state.reshape([2] * n)
-        idx = [slice(None)] * n
-        idx[qubit] = 1
-        idx1 = tuple(idx)
-        idx[qubit] = 0
-        idx0 = tuple(idx)
-        p_jump = np.sum(np.abs(state[idx1]) ** 2) * gamma
-        if rng.random() < p_jump:
-            state[idx0], state[idx1] = state[idx1].copy(), 0.0
+        i0, i1 = _get_1q_idx(n, qubit)
+        st = state.reshape([2] * n)
+        p1 = np.vdot(st[i1], st[i1]).real  # faster than sum(abs²)
+        if rng.random() < p1 * gamma:
+            st[i0] = st[i1]; st[i1] = 0.0
+            # NOTE: norm = sqrt(p1), pre-computed from p1 above
+            norm = np.sqrt(p1)
         else:
-            state[idx1] *= np.sqrt(1 - gamma)
-        norm = np.linalg.norm(state)
+            st[i1] *= _sqrt_1mg
+            norm = np.sqrt(1 - p1 * gamma)
         return (state / norm if norm > 1e-10 else state).reshape(-1)
     return apply
 
@@ -45,17 +51,15 @@ def phase_damping(lam: float) -> NoiseFn:
     _check(lam, "lambda_")
     def apply(state, qubit, n, rng):
         if lam <= 0 or rng.random() >= lam: return state
-        state = state.reshape([2] * n)
-        idx = [slice(None)] * n
-        idx[qubit] = 0
-        idx0 = tuple(idx)
-        idx[qubit] = 1
-        idx1 = tuple(idx)
-        if rng.random() < np.sum(np.abs(state[idx0]) ** 2):
-            state[idx1] = 0.0
+        i0, i1 = _get_1q_idx(n, qubit)
+        st = state.reshape([2] * n)
+        p0 = np.vdot(st[i0], st[i0]).real
+        if rng.random() < p0:
+            st[i1] = 0.0
+            norm = np.sqrt(p0)
         else:
-            state[idx0] = 0.0
-        norm = np.linalg.norm(state)
+            st[i0] = 0.0
+            norm = np.sqrt(1 - p0)
         return (state / norm if norm > 1e-10 else state).reshape(-1)
     return apply
 
