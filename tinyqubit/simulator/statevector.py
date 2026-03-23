@@ -359,7 +359,12 @@ def simulate_statevector(circuit: Circuit, n: int, seed, noise_model, batch_ops)
                         state, buf, tmp = _apply_batch_1q(state, [], n, buf, tmp, d2q_block)
                         for _ in range(end_i - i - 1): next(ops_iter)
                         continue
-            state = _apply_two_qubit(state, op.gate, op.qubits[0], op.qubits[1], n, op.params)
+            g2 = op.gate
+            if g2 == Gate.CZ:
+                # Inline CZ: just negate the |11⟩ component
+                state.reshape([2] * n)[_get_2q_idx(n, op.qubits[0], op.qubits[1])[3]] *= -1
+            else:
+                state = _apply_two_qubit(state, g2, op.qubits[0], op.qubits[1], n, op.params)
             if noise_model is not None: state = _apply_gate_noise(state, op, noise_model, n, rng)
         elif nq == 3:
             state = _apply_three_qubit(state, op.gate, *op.qubits, n)

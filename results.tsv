@@ -9,3 +9,4 @@ d8911cd	985.1	9/9	keep	_GATE_NQ dict for O(1) n_qubits lookup (eval_12q -29%)
 c084877	952.8	9/9	keep	cache 1Q index tuples (kernel -12%)
 41a1c46	938.7	9/9	keep	cache 2Q index tuples (all 9 benchmarks faster)
 ab638b0	911.1	9/9	keep	fast-path _has_parameter for empty params
+8c4f36f	945.6	9/9	keep	inline RZ in main loop
