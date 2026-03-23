@@ -1,13 +1,10 @@
 commit	total_ms	correctness	status	description
-36799df	1105.8	9/9	keep	baseline
-809b5c1	1012.4	9/9	keep	cache validation + is_clifford (kernel -8%)
-c926faf	946.1	9/9	keep	Z-only fast path in expectation (kernel -15%, sweep -12%)
-f246ea7	977.9	9/9	keep	cache sim buffers on circuit (sweep/eval -12%)
-4fc2a31	975.1	9/9	keep	fast bind: shallow copy + parametric slots only
-9af703d	984.6	9/9	keep	cache z_idx array across Z-only terms
-d8911cd	985.1	9/9	keep	_GATE_NQ dict for O(1) n_qubits lookup (eval_12q -29%)
-c084877	952.8	9/9	keep	cache 1Q index tuples (kernel -12%)
-41a1c46	938.7	9/9	keep	cache 2Q index tuples (all 9 benchmarks faster)
-ab638b0	911.1	9/9	keep	fast-path _has_parameter for empty params
-8c4f36f	945.6	9/9	keep	inline RZ in main loop
-0b0d45b	928.0	9/9	keep	inline CZ in main loop (kernel_6q -20%)
+0d32898	934.5	11/11	keep	baseline
+421e918	916.3	11/11	keep	cached indices + vdot norm + cached Paulis (realistic -32%)
+b2fed54	855.7	11/11	keep	streamline _apply_gate_noise
+f69de34	875.8	11/11	keep	inline Pauli in depolarizing
+450e47d	889.3	10/11	crash	combined noise changes 2Q gate RNG ordering
+e528934	877.3	11/11	keep	remove reshape(-1) from noise channels
+9abc193	868.6	11/11	keep	skip amp_damp norm for tiny gamma (ZNE -10%)
+fd6a4a1	900.6	11/11	keep	tiny gamma/lam fast path (realistic -37%)
+aab4b51	861.4	11/11	keep	skip negligible channels in realistic_noise

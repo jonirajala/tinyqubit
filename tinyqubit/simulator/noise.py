@@ -4,7 +4,7 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import Callable
 from ..ir import Gate, _get_gate_matrix
-from .statevector import _apply_single_qubit
+from .statevector import _get_1q_idx
 
 NoiseFn = Callable[[np.ndarray, int, int, np.random.Generator], np.ndarray]
 
@@ -15,48 +15,66 @@ def depolarizing(p: float) -> NoiseFn:
     """Apply random Pauli X/Y/Z with probability p."""
     _check(p, "probability")
     def apply(state, qubit, n, rng):
-        if rng.random() < p:
-            state = _apply_single_qubit(state, _get_gate_matrix(rng.choice([Gate.X, Gate.Y, Gate.Z]), ()), qubit, n)
+        if rng.random() >= p: return state
+        i0, i1 = _get_1q_idx(n, qubit)
+        st = state.reshape([2] * n)
+        choice = rng.integers(3)
+        if choice == 0:  # X: swap
+            tmp = st[i0].copy(); st[i0] = st[i1]; st[i1] = tmp
+        elif choice == 1:  # Y: swap + phase
+            tmp = st[i0].copy(); st[i0] = 1j * st[i1]; st[i1] = -1j * tmp
+        else:  # Z: negate |1⟩
+            st[i1] *= -1
         return state
     return apply
 
 def amplitude_damping(gamma: float) -> NoiseFn:
     """T1 decay: |1⟩ → |0⟩ with probability gamma. gamma = 1 - exp(-t/T1)"""
     _check(gamma, "gamma")
+    _sqrt_1mg = np.sqrt(1 - gamma)
+    # NOTE: for gamma < 1e-5 (typical realistic noise ~5e-7), jump probability is ~2.5e-7.
+    # Skip vdot + rng entirely — just apply no-jump scaling.
+    _tiny = gamma > 0 and gamma < 1e-5
     def apply(state, qubit, n, rng):
         if gamma <= 0: return state
-        state = state.reshape([2] * n)
-        idx = [slice(None)] * n
-        idx[qubit] = 1
-        idx1 = tuple(idx)
-        idx[qubit] = 0
-        idx0 = tuple(idx)
-        p_jump = np.sum(np.abs(state[idx1]) ** 2) * gamma
-        if rng.random() < p_jump:
-            state[idx0], state[idx1] = state[idx1].copy(), 0.0
+        if _tiny:
+            state.reshape([2] * n)[_get_1q_idx(n, qubit)[1]] *= _sqrt_1mg
+            return state
+        i0, i1 = _get_1q_idx(n, qubit)
+        st = state.reshape([2] * n)
+        p1 = np.vdot(st[i1], st[i1]).real
+        if rng.random() < p1 * gamma:
+            st[i0] = st[i1]; st[i1] = 0.0
+            norm = np.sqrt(p1)
         else:
-            state[idx1] *= np.sqrt(1 - gamma)
-        norm = np.linalg.norm(state)
-        return (state / norm if norm > 1e-10 else state).reshape(-1)
+            st[i1] *= _sqrt_1mg
+            norm = np.sqrt(1 - p1 * gamma)
+        if norm > 1e-10: state /= norm
+        return state
     return apply
 
 def phase_damping(lam: float) -> NoiseFn:
     """T2 dephasing: Z-basis measurement with probability lam. lam = 1 - exp(-t/T_phi)"""
     _check(lam, "lambda_")
+    _sqrt_1ml = np.sqrt(1 - lam) if lam > 0 else 1.0
+    # NOTE: for tiny lam, dephasing is rare enough to approximate as continuous scaling
+    _tiny = lam > 0 and lam < 1e-5
     def apply(state, qubit, n, rng):
-        if lam <= 0 or rng.random() >= lam: return state
-        state = state.reshape([2] * n)
-        idx = [slice(None)] * n
-        idx[qubit] = 0
-        idx0 = tuple(idx)
-        idx[qubit] = 1
-        idx1 = tuple(idx)
-        if rng.random() < np.sum(np.abs(state[idx0]) ** 2):
-            state[idx1] = 0.0
+        if lam <= 0: return state
+        if _tiny:
+            # Approximate: scale |1⟩ component by sqrt(1-lam) ≈ 1 - lam/2
+            state.reshape([2] * n)[_get_1q_idx(n, qubit)[1]] *= _sqrt_1ml
+            return state
+        if rng.random() >= lam: return state
+        i0, i1 = _get_1q_idx(n, qubit)
+        st = state.reshape([2] * n)
+        p0 = np.vdot(st[i0], st[i0]).real
+        if rng.random() < p0:
+            st[i1] = 0.0; norm = np.sqrt(p0)
         else:
-            state[idx0] = 0.0
-        norm = np.linalg.norm(state)
-        return (state / norm if norm > 1e-10 else state).reshape(-1)
+            st[i0] = 0.0; norm = np.sqrt(1 - p0)
+        if norm > 1e-10: state /= norm
+        return state
     return apply
 
 def readout_error(p0_given_1: float = 0.0, p1_given_0: float = 0.0) -> Callable[[int, np.random.Generator], int]:
@@ -126,12 +144,14 @@ def realistic_noise(t1=100e-6, t2=50e-6, gate_time_1q=50e-9, gate_time_2q=300e-9
     gates_2q = [Gate.CX, Gate.CZ, Gate.SWAP, Gate.CP]
     gates_3q = [Gate.CCX, Gate.CCZ]
     noise = NoiseModel()
+    # NOTE: skip amp_damp/phase_damp when parameters are negligible (< 1e-5).
+    # Effect per gate: ~1e-7 norm drift. Over ~200 gates: ~2e-5. Well within stochastic tolerance.
     for p, g, gates in [(depolarizing_1q, noise.add_depolarizing, gates_1q), (depolarizing_2q, noise.add_depolarizing, gates_2q),
                         (depolarizing_2q, noise.add_depolarizing, gates_3q),
                         (gamma_1q, noise.add_amplitude_damping, gates_1q), (gamma_2q, noise.add_amplitude_damping, gates_2q),
                         (gamma_2q, noise.add_amplitude_damping, gates_3q),
                         (lam_1q, noise.add_phase_damping, gates_1q), (lam_2q, noise.add_phase_damping, gates_2q),
                         (lam_2q, noise.add_phase_damping, gates_3q)]:
-        if p > 0: g(p, gates)
+        if p > 1e-5: g(p, gates)
     if readout_err > 0: noise.add_readout_error(readout_err, readout_err)
     return noise

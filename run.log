@@ -1,29 +1,33 @@
-=== TinyQubit Batch Evaluation Benchmark ===
+=== TinyQubit Noisy Simulation Benchmark ===
 
-Baseline loaded: batch_baseline.json (9 benchmarks)
+Baseline loaded: noisy_baseline.json (11 benchmarks)
 
 Correctness:
-  sweep_8q_100pts        PASS  (chk=58.4037 shape=[100])
-  sweep_14q_50pts        PASS  (chk=35.2727 shape=[50])
-  eval_8q_50sets         PASS  (chk=23.7267 shape=[50])
-  eval_12q_30sets        PASS  (chk=16.5017 shape=[30])
-  eval_8q_heisen         PASS  (chk=19.4399 shape=[30])
-  kernel_6q_20x20        PASS  (chk=37.0837 shape=[20, 20])
-  kernel_8q_15x15        PASS  (chk=19.6956 shape=[15, 15])
-  grad_batch_8q_20       PASS  (chk=41.4205 shape=[20])
-  grad_batch_12q_10      PASS  (chk=23.6296 shape=[10])
+  depol_hea_4q             PASS  (mean=-0.2834±0.0628)
+  depol_hea_8q             PASS  (mean=-0.3546±0.0839)
+  depol_hea_12q            PASS  (mean=0.4766±0.2308)
+  depol_hea_16q            PASS  (mean=-0.8641±0.0000)
+  ampdamp_ghz_8q           PASS  (mean=0.0692±0.2836)
+  realistic_hea_8q         PASS  (mean=-0.3300±0.1346)
+  realistic_uccsd_8q       PASS  (mean=-0.8667±0.4989)
+  realistic_qaoa_10q       PASS  (mean=0.0004±0.0000)
+  zne_hea_8q               PASS  (mean=-0.2313±0.0701)
+  highnoise_hea_8q         PASS  (mean=-0.2833±0.2704)
+  noisy_exp_8q_200         PASS  (mean=-0.7063±0.1394)
 
 Performance:
-  Benchmark              Qubits      N   Time(ms)   Baseline     Change
-  --------------------------------------------------------------------
-  sweep_8q_100pts             8     48     88.240     92.073        -4%
-  sweep_14q_50pts            14     56    142.435    141.273        +1%
-  eval_8q_50sets              8     48     45.667     54.747 -17% FASTER
-  eval_12q_30sets            12     48     36.627     44.294 -17% FASTER
-  eval_8q_heisen              8     48     39.889     45.141 -12% FASTER
-  kernel_6q_20x20             6     20    235.463    294.380 -20% FASTER
-  kernel_8q_15x15             8     15    261.184    303.729 -14% FASTER
-  grad_batch_8q_20            8     48     36.860     42.788 -14% FASTER
-  grad_batch_12q_10          12     48     41.657     38.979        +7%
+  Benchmark                Qubits  Evals   Time(ms)   Baseline     Change
+  ----------------------------------------------------------------------
+  depol_hea_4q                  4    100     31.633     26.944  +17% warn
+  depol_hea_8q                  8     50     36.627     40.327 -9% FASTER
+  depol_hea_12q                12     20     34.829     27.859  +25% warn
+  depol_hea_16q                16     10    220.105    218.118        +1%
+  ampdamp_ghz_8q                8     50     11.237     16.529 -32% FASTER
+  realistic_hea_8q              8     30     52.097     76.560 -32% FASTER
+  realistic_uccsd_8q            8     30     42.025     64.554 -35% FASTER
+  realistic_qaoa_10q           10     20     36.155     48.728 -26% FASTER
+  zne_hea_8q                    8     90    187.886    205.032 -8% FASTER
+  highnoise_hea_8q              8     50     38.187     40.909 -7% FASTER
+  noisy_exp_8q_200              8    200    170.614    182.077 -6% FASTER
 
-Summary: 9/9 correctness PASS, 6 faster, 0 regressions
+Summary: 11/11 correctness PASS, 8 faster, 0 regressions
