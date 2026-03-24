@@ -50,6 +50,8 @@ _DIAG_ANGLE = {Gate.T: pi/4, Gate.TDG: -pi/4, Gate.S: pi/2, Gate.SDG: -pi/2, Gat
 _PARTNER_INDEX: dict[Gate, list[tuple[Gate, Gate | str | None]]] = {}
 for _g1, _g2, _res in PARTNER_RULES:
     _PARTNER_INDEX.setdefault(_g1, []).append((_g2, _res))
+# Value-keyed index for hot-path lookup without enum __hash__
+_PARTNER_INDEX_V: dict[int, list[tuple[Gate, Gate | str | None]]] = {g.value: v for g, v in _PARTNER_INDEX.items()}
 
 # Conjugation: bookend·inner·bookend → result (strict adjacency, no commutation walk)
 # 1Q: all on same qubit — replace nid with result, remove mid+end
@@ -106,7 +108,7 @@ def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> 
 def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
     """Try partner-based rules: cancel, inverse cancel, clifford merge, rotation merge."""
     op = dag.op(nid)
-    rules = _PARTNER_INDEX.get(op.gate)
+    rules = _PARTNER_INDEX_V.get(op.gate.value)
     if not rules:
         return False
     for partner_gate, result in rules:
@@ -155,7 +157,7 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
 def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = None) -> bool:
     """Try bookend·inner·bookend conjugation patterns (strict adjacency)."""
     op = dag.op(nid)
-    if op.gate not in _CONJUGATE_BOOKENDS:
+    if op.gate.value not in _CONJUGATE_BOOKENDS_V:
         return False
     q = op.qubits[0]
     mid = dag.next_on_qubit(nid, q)
