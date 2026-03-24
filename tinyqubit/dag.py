@@ -1,7 +1,7 @@
 """DAG-based circuit IR for compilation passes."""
 from __future__ import annotations
 
-from heapq import heappush, heappop
+from heapq import heapify, heappush, heappop
 from .ir import Circuit, Operation, Gate
 
 
@@ -157,9 +157,9 @@ class DAGCircuit:
 
     def topological_order(self) -> list[int]:
         """Deterministic topological sort (Kahn's algorithm, smallest-id-first via heap)."""
-        in_deg = {nid: len(self._pred[nid]) for nid in self._ops}
+        _preds = self._pred
+        in_deg = {nid: len(_preds[nid]) for nid in self._ops}
         ready = [nid for nid, d in in_deg.items() if d == 0]
-        from heapq import heapify, heappush, heappop
         heapify(ready)
         order: list[int] = []
         while ready:

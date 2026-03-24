@@ -21,19 +21,19 @@ Correctness (compiled ops count must match):
 Performance:
   Benchmark              Qubits     In    Out   Time(ms)   Baseline     Change
   --------------------------------------------------------------------------
-  pre_hea_4q                  4     33     43      1.454      2.477 -41% FASTER
-  pre_hea_8q                  8     69     91      2.808      4.394 -36% FASTER
-  pre_hea_12q                12     70     93      2.996      4.075 -26% FASTER
-  pre_qft_8q                  8     36     99      8.964     13.746 -35% FASTER
-  pre_toffoli_8q              8     14     86      2.322      5.149 -55% FASTER
-  pre_random_10q             10    190    245     19.824     29.013 -32% FASTER
-  trans_hea_8q                8     69    139      6.739     12.291 -45% FASTER
-  trans_qft_8q                8     36    123     17.733     22.415 -21% FASTER
-  trans_ghz_12q              12     12     12      0.607      0.775 -22% FASTER
-  trans_random_10q           10    190    362     38.087     56.954 -33% FASTER
-  pre_hea_16q                16     94    125      3.728      5.341 -30% FASTER
-  trans_hea_12q              12     70    141      6.469     12.537 -48% FASTER
-  trans_hea_8q_def            8     69    139      5.609     11.154 -50% FASTER
-  adapt_grow_8q               8     34     45      1.657      1.816 -9% FASTER
+  pre_hea_4q                  4     33     43      1.386      2.477 -44% FASTER
+  pre_hea_8q                  8     69     91      2.727      4.394 -38% FASTER
+  pre_hea_12q                12     70     93      2.608      4.075 -36% FASTER
+  pre_qft_8q                  8     36     99      9.021     13.746 -34% FASTER
+  pre_toffoli_8q              8     14     86      1.000      5.149 -81% FASTER
+  pre_random_10q             10    190    245     18.286     29.013 -37% FASTER
+  trans_hea_8q                8     69    139      7.269     12.291 -41% FASTER
+  trans_qft_8q                8     36    123     15.868     22.415 -29% FASTER
+  trans_ghz_12q              12     12     12      0.574      0.775 -26% FASTER
+  trans_random_10q           10    190    362     36.349     56.954 -36% FASTER
+  pre_hea_16q                16     94    125      2.327      5.341 -56% FASTER
+  trans_hea_12q              12     70    141      7.687     12.537 -39% FASTER
+  trans_hea_8q_def            8     69    139      7.360     11.154 -34% FASTER
+  adapt_grow_8q               8     34     45      1.572      1.816 -13% FASTER
 
 Summary: 14/14 correctness PASS, 14 faster, 0 regressions

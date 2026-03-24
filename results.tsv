@@ -11,3 +11,4 @@ d371425	152.7	14/14	keep	replace np.allclose with scalar checks in _is_identity 
 23d553a	120.2	14/14	keep	inline _find_partner + cmath ZXZ (ALL 14 FASTER, -36%)
 e3bf241	139.7	14/14	keep	pre-filter optimizer dispatch (all 14 faster)
 e37e970	119.0	14/14	keep	value-keyed partner/conjugate lookups (-36%)
+5c442b4	114.0	14/14	keep	faster add_op: direct list, no set/sorted (-39%)
