@@ -18,26 +18,29 @@ def commutes(op1: Operation, op2: Operation) -> bool:
     you MUST update this function or the optimizer will silently miss opportunities
     (safe) or worse, produce wrong circuits if a case incorrectly returns True.
     """
-    if op1.gate in (Gate.MEASURE, Gate.RESET) or op2.gate in (Gate.MEASURE, Gate.RESET):
+    g1, g2 = op1.gate, op2.gate
+    if g1 in (Gate.MEASURE, Gate.RESET) or g2 in (Gate.MEASURE, Gate.RESET):
         return False
     if op1.condition is not None or op2.condition is not None:
         return False
-    q1, q2 = set(op1.qubits), set(op2.qubits)
-    if not (q1 & q2): return True
+    # Fast disjoint check without set creation
+    q1, q2 = op1.qubits, op2.qubits
+    shared = any(q in q2 for q in q1)
+    if not shared: return True
     # Single-qubit diagonal gates commute with CX on control qubit
-    if op1.gate in _DIAG_1Q and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[0]
-    if op2.gate in _DIAG_1Q and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[0]
+    if g1 in _DIAG_1Q and g2 == Gate.CX: return q1[0] == q2[0]
+    if g2 in _DIAG_1Q and g1 == Gate.CX: return q2[0] == q1[0]
     # RX/SX commute with CX on target qubit
-    if op1.gate in (Gate.RX, Gate.SX) and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[1]
-    if op2.gate in (Gate.RX, Gate.SX) and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[1]
+    if g1 in (Gate.RX, Gate.SX) and g2 == Gate.CX: return q1[0] == q2[1]
+    if g2 in (Gate.RX, Gate.SX) and g1 == Gate.CX: return q2[0] == q1[1]
     # Diagonal 1Q gates commute with CCX on control qubits
-    if op1.gate in _DIAG_1Q and op2.gate == Gate.CCX: return op1.qubits[0] in op2.qubits[:2]
-    if op2.gate in _DIAG_1Q and op1.gate == Gate.CCX: return op2.qubits[0] in op1.qubits[:2]
+    if g1 in _DIAG_1Q and g2 == Gate.CCX: return q1[0] in q2[:2]
+    if g2 in _DIAG_1Q and g1 == Gate.CCX: return q2[0] in q1[:2]
     # RX/SX commute with CCX on target
-    if op1.gate in (Gate.RX, Gate.SX) and op2.gate == Gate.CCX: return op1.qubits[0] == op2.qubits[2]
-    if op2.gate in (Gate.RX, Gate.SX) and op1.gate == Gate.CCX: return op2.qubits[0] == op1.qubits[2]
+    if g1 in (Gate.RX, Gate.SX) and g2 == Gate.CCX: return q1[0] == q2[2]
+    if g2 in (Gate.RX, Gate.SX) and g1 == Gate.CCX: return q2[0] == q1[2]
     # Diagonal gates commute with each other
-    if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES: return True
+    if g1 in DIAGONAL_GATES and g2 in DIAGONAL_GATES: return True
     return False
 
 
