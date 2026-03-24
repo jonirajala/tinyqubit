@@ -10,11 +10,9 @@ from ._kak import kak_decompose, cx_count, _extract_su2_pair
 
 def _is_identity(U: np.ndarray, tol: float = 1e-9) -> bool:
     """Check if U is identity up to global phase."""
-    # Factor out global phase: det(U) = e^{2iφ}, so φ = angle(det)/2
-    det = U[0, 0] * U[1, 1] - U[0, 1] * U[1, 0]
-    phase = np.exp(-1j * np.angle(det) / 2)
-    U_su2 = U * phase
-    return np.allclose(U_su2, np.eye(2), atol=tol) or np.allclose(U_su2, -np.eye(2), atol=tol)
+    # Fast check: off-diagonal must be near zero, diagonal must be equal
+    if abs(U[0, 1]) > tol or abs(U[1, 0]) > tol: return False
+    return abs(abs(U[0, 0]) - 1) < tol and abs(U[0, 0] - U[1, 1]) < tol
 
 
 def _decompose_zxz(U: np.ndarray, qubit: int, tol: float = 1e-9) -> list[Operation]:
