@@ -82,7 +82,9 @@ class DAGCircuit:
 
     def replace_op(self, nid: int, op: Operation):
         """Replace op, fixing wire tracking when qubits are dropped (e.g., 2Q→1Q).
-        NOTE: only handles qubit removal — new qubits not in the old op are not wired."""
+        NOTE: only handles qubit removal — new qubits not in the old op are not wired.
+        NOTE: does NOT update _pred/_succ DAG edges — callers must tolerate stale edges
+        (the optimizer does, via _ops.get() checks and per-pass topological snapshots)."""
         old_op = self._ops[nid]
         old_qubits = set(old_op.qubits)
         new_qubits = set(op.qubits)

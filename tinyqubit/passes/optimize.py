@@ -198,13 +198,6 @@ def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = No
     return False
 
 
-def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
-    """Check if op is gate or rot_gate(π + 2πk) (equivalent up to global phase)."""
-    return op.gate == gate or (op.gate == rot_gate and op.params and
-                               not isinstance(op.params[0], Parameter) and
-                               abs(op.params[0] % (2 * pi) - pi) < 1e-9)
-
-
 def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     """CX·P·CX patterns: Z(t)→Z both, X(c)→X both, Z(c)→Z(c), X(t)→X(t)."""
     _ops = dag._ops  # local refs for hot loop
@@ -237,7 +230,9 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
                                 pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t; break
                             if mg == Gate.X:
                                 pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t; break
-                            if (mg == Gate.RZ or mg == Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _TWO_PI - pi) < 1e-9:
+                            if (mg == Gate.RZ or mg == Gate.RX) and mid_op.params \
+                                    and not isinstance(mid_op.params[0], Parameter) \
+                                    and abs(mid_op.params[0] % _TWO_PI - pi) < 1e-9:
                                 pauli_nid, is_z, on_target = mid, mg == Gate.RZ, mid_op.qubits[0] == t; break
                     mid = _qsucc_q(mid)
                 if pauli_nid is not None:
