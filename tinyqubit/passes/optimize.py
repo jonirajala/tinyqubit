@@ -71,40 +71,33 @@ _CONJUGATE_BOOKENDS = frozenset({b for b, _, _ in CONJUGATE_1Q} | {b for b, _, _
 
 
 def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> int | None:
-    """Walk forward on the first qubit's wire from nid, checking commutation.
-
-    When a node matching predicate is found, verify commutation on ALL shared
-    qubit wires between nid and the match. Returns match nid or None.
-    """
-    op = dag.op(nid)
+    """Walk forward on the first qubit's wire, checking commutation. Returns match nid or None."""
+    _ops = dag._ops
+    _qsucc = dag._qubit_succ
+    op = _ops[nid]
     q0 = op.qubits[0]
+    _next = _qsucc[q0].get
 
-    cur = dag.next_on_qubit(nid, q0)
+    cur = _next(nid)
     for _ in range(max_steps):
-        if cur is None:
-            break
-        if cur not in dag._ops:
-            cur = dag.next_on_qubit(cur, q0)
-            continue
-        candidate = dag.op(cur)
+        if cur is None: break
+        candidate = _ops.get(cur)
+        if candidate is None:
+            cur = _next(cur); continue
         if predicate(candidate):
-            # Verify commutation on ALL shared qubit wires
             ok = True
             for q in op.qubits:
-                mid = dag.next_on_qubit(nid, q)
+                _nq = _qsucc[q].get
+                mid = _nq(nid)
                 while mid is not None and mid != cur:
-                    if mid in dag._ops and not commutes(op, dag.op(mid)):
-                        ok = False
-                        break
-                    mid = dag.next_on_qubit(mid, q)
-                if not ok:
-                    break
-            if ok:
-                return cur
-        # Check if we can commute past this node
-        if not commutes(op, candidate):
-            return None
-        cur = dag.next_on_qubit(cur, q0)
+                    mid_op = _ops.get(mid)
+                    if mid_op is not None and not commutes(op, mid_op):
+                        ok = False; break
+                    mid = _nq(mid)
+                if not ok: break
+            if ok: return cur
+        if not commutes(op, candidate): return None
+        cur = _next(cur)
     return None
 
 
