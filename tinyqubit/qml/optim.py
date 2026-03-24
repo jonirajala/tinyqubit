@@ -186,7 +186,44 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
         is_diag_1q = anq == 1 and (agate == Gate.RZ or agate in _DIAG_PHASE)
 
         if is_diag_1q:
-            # Gradient extraction is invariant under pending diagonal phases
+            # RZ-RY/RX pair fusion: extract both grads from un-phased state, apply combined matrix
+            q_cur = op.qubits[0]
+            can_fuse = (agate == Gate.RZ and k > 0 and k in param_map and (k - 1) in param_map
+                        and adjoint_info[k - 1][2] == 1 and bound.ops[k - 1].qubits[0] == q_cur
+                        and bound.ops[k - 1].gate in (Gate.RY, Gate.RX) and not diag_dirty)
+            if can_fuse:
+                rz_name, rz_scale = param_map[k]
+                next_name, next_scale = param_map[k - 1]
+                next_gate = bound.ops[k - 1].gate
+                next_mat = adjoint_info[k - 1][3]
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                i0, i1 = idxs
+                # RZ grad (phase-invariant — same formula as standard)
+                grad[rz_name] += rz_scale * (np.vdot(la[i0], st[i0]) - np.vdot(la[i1], st[i1])).imag
+                # RY/RX grad with phase correction: Re(e^{iθ}⟨λ₁|ψ₀⟩ - e^{-iθ}⟨λ₀|ψ₁⟩)
+                theta_rz = -aparams[0]  # original RZ angle (aparams is negated adjoint)
+                e_phase = np.exp(1j * theta_rz)
+                v01 = np.vdot(la[i1], st[i0])
+                v10 = np.vdot(la[i0], st[i1])
+                if next_gate == Gate.RY:
+                    grad[next_name] += next_scale * (e_phase * v01 - np.conj(e_phase) * v10).real
+                else:  # RX: grad = Im(e^{iθ}⟨λ₀|ψ₁⟩ + e^{-iθ}⟨λ₁|ψ₀⟩)
+                    grad[next_name] += next_scale * (e_phase * np.vdot(la[i0], st[i1]) + np.conj(e_phase) * np.vdot(la[i1], st[i0])).imag
+                # Apply combined RY†RZ† (adjoint reverses order: (RZ·RY)† = RY†·RZ†)
+                combined = next_mat @ np.array([[mat_or_phase[0], 0], [0, mat_or_phase[1]]], dtype=complex)
+                nql, nr = 1 << q_cur, 1 << (n - q_cur - 1)
+                if nr <= 1:
+                    np.matmul(sl.reshape(2 * nql, 2), combined.T, out=buf_sl.reshape(2 * nql, 2))
+                elif nql == 1:
+                    np.matmul(combined, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
+                else:
+                    np.matmul(combined, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                sl, buf_sl = buf_sl, sl
+                state, lam = sl[0], sl[1]
+                buf_s, buf_l = buf_sl[0], buf_sl[1]
+                k -= 2; continue
+
+            # Standard diagonal handling
             if k in param_map:
                 name, scale = param_map[k]
                 st, la = state.reshape([2] * n), lam.reshape([2] * n)
