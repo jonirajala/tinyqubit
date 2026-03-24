@@ -186,42 +186,90 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
         is_diag_1q = anq == 1 and (agate == Gate.RZ or agate in _DIAG_PHASE)
 
         if is_diag_1q:
-            # RZ-RY/RX pair fusion: extract both grads from un-phased state, apply combined matrix
+            # Collect consecutive RZ-RY/RX fused pairs on different qubits for kron-grouped application
             q_cur = op.qubits[0]
             can_fuse = (agate == Gate.RZ and k > 0 and k in param_map and (k - 1) in param_map
                         and adjoint_info[k - 1][2] == 1 and bound.ops[k - 1].qubits[0] == q_cur
                         and bound.ops[k - 1].gate in (Gate.RY, Gate.RX) and not diag_dirty)
             if can_fuse:
-                rz_name, rz_scale = param_map[k]
-                next_name, next_scale = param_map[k - 1]
-                next_gate = bound.ops[k - 1].gate
-                next_mat = adjoint_info[k - 1][3]
-                st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                i0, i1 = idxs
-                # RZ grad (phase-invariant — same formula as standard)
-                grad[rz_name] += rz_scale * (np.vdot(la[i0], st[i0]) - np.vdot(la[i1], st[i1])).imag
-                # RY/RX grad with phase correction: Re(e^{iθ}⟨λ₁|ψ₀⟩ - e^{-iθ}⟨λ₀|ψ₁⟩)
-                theta_rz = -aparams[0]  # original RZ angle (aparams is negated adjoint)
-                e_phase = np.exp(1j * theta_rz)
-                v01 = np.vdot(la[i1], st[i0])
-                v10 = np.vdot(la[i0], st[i1])
-                if next_gate == Gate.RY:
-                    grad[next_name] += next_scale * (e_phase * v01 - np.conj(e_phase) * v10).real
-                else:  # RX: grad = Im(e^{iθ}⟨λ₀|ψ₁⟩ + e^{-iθ}⟨λ₁|ψ₀⟩)
-                    grad[next_name] += next_scale * (e_phase * np.vdot(la[i0], st[i1]) + np.conj(e_phase) * np.vdot(la[i1], st[i0])).imag
-                # Apply combined RY†RZ† (adjoint reverses order: (RZ·RY)† = RY†·RZ†)
-                combined = next_mat @ np.array([[mat_or_phase[0], 0], [0, mat_or_phase[1]]], dtype=complex)
-                nql, nr = 1 << q_cur, 1 << (n - q_cur - 1)
-                if nr <= 1:
-                    np.matmul(sl.reshape(2 * nql, 2), combined.T, out=buf_sl.reshape(2 * nql, 2))
-                elif nql == 1:
-                    np.matmul(combined, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
-                else:
-                    np.matmul(combined, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
-                sl, buf_sl = buf_sl, sl
-                state, lam = sl[0], sl[1]
-                buf_s, buf_l = buf_sl[0], buf_sl[1]
-                k -= 2; continue
+                # Scan backward for consecutive fusable pairs on different qubits
+                fused_batch = []  # [(qubit, rz_info, ry_info, combined_mat)]
+                seen_qubits = set()
+                scan = k
+                while scan > 0:
+                    s_info = adjoint_info[scan]
+                    s_op = bound.ops[scan]
+                    s_q = s_op.qubits[0]
+                    if not (s_info[2] == 1 and s_info[0] == Gate.RZ and scan in param_map): break
+                    prev_info = adjoint_info[scan - 1]
+                    prev_op = bound.ops[scan - 1]
+                    if not (prev_info[2] == 1 and prev_op.qubits[0] == s_q and (scan - 1) in param_map
+                            and prev_op.gate in (Gate.RY, Gate.RX)): break
+                    if s_q in seen_qubits: break
+                    seen_qubits.add(s_q)
+                    # Build combined adjoint matrix
+                    e0, e1 = s_info[3]
+                    diag_mat = np.array([[e0, 0], [0, e1]], dtype=complex)
+                    combined = prev_info[3] @ diag_mat
+                    fused_batch.append((s_q, scan, scan - 1, s_info, prev_info, prev_op.gate, combined))
+                    scan -= 2
+
+                if fused_batch:
+                    # Extract ALL gradients from the same state (pairs commute on different qubits)
+                    st, la = state.reshape([2] * n), lam.reshape([2] * n)
+                    for q_f, k_rz, k_ry, rz_info, ry_info, ry_gate, _ in fused_batch:
+                        i0_f, i1_f = rz_info[4]
+                        rz_name, rz_scale = param_map[k_rz]
+                        ry_name, ry_scale = param_map[k_ry]
+                        # RZ grad (phase-invariant)
+                        grad[rz_name] += rz_scale * (np.vdot(la[i0_f], st[i0_f]) - np.vdot(la[i1_f], st[i1_f])).imag
+                        # RY/RX grad with phase correction
+                        theta_rz = -rz_info[1][0]
+                        e_ph = np.exp(1j * theta_rz)
+                        if ry_gate == Gate.RY:
+                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i1_f], st[i0_f]) - np.conj(e_ph) * np.vdot(la[i0_f], st[i1_f])).real
+                        else:
+                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i0_f], st[i1_f]) + np.conj(e_ph) * np.vdot(la[i1_f], st[i0_f])).imag
+
+                    # Kron-group combined matrices by adjacent qubit runs
+                    fused_batch.sort(key=lambda x: x[0])
+                    bi = 0
+                    while bi < len(fused_batch):
+                        run = 1
+                        while run < 5 and bi + run < len(fused_batch) and fused_batch[bi + run][0] == fused_batch[bi][0] + run:
+                            run += 1
+                        if run >= 2:
+                            q_first = fused_batch[bi][0]
+                            q_last = fused_batch[bi + run - 1][0]
+                            kron_mat = fused_batch[bi][6]
+                            for j in range(1, run):
+                                b = fused_batch[bi + j][6]
+                                kron_mat = (kron_mat[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
+                                    kron_mat.shape[0] * 2, kron_mat.shape[1] * 2)
+                            dim_g = 1 << run
+                            nql = 1 << q_first; nr = 1 << (n - q_last - 1)
+                            if nr <= 1:
+                                np.matmul(sl.reshape(2 * nql, dim_g), kron_mat.T, out=buf_sl.reshape(2 * nql, dim_g))
+                            elif nql == 1:
+                                np.matmul(kron_mat, sl.reshape(2, dim_g, nr), out=buf_sl.reshape(2, dim_g, nr))
+                            else:
+                                np.matmul(kron_mat, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
+                            sl, buf_sl = buf_sl, sl
+                            bi += run
+                        else:
+                            cm = fused_batch[bi][6]; q_f = fused_batch[bi][0]
+                            nql, nr = 1 << q_f, 1 << (n - q_f - 1)
+                            if nr <= 1:
+                                np.matmul(sl.reshape(2 * nql, 2), cm.T, out=buf_sl.reshape(2 * nql, 2))
+                            elif nql == 1:
+                                np.matmul(cm, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
+                            else:
+                                np.matmul(cm, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
+                            sl, buf_sl = buf_sl, sl
+                            bi += 1
+                    state, lam = sl[0], sl[1]
+                    buf_s, buf_l = buf_sl[0], buf_sl[1]
+                    k = scan; continue
 
             # Standard diagonal handling
             if k in param_map:
