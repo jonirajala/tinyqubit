@@ -236,11 +236,12 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
                     if mid_op is not None:
                         if len(mid_op.qubits) == 1 and mid_op.qubits[0] in (c, t):
                             mg = mid_op.gate
-                            _is_pi = mg in (Gate.RZ, Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _PI2 - pi) < 1e-9
-                            if mg == Gate.Z or (mg == Gate.RZ and _is_pi):
+                            if mg == Gate.Z:
                                 pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t; break
-                            if mg == Gate.X or (mg == Gate.RX and _is_pi):
+                            if mg == Gate.X:
                                 pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t; break
+                            if (mg == Gate.RZ or mg == Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _PI2 - pi) < 1e-9:
+                                pauli_nid, is_z, on_target = mid, mg == Gate.RZ, mid_op.qubits[0] == t; break
                     mid = _qsucc_q(mid)
                 if pauli_nid is not None:
                     break

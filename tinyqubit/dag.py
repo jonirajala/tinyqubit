@@ -7,8 +7,12 @@ from .ir import Circuit, Operation, Gate
 
 # Centralized commutation rules -----------------------------------------------
 
-DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ, Gate.RZZ}
-_DIAG_1Q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
+DIAGONAL_GATES = frozenset({Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ, Gate.RZZ})
+_DIAG_1Q = frozenset({Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ})
+# Pre-hash sets for fast membership — avoid enum __hash__ in hot path
+_DIAG_1Q_VALUES = frozenset(g.value for g in _DIAG_1Q)
+_DIAG_VALUES = frozenset(g.value for g in DIAGONAL_GATES)
+_RX_SX_VALUES = frozenset({Gate.RX.value, Gate.SX.value})
 
 
 def commutes(op1: Operation, op2: Operation) -> bool:
@@ -27,20 +31,17 @@ def commutes(op1: Operation, op2: Operation) -> bool:
     q1, q2 = op1.qubits, op2.qubits
     shared = any(q in q2 for q in q1)
     if not shared: return True
-    # Single-qubit diagonal gates commute with CX on control qubit
-    if g1 in _DIAG_1Q and g2 == Gate.CX: return q1[0] == q2[0]
-    if g2 in _DIAG_1Q and g1 == Gate.CX: return q2[0] == q1[0]
-    # RX/SX commute with CX on target qubit
-    if g1 in (Gate.RX, Gate.SX) and g2 == Gate.CX: return q1[0] == q2[1]
-    if g2 in (Gate.RX, Gate.SX) and g1 == Gate.CX: return q2[0] == q1[1]
-    # Diagonal 1Q gates commute with CCX on control qubits
-    if g1 in _DIAG_1Q and g2 == Gate.CCX: return q1[0] in q2[:2]
-    if g2 in _DIAG_1Q and g1 == Gate.CCX: return q2[0] in q1[:2]
-    # RX/SX commute with CCX on target
-    if g1 in (Gate.RX, Gate.SX) and g2 == Gate.CCX: return q1[0] == q2[2]
-    if g2 in (Gate.RX, Gate.SX) and g1 == Gate.CCX: return q2[0] == q1[2]
-    # Diagonal gates commute with each other
-    if g1 in DIAGONAL_GATES and g2 in DIAGONAL_GATES: return True
+    # Use pre-hashed .value sets to avoid enum __hash__ overhead
+    v1, v2 = g1.value, g2.value
+    if v1 in _DIAG_1Q_VALUES and g2 == Gate.CX: return q1[0] == q2[0]
+    if v2 in _DIAG_1Q_VALUES and g1 == Gate.CX: return q2[0] == q1[0]
+    if v1 in _RX_SX_VALUES and g2 == Gate.CX: return q1[0] == q2[1]
+    if v2 in _RX_SX_VALUES and g1 == Gate.CX: return q2[0] == q1[1]
+    if v1 in _DIAG_1Q_VALUES and g2 == Gate.CCX: return q1[0] in q2[:2]
+    if v2 in _DIAG_1Q_VALUES and g1 == Gate.CCX: return q2[0] in q1[:2]
+    if v1 in _RX_SX_VALUES and g2 == Gate.CCX: return q1[0] == q2[2]
+    if v2 in _RX_SX_VALUES and g1 == Gate.CCX: return q2[0] == q1[2]
+    if v1 in _DIAG_VALUES and v2 in _DIAG_VALUES: return True
     return False
 
 
