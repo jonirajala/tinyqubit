@@ -1,10 +1,16 @@
 commit	total_ms	correctness	status	description
-0d32898	934.5	11/11	keep	baseline
-421e918	916.3	11/11	keep	cached indices + vdot norm + cached Paulis (realistic -32%)
-b2fed54	855.7	11/11	keep	streamline _apply_gate_noise
-f69de34	875.8	11/11	keep	inline Pauli in depolarizing
-450e47d	889.3	10/11	crash	combined noise changes 2Q gate RNG ordering
-e528934	877.3	11/11	keep	remove reshape(-1) from noise channels
-9abc193	868.6	11/11	keep	skip amp_damp norm for tiny gamma (ZNE -10%)
-fd6a4a1	900.6	11/11	keep	tiny gamma/lam fast path (realistic -37%)
-aab4b51	861.4	11/11	keep	skip negligible channels in realistic_noise
+db92437	187.3	14/14	keep	baseline
+aad8d47	188.3	14/14	keep	inline _is_pauli_like in CX conjugation
+29def81	196.5	14/14	keep	eliminate DAG rebuild in optimizer (replace_op)
+d371425	152.7	14/14	keep	replace np.allclose with scalar checks in _is_identity (-18%)
+4fb9b8c	166.3	14/14	keep	faster commutes() (avoid set creation)
+49a0e00	159.0	14/14	keep	heapq topological sort (11/14 faster)
+1fc3ff6	150.6	14/14	keep	inline DAG accessors in CX conjugation (13/14 faster)
+456d1cd	134.5	14/14	keep	avoid enum __hash__ in hot paths (-28% from baseline)
+5b5c2f0	134.1	14/14	keep	skip _try_cx_conjugation for non-CX gates
+23d553a	120.2	14/14	keep	inline _find_partner + cmath ZXZ (ALL 14 FASTER, -36%)
+e3bf241	139.7	14/14	keep	pre-filter optimizer dispatch (all 14 faster)
+e37e970	119.0	14/14	keep	value-keyed partner/conjugate lookups (-36%)
+5c442b4	114.0	14/14	keep	faster add_op: direct list, no set/sorted (-39%)
+3c98726	117.6	14/14	keep	hoist heapify import + local _preds ref
+2421043	114.6	14/14	keep	inline qubit disjoint check in commutes()

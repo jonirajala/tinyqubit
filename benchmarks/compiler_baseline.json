@@ -1,0 +1,86 @@
+{
+  "pre_hea_4q": {
+    "n_qubits": 4,
+    "n_ops_in": 33,
+    "n_ops_out": 43,
+    "time_ms": 1.352
+  },
+  "pre_hea_8q": {
+    "n_qubits": 8,
+    "n_ops_in": 69,
+    "n_ops_out": 91,
+    "time_ms": 2.618
+  },
+  "pre_hea_12q": {
+    "n_qubits": 12,
+    "n_ops_in": 70,
+    "n_ops_out": 93,
+    "time_ms": 1.161
+  },
+  "pre_qft_8q": {
+    "n_qubits": 8,
+    "n_ops_in": 36,
+    "n_ops_out": 99,
+    "time_ms": 7.867
+  },
+  "pre_toffoli_8q": {
+    "n_qubits": 8,
+    "n_ops_in": 14,
+    "n_ops_out": 86,
+    "time_ms": 1.83
+  },
+  "pre_random_10q": {
+    "n_qubits": 10,
+    "n_ops_in": 190,
+    "n_ops_out": 245,
+    "time_ms": 16.936
+  },
+  "trans_hea_8q": {
+    "n_qubits": 8,
+    "n_ops_in": 69,
+    "n_ops_out": 139,
+    "time_ms": 5.523
+  },
+  "trans_qft_8q": {
+    "n_qubits": 8,
+    "n_ops_in": 36,
+    "n_ops_out": 123,
+    "time_ms": 15.496
+  },
+  "trans_ghz_12q": {
+    "n_qubits": 12,
+    "n_ops_in": 12,
+    "n_ops_out": 12,
+    "time_ms": 0.277
+  },
+  "trans_random_10q": {
+    "n_qubits": 10,
+    "n_ops_in": 190,
+    "n_ops_out": 362,
+    "time_ms": 35.852
+  },
+  "pre_hea_16q": {
+    "n_qubits": 16,
+    "n_ops_in": 94,
+    "n_ops_out": 125,
+    "time_ms": 3.34
+  },
+  "trans_hea_12q": {
+    "n_qubits": 12,
+    "n_ops_in": 70,
+    "n_ops_out": 141,
+    "time_ms": 6.723
+  },
+  "trans_hea_8q_def": {
+    "n_qubits": 8,
+    "n_ops_in": 69,
+    "n_ops_out": 139,
+    "time_ms": 6.91
+  },
+  "adapt_grow_8q": {
+    "n_qubits": 8,
+    "n_ops_in": 34,
+    "n_ops_out": 45,
+    "time_ms": 1.498
+  }
+}

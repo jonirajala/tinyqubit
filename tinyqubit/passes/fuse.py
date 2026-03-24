@@ -2,6 +2,7 @@
 from __future__ import annotations
 import numpy as np
 from math import pi, atan2, sqrt
+from cmath import phase as _cphase, exp as _cexp
 from collections import defaultdict
 from ..ir import Circuit, Operation, Gate, _has_parameter, _get_gate_matrix
 from ..dag import DAGCircuit
@@ -10,11 +11,9 @@ from ._kak import kak_decompose, cx_count, _extract_su2_pair
 
 def _is_identity(U: np.ndarray, tol: float = 1e-9) -> bool:
     """Check if U is identity up to global phase."""
-    # Factor out global phase: det(U) = e^{2iφ}, so φ = angle(det)/2
-    det = U[0, 0] * U[1, 1] - U[0, 1] * U[1, 0]
-    phase = np.exp(-1j * np.angle(det) / 2)
-    U_su2 = U * phase
-    return np.allclose(U_su2, np.eye(2), atol=tol) or np.allclose(U_su2, -np.eye(2), atol=tol)
+    # Fast check: off-diagonal must be near zero, diagonal must be equal
+    if abs(U[0, 1]) > tol or abs(U[1, 0]) > tol: return False
+    return abs(abs(U[0, 0]) - 1) < tol and abs(U[0, 0] - U[1, 1]) < tol
 
 
 def _decompose_zxz(U: np.ndarray, qubit: int, tol: float = 1e-9) -> list[Operation]:
@@ -30,30 +29,26 @@ def _decompose_zxz(U: np.ndarray, qubit: int, tol: float = 1e-9) -> list[Operati
     if _is_identity(U, tol):
         return []
 
-    # Convert to SU(2) by removing global phase
-    det = U[0, 0] * U[1, 1] - U[0, 1] * U[1, 0]
-    phase = np.exp(-1j * np.angle(det) / 2)
-    U = U * phase
+    # Convert to SU(2) by removing global phase (use cmath for scalar speed)
+    det = complex(U[0, 0] * U[1, 1] - U[0, 1] * U[1, 0])
+    phase_angle = _cphase(det) / 2
+    gp = _cexp(-1j * phase_angle)
+    U = U * gp
 
-    # Extract ZYZ angles
-    # U = [[cos(β/2) e^{-i(α+γ)/2}, -sin(β/2) e^{-i(α-γ)/2}],
-    #      [sin(β/2) e^{ i(α-γ)/2},  cos(β/2) e^{ i(α+γ)/2}]]
-    cos_b2 = np.clip(np.abs(U[0, 0]), 0, 1)
-    sin_b2 = np.clip(np.abs(U[1, 0]), 0, 1)
+    cos_b2 = min(max(abs(complex(U[0, 0])), 0.0), 1.0)
+    sin_b2 = min(max(abs(complex(U[1, 0])), 0.0), 1.0)
     beta = 2 * atan2(sin_b2, cos_b2)
 
     if sin_b2 < tol:
         # β ≈ 0: pure Z rotation, U ≈ diag(e^{-i(α+γ)/2}, e^{i(α+γ)/2})
-        alpha_plus_gamma = -2 * np.angle(U[0, 0])
+        alpha_plus_gamma = -2 * _cphase(complex(U[0, 0]))
         alpha, gamma = alpha_plus_gamma / 2, alpha_plus_gamma / 2
     elif cos_b2 < tol:
-        # β ≈ π: U[0,0] ≈ 0, use U[1,0] and U[0,1]
-        alpha_minus_gamma = 2 * np.angle(U[1, 0])
+        alpha_minus_gamma = 2 * _cphase(complex(U[1, 0]))
         alpha, gamma = alpha_minus_gamma / 2, -alpha_minus_gamma / 2
     else:
-        # General case
-        alpha_plus_gamma = -2 * np.angle(U[0, 0])
-        alpha_minus_gamma = 2 * np.angle(U[1, 0])
+        alpha_plus_gamma = -2 * _cphase(complex(U[0, 0]))
+        alpha_minus_gamma = 2 * _cphase(complex(U[1, 0]))
         alpha = (alpha_plus_gamma + alpha_minus_gamma) / 2
         gamma = (alpha_plus_gamma - alpha_minus_gamma) / 2
 

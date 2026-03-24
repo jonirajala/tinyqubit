@@ -1,14 +1,18 @@
 """DAG-based circuit IR for compilation passes."""
 from __future__ import annotations
 
-from bisect import insort
+from heapq import heapify, heappush, heappop
 from .ir import Circuit, Operation, Gate
 
 
 # Centralized commutation rules -----------------------------------------------
 
-DIAGONAL_GATES = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ, Gate.RZZ}
-_DIAG_1Q = {Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ}
+DIAGONAL_GATES = frozenset({Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ, Gate.CZ, Gate.CP, Gate.CCZ, Gate.RZZ})
+_DIAG_1Q = frozenset({Gate.Z, Gate.S, Gate.T, Gate.SDG, Gate.TDG, Gate.RZ})
+# Pre-hash sets for fast membership — avoid enum __hash__ in hot path
+_DIAG_1Q_VALUES = frozenset(g.value for g in _DIAG_1Q)
+_DIAG_VALUES = frozenset(g.value for g in DIAGONAL_GATES)
+_RX_SX_VALUES = frozenset({Gate.RX.value, Gate.SX.value})
 
 
 def commutes(op1: Operation, op2: Operation) -> bool:
@@ -18,26 +22,29 @@ def commutes(op1: Operation, op2: Operation) -> bool:
     you MUST update this function or the optimizer will silently miss opportunities
     (safe) or worse, produce wrong circuits if a case incorrectly returns True.
     """
-    if op1.gate in (Gate.MEASURE, Gate.RESET) or op2.gate in (Gate.MEASURE, Gate.RESET):
+    g1, g2 = op1.gate, op2.gate
+    if g1 in (Gate.MEASURE, Gate.RESET) or g2 in (Gate.MEASURE, Gate.RESET):
         return False
     if op1.condition is not None or op2.condition is not None:
         return False
-    q1, q2 = set(op1.qubits), set(op2.qubits)
-    if not (q1 & q2): return True
-    # Single-qubit diagonal gates commute with CX on control qubit
-    if op1.gate in _DIAG_1Q and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[0]
-    if op2.gate in _DIAG_1Q and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[0]
-    # RX/SX commute with CX on target qubit
-    if op1.gate in (Gate.RX, Gate.SX) and op2.gate == Gate.CX: return op1.qubits[0] == op2.qubits[1]
-    if op2.gate in (Gate.RX, Gate.SX) and op1.gate == Gate.CX: return op2.qubits[0] == op1.qubits[1]
-    # Diagonal 1Q gates commute with CCX on control qubits
-    if op1.gate in _DIAG_1Q and op2.gate == Gate.CCX: return op1.qubits[0] in op2.qubits[:2]
-    if op2.gate in _DIAG_1Q and op1.gate == Gate.CCX: return op2.qubits[0] in op1.qubits[:2]
-    # RX/SX commute with CCX on target
-    if op1.gate in (Gate.RX, Gate.SX) and op2.gate == Gate.CCX: return op1.qubits[0] == op2.qubits[2]
-    if op2.gate in (Gate.RX, Gate.SX) and op1.gate == Gate.CCX: return op2.qubits[0] == op1.qubits[2]
-    # Diagonal gates commute with each other
-    if op1.gate in DIAGONAL_GATES and op2.gate in DIAGONAL_GATES: return True
+    # Fast disjoint check — inline for 1Q/2Q common case, fallback for 3Q+
+    q1, q2 = op1.qubits, op2.qubits
+    if len(q1) == 1:
+        if q1[0] not in q2: return True
+    elif len(q1) == 2:
+        if q1[0] not in q2 and q1[1] not in q2: return True
+    elif not any(qi in q2 for qi in q1): return True
+    # Use pre-hashed .value sets to avoid enum __hash__ overhead
+    v1, v2 = g1.value, g2.value
+    if v1 in _DIAG_1Q_VALUES and g2 == Gate.CX: return q1[0] == q2[0]
+    if v2 in _DIAG_1Q_VALUES and g1 == Gate.CX: return q2[0] == q1[0]
+    if v1 in _RX_SX_VALUES and g2 == Gate.CX: return q1[0] == q2[1]
+    if v2 in _RX_SX_VALUES and g1 == Gate.CX: return q2[0] == q1[1]
+    if v1 in _DIAG_1Q_VALUES and g2 == Gate.CCX: return q1[0] in q2[:2]
+    if v2 in _DIAG_1Q_VALUES and g1 == Gate.CCX: return q2[0] in q1[:2]
+    if v1 in _RX_SX_VALUES and g2 == Gate.CCX: return q1[0] == q2[2]
+    if v2 in _RX_SX_VALUES and g1 == Gate.CCX: return q2[0] == q1[2]
+    if v1 in _DIAG_VALUES and v2 in _DIAG_VALUES: return True
     return False
 
 
@@ -73,26 +80,56 @@ class DAGCircuit:
         """In-place op update (same qubits, different gate/params)."""
         self._ops[nid] = op
 
+    def replace_op(self, nid: int, op: Operation):
+        """Replace op, fixing wire tracking when qubits are dropped (e.g., 2Q→1Q).
+        NOTE: only handles qubit removal — new qubits not in the old op are not wired.
+        NOTE: does NOT update _pred/_succ DAG edges — callers must tolerate stale edges
+        (the optimizer does, via _ops.get() checks and per-pass topological snapshots)."""
+        old_op = self._ops[nid]
+        old_qubits = set(old_op.qubits)
+        new_qubits = set(op.qubits)
+        # Remove wire entries for dropped qubits
+        for q in old_qubits - new_qubits:
+            prev = self._qubit_pred[q].pop(nid, None)
+            nxt = self._qubit_succ[q].pop(nid, None)
+            if prev is not None and nxt is not None:
+                self._qubit_succ[q][prev] = nxt; self._qubit_pred[q][nxt] = prev
+            elif prev is not None:
+                del self._qubit_succ[q][prev]
+                if self._qubit_last.get(q) == nid: self._qubit_last[q] = prev
+            elif nxt is not None:
+                del self._qubit_pred[q][nxt]
+                if self._qubit_first.get(q) == nid: self._qubit_first[q] = nxt
+            else:
+                self._qubit_last.pop(q, None); self._qubit_first.pop(q, None)
+        self._ops[nid] = op
+
     def add_op(self, op: Operation) -> int:
         """Add operation, auto-wiring dependency edges from qubit/cbit usage."""
         nid = self._next_id; self._next_id += 1
-        self._ops[nid] = op; self._pred[nid] = []; self._succ[nid] = []
-        deps: set[int] = set()
+        self._ops[nid] = op
+        preds = []
+        _ql = self._qubit_last
+        _qs = self._qubit_succ
+        _qp = self._qubit_pred
+        _qf = self._qubit_first
         for q in op.qubits:
-            if q in self._qubit_last:
-                prev = self._qubit_last[q]
-                deps.add(prev)
-                self._qubit_succ[q][prev] = nid
-                self._qubit_pred[q][nid] = prev
+            prev = _ql.get(q)
+            if prev is not None:
+                _qs[q][prev] = nid
+                _qp[q][nid] = prev
+                if prev not in preds: preds.append(prev)  # maintain sorted order (ids increase)
             else:
-                self._qubit_first[q] = nid
-            self._qubit_last[q] = nid
-        if op.condition is not None and op.condition[0] in self._cbit_last:
-            deps.add(self._cbit_last[op.condition[0]])
+                _qf[q] = nid
+            _ql[q] = nid
+        if op.condition is not None:
+            cb = self._cbit_last.get(op.condition[0])
+            if cb is not None and cb not in preds: preds.append(cb)
         if op.gate == Gate.MEASURE and op.classical_bit is not None:
             self._cbit_last[op.classical_bit] = nid
-        for d in sorted(deps):
-            self._succ[d].append(nid); self._pred[nid].append(d)
+        self._pred[nid] = preds
+        self._succ[nid] = []
+        for d in preds: self._succ[d].append(nid)
         return nid
 
     def remove_node(self, nid: int):
@@ -125,16 +162,18 @@ class DAGCircuit:
         del self._ops[nid], self._pred[nid], self._succ[nid]
 
     def topological_order(self) -> list[int]:
-        """Deterministic topological sort (Kahn's algorithm, smallest-id-first)."""
-        in_deg = {nid: len(self._pred[nid]) for nid in self._ops}
-        ready = sorted(nid for nid, d in in_deg.items() if d == 0)
+        """Deterministic topological sort (Kahn's algorithm, smallest-id-first via heap)."""
+        _preds = self._pred
+        in_deg = {nid: len(_preds[nid]) for nid in self._ops}
+        ready = [nid for nid, d in in_deg.items() if d == 0]
+        heapify(ready)
         order: list[int] = []
         while ready:
-            nid = ready.pop(0)
+            nid = heappop(ready)
             order.append(nid)
             for s in self._succ[nid]:
                 in_deg[s] -= 1
-                if in_deg[s] == 0: insort(ready, s)
+                if in_deg[s] == 0: heappush(ready, s)
         return order
 
     def topological_ops(self) -> list[Operation]:

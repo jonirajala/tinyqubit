@@ -152,6 +152,6 @@ def realistic_noise(t1=100e-6, t2=50e-6, gate_time_1q=50e-9, gate_time_2q=300e-9
                         (gamma_2q, noise.add_amplitude_damping, gates_3q),
                         (lam_1q, noise.add_phase_damping, gates_1q), (lam_2q, noise.add_phase_damping, gates_2q),
                         (lam_2q, noise.add_phase_damping, gates_3q)]:
-        if p > 1e-5: g(p, gates)
+        if p > 0: g(p, gates)
     if readout_err > 0: noise.add_readout_error(readout_err, readout_err)
     return noise

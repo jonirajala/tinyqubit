@@ -2,6 +2,7 @@
 
 import sys, os
 from math import pi
+_TWO_PI = 2 * pi
 from ..ir import Circuit, Operation, Gate, _has_parameter, Parameter
 from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
 
@@ -50,6 +51,8 @@ _DIAG_ANGLE = {Gate.T: pi/4, Gate.TDG: -pi/4, Gate.S: pi/2, Gate.SDG: -pi/2, Gat
 _PARTNER_INDEX: dict[Gate, list[tuple[Gate, Gate | str | None]]] = {}
 for _g1, _g2, _res in PARTNER_RULES:
     _PARTNER_INDEX.setdefault(_g1, []).append((_g2, _res))
+# Value-keyed index for hot-path lookup without enum __hash__
+_PARTNER_INDEX_V: dict[int, list[tuple[Gate, Gate | str | None]]] = {g.value: v for g, v in _PARTNER_INDEX.items()}
 
 # Conjugation: bookend·inner·bookend → result (strict adjacency, no commutation walk)
 # 1Q: all on same qubit — replace nid with result, remove mid+end
@@ -68,50 +71,45 @@ CONJUGATE_2Q: list[tuple[Gate, Gate, int, Gate, int]] = [
 ]
 
 _CONJUGATE_BOOKENDS = frozenset({b for b, _, _ in CONJUGATE_1Q} | {b for b, _, _, _, _ in CONJUGATE_2Q})
+_CONJUGATE_BOOKENDS_V = frozenset(g.value for g in _CONJUGATE_BOOKENDS)
+_PARTNER_GATES_V = frozenset(g.value for g in _PARTNER_INDEX)
 
 
 def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> int | None:
-    """Walk forward on the first qubit's wire from nid, checking commutation.
-
-    When a node matching predicate is found, verify commutation on ALL shared
-    qubit wires between nid and the match. Returns match nid or None.
-    """
-    op = dag.op(nid)
+    """Walk forward on the first qubit's wire, checking commutation. Returns match nid or None."""
+    _ops = dag._ops
+    _qsucc = dag._qubit_succ
+    op = _ops[nid]
     q0 = op.qubits[0]
+    _next = _qsucc[q0].get
 
-    cur = dag.next_on_qubit(nid, q0)
+    cur = _next(nid)
     for _ in range(max_steps):
-        if cur is None:
-            break
-        if cur not in dag._ops:
-            cur = dag.next_on_qubit(cur, q0)
-            continue
-        candidate = dag.op(cur)
+        if cur is None: break
+        candidate = _ops.get(cur)
+        if candidate is None:
+            cur = _next(cur); continue
         if predicate(candidate):
-            # Verify commutation on ALL shared qubit wires
             ok = True
             for q in op.qubits:
-                mid = dag.next_on_qubit(nid, q)
+                _nq = _qsucc[q].get
+                mid = _nq(nid)
                 while mid is not None and mid != cur:
-                    if mid in dag._ops and not commutes(op, dag.op(mid)):
-                        ok = False
-                        break
-                    mid = dag.next_on_qubit(mid, q)
-                if not ok:
-                    break
-            if ok:
-                return cur
-        # Check if we can commute past this node
-        if not commutes(op, candidate):
-            return None
-        cur = dag.next_on_qubit(cur, q0)
+                    mid_op = _ops.get(mid)
+                    if mid_op is not None and not commutes(op, mid_op):
+                        ok = False; break
+                    mid = _nq(mid)
+                if not ok: break
+            if ok: return cur
+        if not commutes(op, candidate): return None
+        cur = _next(cur)
     return None
 
 
 def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
     """Try partner-based rules: cancel, inverse cancel, clifford merge, rotation merge."""
     op = dag.op(nid)
-    rules = _PARTNER_INDEX.get(op.gate)
+    rules = _PARTNER_INDEX_V.get(op.gate.value)
     if not rules:
         return False
     for partner_gate, result in rules:
@@ -160,7 +158,7 @@ def _try_partner_rule(dag: DAGCircuit, nid: int) -> bool:
 def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = None) -> bool:
     """Try bookend·inner·bookend conjugation patterns (strict adjacency)."""
     op = dag.op(nid)
-    if op.gate not in _CONJUGATE_BOOKENDS:
+    if op.gate.value not in _CONJUGATE_BOOKENDS_V:
         return False
     q = op.qubits[0]
     mid = dag.next_on_qubit(nid, q)
@@ -200,74 +198,65 @@ def _try_conjugate(dag: DAGCircuit, nid: int, basis: frozenset[Gate] | None = No
     return False
 
 
-def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
-    """Check if op is gate or rot_gate(π + 2πk) (equivalent up to global phase)."""
-    return op.gate == gate or (op.gate == rot_gate and op.params and
-                               not isinstance(op.params[0], Parameter) and
-                               abs(op.params[0] % (2 * pi) - pi) < 1e-9)
-
-
 def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     """CX·P·CX patterns: Z(t)→Z both, X(c)→X both, Z(c)→Z(c), X(t)→X(t)."""
-    op = dag.op(nid)
-    if op.gate != Gate.CX or op.condition is not None:
+    _ops = dag._ops  # local refs for hot loop
+    op = _ops.get(nid)
+    if op is None or op.gate != Gate.CX or op.condition is not None:
         return False
     c, t = op.qubits
+    _qsucc = dag._qubit_succ  # inline next_on_qubit
+    _qsucc_c = _qsucc[c].get
 
-    # Walk control qubit wire to find matching CX (don't stop at non-commuting gates)
-    cur = dag.next_on_qubit(nid, c)
+    # Walk control qubit wire to find matching CX
+    cur = _qsucc_c(nid)
     steps = 0
     while cur is not None and steps < 50:
-        if cur not in dag._ops:
-            cur = dag.next_on_qubit(cur, c)
-            steps += 1
-            continue
-        cur_op = dag.op(cur)
+        cur_op = _ops.get(cur)
+        if cur_op is None:
+            cur = _qsucc_c(cur); steps += 1; continue
         if cur_op.gate == Gate.CX and cur_op.qubits == (c, t):
-            # Found matching CX — look for Pauli-like gate between them
             pauli_nid, is_z, on_target = None, None, None
 
-            # Search on both control and target wires
             for q in (c, t):
-                mid = dag.next_on_qubit(nid, q)
+                _qsucc_q = _qsucc[q].get
+                mid = _qsucc_q(nid)
                 while mid is not None and mid != cur:
-                    if mid in dag._ops:
-                        mid_op = dag.op(mid)
+                    mid_op = _ops.get(mid)
+                    if mid_op is not None:
                         if len(mid_op.qubits) == 1 and mid_op.qubits[0] in (c, t):
-                            if _is_pauli_like(mid_op, Gate.Z, Gate.RZ):
-                                pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t
-                                break
-                            if _is_pauli_like(mid_op, Gate.X, Gate.RX):
-                                pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t
-                                break
-                    mid = dag.next_on_qubit(mid, q)
+                            mg = mid_op.gate
+                            if mg == Gate.Z:
+                                pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t; break
+                            if mg == Gate.X:
+                                pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t; break
+                            if (mg == Gate.RZ or mg == Gate.RX) and mid_op.params \
+                                    and not isinstance(mid_op.params[0], Parameter) \
+                                    and abs(mid_op.params[0] % _TWO_PI - pi) < 1e-9:
+                                pauli_nid, is_z, on_target = mid, mg == Gate.RZ, mid_op.qubits[0] == t; break
+                    mid = _qsucc_q(mid)
                 if pauli_nid is not None:
                     break
 
             if pauli_nid is None:
-                cur = dag.next_on_qubit(cur, c)
-                steps += 1
-                continue
+                cur = _qsucc_c(cur); steps += 1; continue
 
             # Check all intermediates (except pauli) commute with CX
             ok = True
             for q in (c, t):
-                mid = dag.next_on_qubit(nid, q)
+                _qs = _qsucc[q].get
+                mid = _qs(nid)
                 while mid is not None and mid != cur:
-                    if mid in dag._ops and mid != pauli_nid:
-                        if not commutes(dag.op(mid), op):
-                            ok = False
-                            break
-                    mid = dag.next_on_qubit(mid, q)
-                if not ok:
-                    break
+                    mid_op = _ops.get(mid)
+                    if mid_op is not None and mid != pauli_nid:
+                        if not commutes(mid_op, op):
+                            ok = False; break
+                    mid = _qs(mid)
+                if not ok: break
             if not ok:
-                cur = dag.next_on_qubit(cur, c)
-                steps += 1
-                continue
+                cur = _qsucc_c(cur); steps += 1; continue
 
-            # Build replacement
-            pauli_op = dag.op(pauli_nid)
+            pauli_op = _ops[pauli_nid]
             use_rot = pauli_op.gate in (Gate.RZ, Gate.RX)
             g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
             make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
@@ -279,15 +268,15 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
             dag.remove_node(pauli_nid)
 
             if is_z == on_target:  # Z on target or X on control → propagates to both
-                dag.set_op(nid, make(c))
-                dag.set_op(cur, make(t))  # keep cur's position on target wire
+                dag.replace_op(nid, make(c))
+                dag.replace_op(cur, make(t))
             else:  # Z on control or X on target → single qubit
-                dag.set_op(nid, make(t if on_target else c))
+                dag.replace_op(nid, make(t if on_target else c))
                 dag.remove_node(cur)
 
             return True
 
-        cur = dag.next_on_qubit(cur, c)
+        cur = _qsucc_c(cur)
         steps += 1
     return False
 
@@ -296,10 +285,15 @@ def _dag_pass(dag: DAGCircuit, basis: frozenset[Gate] | None = None) -> bool:
     """Single DAG-native optimization pass. Returns True if any changes made."""
     changed = False
     order = dag.topological_order()  # snapshot
+    _ops = dag._ops
     for nid in order:
-        if nid not in dag._ops:
-            continue
-        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid, basis) or _try_cx_conjugation(dag, nid):
+        op = _ops.get(nid)
+        if op is None: continue
+        gv = op.gate.value
+        if (gv in _PARTNER_GATES_V and _try_partner_rule(dag, nid)) or \
+           (gv in _CONJUGATE_BOOKENDS_V and _try_conjugate(dag, nid, basis)):
+            changed = True
+        elif op.gate == Gate.CX and _try_cx_conjugation(dag, nid):
             changed = True
     return changed
 
@@ -311,9 +305,4 @@ def optimize(inp, max_iterations: int = 1000, basis: frozenset[Gate] | None = No
     for _ in range(max_iterations):
         if not _dag_pass(dag, basis):
             break
-        # Rebuild to fix wire tracking after add_op in CX conjugation
-        new = DAGCircuit(dag.n_qubits, dag.n_classical)
-        for op in dag.topological_ops():
-            new.add_op(op)
-        dag = new
     return dag.to_circuit() if from_circuit else dag
