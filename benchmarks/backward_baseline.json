@@ -1,0 +1,106 @@
+{
+  "hea_4q_3l": {
+    "max_err": 3.8e-09,
+    "grad_norm": 1.299117,
+    "n_qubits": 4,
+    "n_params": 24,
+    "n_ops": 33,
+    "time_ms": 0.642
+  },
+  "hea_8q_3l": {
+    "max_err": 3.7e-09,
+    "grad_norm": 1.6538456,
+    "n_qubits": 8,
+    "n_params": 48,
+    "n_ops": 69,
+    "time_ms": 1.593
+  },
+  "hea_12q_3l": {
+    "max_err": 2.6e-09,
+    "grad_norm": 1.51870161,
+    "n_qubits": 12,
+    "n_params": 72,
+    "n_ops": 105,
+    "time_ms": 4.69
+  },
+  "hea_16q_3l": {
+    "max_err": 1.7e-09,
+    "grad_norm": 0.63745444,
+    "n_qubits": 16,
+    "n_params": 96,
+    "n_ops": 141,
+    "time_ms": 55.295
+  },
+  "hea_20q_2l": {
+    "max_err": 5.2e-09,
+    "grad_norm": 1.22874762,
+    "n_qubits": 20,
+    "n_params": 80,
+    "n_ops": 118,
+    "time_ms": 932.418
+  },
+  "hea_8q_heisen": {
+    "max_err": 4.4e-09,
+    "grad_norm": 2.76129817,
+    "n_qubits": 8,
+    "n_params": 48,
+    "n_ops": 69,
+    "time_ms": 1.776
+  },
+  "qaoa_8q_p3": {
+    "max_err": 1.2e-09,
+    "grad_norm": 0.0,
+    "n_qubits": 8,
+    "n_params": 6,
+    "n_ops": 53,
+    "time_ms": 2.112
+  },
+  "qaoa_14q_p3": {
+    "max_err": 3.3e-09,
+    "grad_norm": 0.0,
+    "n_qubits": 14,
+    "n_params": 6,
+    "n_ops": 95,
+    "time_ms": 20.442
+  },
+  "uccsd_8q": {
+    "max_err": 4.8e-09,
+    "grad_norm": 3.67917652,
+    "n_qubits": 8,
+    "n_params": 16,
+    "n_ops": 52,
+    "time_ms": 2.089
+  },
+  "random_10q_d5": {
+    "max_err": 3.9e-09,
+    "grad_norm": 1.47068862,
+    "n_qubits": 10,
+    "n_params": 50,
+    "n_ops": 95,
+    "time_ms": 2.133
+  },
+  "random_14q_d5": {
+    "max_err": 2.3e-09,
+    "grad_norm": 0.88412994,
+    "n_qubits": 14,
+    "n_params": 70,
+    "n_ops": 135,
+    "time_ms": 17.987
+  },
+  "swap_10q": {
+    "max_err": 8.5e-09,
+    "grad_norm": 3.15736421,
+    "n_qubits": 10,
+    "n_params": 50,
+    "n_ops": 114,
+    "time_ms": 1.777
+  },
+  "hea_8q_bigH": {
+    "max_err": 6.2e-09,
+    "grad_norm": 2.89761638,
+    "n_qubits": 8,
+    "n_params": 48,
+    "n_ops": 69,
+    "time_ms": 4.533
+  }
+}
