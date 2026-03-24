@@ -119,6 +119,19 @@ def _build_adjoint_info(circuit: Circuit, bound: Circuit):
     return adjoint_info, param_indices, param_map
 
 
+def _apply_mat_sl(sl, buf_sl, mat, q_first, q_last, n):
+    """Apply a (dim_g x dim_g) gate matrix to the stacked state+lam array."""
+    dim_g = mat.shape[0]
+    nql = 1 << q_first; nr = 1 << (n - q_last - 1)
+    if nr <= 1:
+        np.matmul(sl.reshape(2 * nql, dim_g), mat.T, out=buf_sl.reshape(2 * nql, dim_g))
+    elif nql == 1:
+        np.matmul(mat, sl.reshape(2, dim_g, nr), out=buf_sl.reshape(2, dim_g, nr))
+    else:
+        np.matmul(mat, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
+    return buf_sl, sl
+
+
 def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: np.ndarray) -> dict[str, float]:
     # NOTE: Diagonal 1Q gates are accumulated into a combined phase vector and flushed in one
     # pass. Safe because phases are unit-magnitude: vdot(e·λ, e·ψ) = vdot(λ, ψ).
@@ -193,7 +206,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                         and bound.ops[k - 1].gate in (Gate.RY, Gate.RX) and not diag_dirty)
             if can_fuse:
                 # Scan backward for consecutive fusable pairs on different qubits
-                fused_batch = []  # [(qubit, rz_info, ry_info, combined_mat)]
+                fused_batch = []  # [(qubit, k_rz, k_ry, rz_info, ry_info, ry_gate, combined_mat)]
                 seen_qubits = set()
                 scan = k
                 while scan > 0:
@@ -236,6 +249,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     bi = 0
                     while bi < len(fused_batch):
                         run = 1
+                        # Cap at 4 adjacent qubits (16x16 kron matrix) to limit memory
                         while run < 5 and bi + run < len(fused_batch) and fused_batch[bi + run][0] == fused_batch[bi][0] + run:
                             run += 1
                         if run >= 2:
@@ -246,26 +260,10 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                                 b = fused_batch[bi + j][6]
                                 kron_mat = (kron_mat[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
                                     kron_mat.shape[0] * 2, kron_mat.shape[1] * 2)
-                            dim_g = 1 << run
-                            nql = 1 << q_first; nr = 1 << (n - q_last - 1)
-                            if nr <= 1:
-                                np.matmul(sl.reshape(2 * nql, dim_g), kron_mat.T, out=buf_sl.reshape(2 * nql, dim_g))
-                            elif nql == 1:
-                                np.matmul(kron_mat, sl.reshape(2, dim_g, nr), out=buf_sl.reshape(2, dim_g, nr))
-                            else:
-                                np.matmul(kron_mat, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
-                            sl, buf_sl = buf_sl, sl
+                            sl, buf_sl = _apply_mat_sl(sl, buf_sl, kron_mat, q_first, q_last, n)
                             bi += run
                         else:
-                            cm = fused_batch[bi][6]; q_f = fused_batch[bi][0]
-                            nql, nr = 1 << q_f, 1 << (n - q_f - 1)
-                            if nr <= 1:
-                                np.matmul(sl.reshape(2 * nql, 2), cm.T, out=buf_sl.reshape(2 * nql, 2))
-                            elif nql == 1:
-                                np.matmul(cm, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
-                            else:
-                                np.matmul(cm, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
-                            sl, buf_sl = buf_sl, sl
+                            sl, buf_sl = _apply_mat_sl(sl, buf_sl, fused_batch[bi][6], fused_batch[bi][0], fused_batch[bi][0], n)
                             bi += 1
                     state, lam = sl[0], sl[1]
                     buf_s, buf_l = buf_sl[0], buf_sl[1]
@@ -344,29 +342,12 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                             b = batch_1q[bi + j][2][3]
                             combined = (combined[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
                                 combined.shape[0] * 2, combined.shape[1] * 2)
-                        dim_g = 1 << run
-                        nql = 1 << q_first
-                        nr = 1 << (n - q_last - 1)
-                        if nr <= 1:
-                            np.matmul(sl.reshape(2 * nql, dim_g), combined.T, out=buf_sl.reshape(2 * nql, dim_g))
-                        elif nql == 1:
-                            np.matmul(combined, sl.reshape(2, dim_g, nr), out=buf_sl.reshape(2, dim_g, nr))
-                        else:
-                            np.matmul(combined, sl.reshape(2, nql, dim_g, nr), out=buf_sl.reshape(2, nql, dim_g, nr))
-                        sl, buf_sl = buf_sl, sl
+                        sl, buf_sl = _apply_mat_sl(sl, buf_sl, combined, q_first, q_last, n)
                         state, lam = sl[0], sl[1]
                         bi += run
                     else:
-                        mat = batch_1q[bi][2][3]
                         qubit = batch_1q[bi][1].qubits[0]
-                        nql, nr = 1 << qubit, 1 << (n - qubit - 1)
-                        if nr <= 1:
-                            np.matmul(sl.reshape(2 * nql, 2), mat.T, out=buf_sl.reshape(2 * nql, 2))
-                        elif nql == 1:
-                            np.matmul(mat, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
-                        else:
-                            np.matmul(mat, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
-                        sl, buf_sl = buf_sl, sl
+                        sl, buf_sl = _apply_mat_sl(sl, buf_sl, batch_1q[bi][2][3], qubit, qubit, n)
                         state, lam = sl[0], sl[1]
                         bi += 1
                 # Skip processed gates (scan already advanced past them)
@@ -382,14 +363,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     elif op.gate == Gate.RX:
                         grad[name] += scale * (np.vdot(la[i0], st[i1]) + np.vdot(la[i1], st[i0])).imag
                 qubit = op.qubits[0]
-                nql, nr = 1 << qubit, 1 << (n - qubit - 1)
-                if nr <= 1:
-                    np.matmul(sl.reshape(2 * nql, 2), mat_or_phase.T, out=buf_sl.reshape(2 * nql, 2))
-                elif nql == 1:
-                    np.matmul(mat_or_phase, sl.reshape(2, 2, nr), out=buf_sl.reshape(2, 2, nr))
-                else:
-                    np.matmul(mat_or_phase, sl.reshape(2, nql, 2, nr), out=buf_sl.reshape(2, nql, 2, nr))
-                sl, buf_sl = buf_sl, sl
+                sl, buf_sl = _apply_mat_sl(sl, buf_sl, mat_or_phase, qubit, qubit, n)
                 state, lam = sl[0], sl[1]
                 k -= 1; continue
             # Non-1Q gate: extract gradient individually
