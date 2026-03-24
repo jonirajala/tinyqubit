@@ -6,3 +6,4 @@ d371425	152.7	14/14	keep	replace np.allclose with scalar checks in _is_identity 
 4fb9b8c	166.3	14/14	keep	faster commutes() (avoid set creation)
 49a0e00	159.0	14/14	keep	heapq topological sort (11/14 faster)
 1fc3ff6	150.6	14/14	keep	inline DAG accessors in CX conjugation (13/14 faster)
+456d1cd	134.5	14/14	keep	avoid enum __hash__ in hot paths (-28% from baseline)

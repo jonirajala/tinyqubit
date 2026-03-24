@@ -293,10 +293,13 @@ def _dag_pass(dag: DAGCircuit, basis: frozenset[Gate] | None = None) -> bool:
     """Single DAG-native optimization pass. Returns True if any changes made."""
     changed = False
     order = dag.topological_order()  # snapshot
+    _ops = dag._ops
     for nid in order:
-        if nid not in dag._ops:
-            continue
-        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid, basis) or _try_cx_conjugation(dag, nid):
+        op = _ops.get(nid)
+        if op is None: continue
+        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid, basis):
+            changed = True
+        elif op.gate == Gate.CX and _try_cx_conjugation(dag, nid):
             changed = True
     return changed
 
