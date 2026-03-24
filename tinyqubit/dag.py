@@ -73,6 +73,27 @@ class DAGCircuit:
         """In-place op update (same qubits, different gate/params)."""
         self._ops[nid] = op
 
+    def replace_op(self, nid: int, op: Operation):
+        """Replace op, fixing wire tracking when qubits change (e.g., 2Q→1Q)."""
+        old_op = self._ops[nid]
+        old_qubits = set(old_op.qubits)
+        new_qubits = set(op.qubits)
+        # Remove wire entries for dropped qubits
+        for q in old_qubits - new_qubits:
+            prev = self._qubit_pred[q].pop(nid, None)
+            nxt = self._qubit_succ[q].pop(nid, None)
+            if prev is not None and nxt is not None:
+                self._qubit_succ[q][prev] = nxt; self._qubit_pred[q][nxt] = prev
+            elif prev is not None:
+                del self._qubit_succ[q][prev]
+                if self._qubit_last.get(q) == nid: self._qubit_last[q] = prev
+            elif nxt is not None:
+                del self._qubit_pred[q][nxt]
+                if self._qubit_first.get(q) == nid: self._qubit_first[q] = nxt
+            else:
+                self._qubit_last.pop(q, None); self._qubit_first.pop(q, None)
+        self._ops[nid] = op
+
     def add_op(self, op: Operation) -> int:
         """Add operation, auto-wiring dependency edges from qubit/cbit usage."""
         nid = self._next_id; self._next_id += 1

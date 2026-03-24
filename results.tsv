@@ -1,2 +1,3 @@
 commit	total_ms	correctness	status	description
 db92437	187.3	14/14	keep	baseline
+aad8d47	188.3	14/14	keep	inline _is_pauli_like in CX conjugation

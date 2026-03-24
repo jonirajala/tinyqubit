@@ -280,10 +280,10 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
             dag.remove_node(pauli_nid)
 
             if is_z == on_target:  # Z on target or X on control → propagates to both
-                dag.set_op(nid, make(c))
-                dag.set_op(cur, make(t))  # keep cur's position on target wire
+                dag.replace_op(nid, make(c))
+                dag.replace_op(cur, make(t))
             else:  # Z on control or X on target → single qubit
-                dag.set_op(nid, make(t if on_target else c))
+                dag.replace_op(nid, make(t if on_target else c))
                 dag.remove_node(cur)
 
             return True
@@ -312,9 +312,4 @@ def optimize(inp, max_iterations: int = 1000, basis: frozenset[Gate] | None = No
     for _ in range(max_iterations):
         if not _dag_pass(dag, basis):
             break
-        # Rebuild to fix wire tracking after add_op in CX conjugation
-        new = DAGCircuit(dag.n_qubits, dag.n_classical)
-        for op in dag.topological_ops():
-            new.add_op(op)
-        dag = new
     return dag.to_circuit() if from_circuit else dag
