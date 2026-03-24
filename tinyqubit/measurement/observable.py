@@ -66,6 +66,12 @@ def Z(qubit: int) -> Observable: return Observable([(1.0, {qubit: 'Z'})])
 
 _PAULI_MATRIX = {'X': _GATE_1Q_CACHE[_Gate.X], 'Y': _GATE_1Q_CACHE[_Gate.Y], 'Z': _GATE_1Q_CACHE[_Gate.Z]}
 
+def _z_parity(z_idx, mask):
+    """Bit-parity: returns array of (-1)^popcount(z_idx & mask)."""
+    v = z_idx & mask
+    v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
+    return 1 - 2 * (v & 1)
+
 
 def expectation(circuit_or_state, observable: Observable, n_qubits: int | None = None) -> float:
     """Compute ⟨ψ|O|ψ⟩ for a Pauli observable. Accepts Circuit, statevector, or MPSState."""
@@ -99,9 +105,7 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
                 probs = np.abs(state) ** 2
                 z_idx = np.arange(len(state), dtype=np.int32)
             mask = sum(1 << (n - 1 - q) for q in paulis)
-            v = z_idx & mask
-            v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
-            result += coeff * float(np.sum(probs * (1 - 2 * (v & 1))))
+            result += coeff * float(np.sum(probs * _z_parity(z_idx, mask)))
         else:
             # Collect into groups: apply non-Z Paulis once per group
             non_z = frozenset((q, p) for q, p in paulis.items() if p != 'Z')
@@ -122,9 +126,7 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
                 if z_mask == 0:
                     result += coeff * np.sum(cross)
                 else:
-                    v = z_idx & z_mask
-                    v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
-                    result += coeff * np.sum(cross * (1 - 2 * (v & 1)))
+                    result += coeff * np.sum(cross * _z_parity(z_idx, z_mask))
     return result.real
 
 
