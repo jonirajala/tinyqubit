@@ -13,3 +13,4 @@ e3bf241	139.7	14/14	keep	pre-filter optimizer dispatch (all 14 faster)
 e37e970	119.0	14/14	keep	value-keyed partner/conjugate lookups (-36%)
 5c442b4	114.0	14/14	keep	faster add_op: direct list, no set/sorted (-39%)
 3c98726	117.6	14/14	keep	hoist heapify import + local _preds ref
+2421043	114.6	14/14	keep	inline qubit disjoint check in commutes()

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import numpy as np
 from math import pi, atan2, sqrt
-from cmath import phase as _cphase
+from cmath import phase as _cphase, exp as _cexp
 from collections import defaultdict
 from ..ir import Circuit, Operation, Gate, _has_parameter, _get_gate_matrix
 from ..dag import DAGCircuit
@@ -32,8 +32,7 @@ def _decompose_zxz(U: np.ndarray, qubit: int, tol: float = 1e-9) -> list[Operati
     # Convert to SU(2) by removing global phase (use cmath for scalar speed)
     det = complex(U[0, 0] * U[1, 1] - U[0, 1] * U[1, 0])
     phase_angle = _cphase(det) / 2
-    import cmath
-    gp = cmath.exp(-1j * phase_angle)
+    gp = _cexp(-1j * phase_angle)
     U = U * gp
 
     cos_b2 = min(max(abs(complex(U[0, 0])), 0.0), 1.0)

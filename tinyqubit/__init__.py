@@ -12,7 +12,7 @@ from .simulator.noise import (
     NoiseModel, depolarizing, amplitude_damping, phase_damping,
     readout_error, realistic_noise
 )
-from .measurement.observable import Observable, I, X, Y, Z, expectation, expectation_batch, expectation_z, expectation_sweep, state_fidelity, partial_trace, entanglement_entropy, concurrence, mutual_information
+from .measurement.observable import Observable, I, X, Y, Z, expectation, expectation_batch, expectation_z, expectation_sweep, state_fidelity, fidelity_kernel, partial_trace, entanglement_entropy, concurrence, mutual_information
 from .qml.optim import parameter_shift_gradient, finite_difference_gradient, adjoint_gradient, backprop_gradient, gradient_landscape, quantum_fisher_information, cost_gradient, Adam, GradientDescent, SPSA, QNG
 from .qml.loss import kl_divergence, mse, cross_entropy, DiffLoss
 from .qml.circuits import qft, ghz, grover_oracle, qaoa_mixer

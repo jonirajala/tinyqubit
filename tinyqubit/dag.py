@@ -27,11 +27,13 @@ def commutes(op1: Operation, op2: Operation) -> bool:
         return False
     if op1.condition is not None or op2.condition is not None:
         return False
-    # Fast disjoint check — inline for 1Q+2Q common case
+    # Fast disjoint check — inline for 1Q/2Q common case, fallback for 3Q+
     q1, q2 = op1.qubits, op2.qubits
     if len(q1) == 1:
         if q1[0] not in q2: return True
-    elif not (q1[0] in q2 or q1[1] in q2): return True
+    elif len(q1) == 2:
+        if q1[0] not in q2 and q1[1] not in q2: return True
+    elif not any(qi in q2 for qi in q1): return True
     # Use pre-hashed .value sets to avoid enum __hash__ overhead
     v1, v2 = g1.value, g2.value
     if v1 in _DIAG_1Q_VALUES and g2 == Gate.CX: return q1[0] == q2[0]
@@ -79,7 +81,8 @@ class DAGCircuit:
         self._ops[nid] = op
 
     def replace_op(self, nid: int, op: Operation):
-        """Replace op, fixing wire tracking when qubits change (e.g., 2Q→1Q)."""
+        """Replace op, fixing wire tracking when qubits are dropped (e.g., 2Q→1Q).
+        NOTE: only handles qubit removal — new qubits not in the old op are not wired."""
         old_op = self._ops[nid]
         old_qubits = set(old_op.qubits)
         new_qubits = set(op.qubits)

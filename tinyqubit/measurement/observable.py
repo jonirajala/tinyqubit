@@ -143,6 +143,23 @@ def state_fidelity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.abs(np.vdot(a, b)) ** 2)
 
 
+def fidelity_kernel(circuit, param_sets: list[dict]) -> np.ndarray:
+    """Compute fidelity kernel K[i,j] = |⟨φ(xi)|φ(xj)⟩|² with state caching.
+
+    Simulates each parameter set ONCE (O(N) simulations), then computes all
+    N(N-1)/2 inner products from cached states. For N=100 at 10Q this uses ~1.6MB.
+    """
+    states = [simulate(circuit.bind(p))[0] for p in param_sets]
+    N = len(states)
+    K = np.ones((N, N))
+    for i in range(N):
+        si = states[i]
+        for j in range(i + 1, N):
+            k = float(np.abs(np.vdot(si, states[j])) ** 2)
+            K[i, j] = K[j, i] = k
+    return K
+
+
 def partial_trace(statevector: np.ndarray, keep: list[int]) -> np.ndarray:
     n = int(np.log2(len(statevector)))
     keep_sorted = sorted(keep)

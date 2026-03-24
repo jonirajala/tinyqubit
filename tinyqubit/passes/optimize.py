@@ -2,6 +2,7 @@
 
 import sys, os
 from math import pi
+_TWO_PI = 2 * pi
 from ..ir import Circuit, Operation, Gate, _has_parameter, Parameter
 from ..dag import DAGCircuit, commutes, DIAGONAL_GATES
 
@@ -224,7 +225,6 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
         if cur_op.gate == Gate.CX and cur_op.qubits == (c, t):
             pauli_nid, is_z, on_target = None, None, None
 
-            _PI2 = 2 * pi
             for q in (c, t):
                 _qsucc_q = _qsucc[q].get
                 mid = _qsucc_q(nid)
@@ -237,7 +237,7 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
                                 pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t; break
                             if mg == Gate.X:
                                 pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t; break
-                            if (mg == Gate.RZ or mg == Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _PI2 - pi) < 1e-9:
+                            if (mg == Gate.RZ or mg == Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _TWO_PI - pi) < 1e-9:
                                 pauli_nid, is_z, on_target = mid, mg == Gate.RZ, mid_op.qubits[0] == t; break
                     mid = _qsucc_q(mid)
                 if pauli_nid is not None:
