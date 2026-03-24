@@ -209,31 +209,31 @@ def _is_pauli_like(op: Operation, gate: Gate, rot_gate: Gate) -> bool:
 
 def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
     """CX·P·CX patterns: Z(t)→Z both, X(c)→X both, Z(c)→Z(c), X(t)→X(t)."""
-    op = dag.op(nid)
-    if op.gate != Gate.CX or op.condition is not None:
+    _ops = dag._ops  # local refs for hot loop
+    op = _ops.get(nid)
+    if op is None or op.gate != Gate.CX or op.condition is not None:
         return False
     c, t = op.qubits
+    _qsucc = dag._qubit_succ  # inline next_on_qubit
+    _qsucc_c = _qsucc[c].get
 
-    # Walk control qubit wire to find matching CX (don't stop at non-commuting gates)
-    cur = dag.next_on_qubit(nid, c)
+    # Walk control qubit wire to find matching CX
+    cur = _qsucc_c(nid)
     steps = 0
     while cur is not None and steps < 50:
-        if cur not in dag._ops:
-            cur = dag.next_on_qubit(cur, c)
-            steps += 1
-            continue
-        cur_op = dag.op(cur)
+        cur_op = _ops.get(cur)
+        if cur_op is None:
+            cur = _qsucc_c(cur); steps += 1; continue
         if cur_op.gate == Gate.CX and cur_op.qubits == (c, t):
-            # Found matching CX — look for Pauli-like gate between them
             pauli_nid, is_z, on_target = None, None, None
 
-            # Search on both control and target wires (inlined _is_pauli_like for hot path)
             _PI2 = 2 * pi
             for q in (c, t):
-                mid = dag.next_on_qubit(nid, q)
+                _qsucc_q = _qsucc[q].get
+                mid = _qsucc_q(nid)
                 while mid is not None and mid != cur:
-                    if mid in dag._ops:
-                        mid_op = dag._ops[mid]
+                    mid_op = _ops.get(mid)
+                    if mid_op is not None:
                         if len(mid_op.qubits) == 1 and mid_op.qubits[0] in (c, t):
                             mg = mid_op.gate
                             _is_pi = mg in (Gate.RZ, Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _PI2 - pi) < 1e-9
@@ -241,34 +241,29 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
                                 pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t; break
                             if mg == Gate.X or (mg == Gate.RX and _is_pi):
                                 pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t; break
-                    mid = dag.next_on_qubit(mid, q)
+                    mid = _qsucc_q(mid)
                 if pauli_nid is not None:
                     break
 
             if pauli_nid is None:
-                cur = dag.next_on_qubit(cur, c)
-                steps += 1
-                continue
+                cur = _qsucc_c(cur); steps += 1; continue
 
             # Check all intermediates (except pauli) commute with CX
             ok = True
             for q in (c, t):
-                mid = dag.next_on_qubit(nid, q)
+                _qs = _qsucc[q].get
+                mid = _qs(nid)
                 while mid is not None and mid != cur:
-                    if mid in dag._ops and mid != pauli_nid:
-                        if not commutes(dag.op(mid), op):
-                            ok = False
-                            break
-                    mid = dag.next_on_qubit(mid, q)
-                if not ok:
-                    break
+                    mid_op = _ops.get(mid)
+                    if mid_op is not None and mid != pauli_nid:
+                        if not commutes(mid_op, op):
+                            ok = False; break
+                    mid = _qs(mid)
+                if not ok: break
             if not ok:
-                cur = dag.next_on_qubit(cur, c)
-                steps += 1
-                continue
+                cur = _qsucc_c(cur); steps += 1; continue
 
-            # Build replacement
-            pauli_op = dag.op(pauli_nid)
+            pauli_op = _ops[pauli_nid]
             use_rot = pauli_op.gate in (Gate.RZ, Gate.RX)
             g = (Gate.RZ if use_rot else Gate.Z) if is_z else (Gate.RX if use_rot else Gate.X)
             make = lambda q: Operation(g, (q,), (pi,)) if use_rot else Operation(g, (q,))
@@ -288,7 +283,7 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
 
             return True
 
-        cur = dag.next_on_qubit(cur, c)
+        cur = _qsucc_c(cur)
         steps += 1
     return False
 
