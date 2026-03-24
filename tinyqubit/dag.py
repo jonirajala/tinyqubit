@@ -27,10 +27,11 @@ def commutes(op1: Operation, op2: Operation) -> bool:
         return False
     if op1.condition is not None or op2.condition is not None:
         return False
-    # Fast disjoint check without set creation
+    # Fast disjoint check — inline for 1Q+2Q common case
     q1, q2 = op1.qubits, op2.qubits
-    shared = any(q in q2 for q in q1)
-    if not shared: return True
+    if len(q1) == 1:
+        if q1[0] not in q2: return True
+    elif not (q1[0] in q2 or q1[1] in q2): return True
     # Use pre-hashed .value sets to avoid enum __hash__ overhead
     v1, v2 = g1.value, g2.value
     if v1 in _DIAG_1Q_VALUES and g2 == Gate.CX: return q1[0] == q2[0]
