@@ -227,19 +227,20 @@ def _try_cx_conjugation(dag: DAGCircuit, nid: int) -> bool:
             # Found matching CX — look for Pauli-like gate between them
             pauli_nid, is_z, on_target = None, None, None
 
-            # Search on both control and target wires
+            # Search on both control and target wires (inlined _is_pauli_like for hot path)
+            _PI2 = 2 * pi
             for q in (c, t):
                 mid = dag.next_on_qubit(nid, q)
                 while mid is not None and mid != cur:
                     if mid in dag._ops:
-                        mid_op = dag.op(mid)
+                        mid_op = dag._ops[mid]
                         if len(mid_op.qubits) == 1 and mid_op.qubits[0] in (c, t):
-                            if _is_pauli_like(mid_op, Gate.Z, Gate.RZ):
-                                pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t
-                                break
-                            if _is_pauli_like(mid_op, Gate.X, Gate.RX):
-                                pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t
-                                break
+                            mg = mid_op.gate
+                            _is_pi = mg in (Gate.RZ, Gate.RX) and mid_op.params and not isinstance(mid_op.params[0], Parameter) and abs(mid_op.params[0] % _PI2 - pi) < 1e-9
+                            if mg == Gate.Z or (mg == Gate.RZ and _is_pi):
+                                pauli_nid, is_z, on_target = mid, True, mid_op.qubits[0] == t; break
+                            if mg == Gate.X or (mg == Gate.RX and _is_pi):
+                                pauli_nid, is_z, on_target = mid, False, mid_op.qubits[0] == t; break
                     mid = dag.next_on_qubit(mid, q)
                 if pauli_nid is not None:
                     break

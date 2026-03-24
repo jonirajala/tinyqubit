@@ -1,33 +1,39 @@
-=== TinyQubit Noisy Simulation Benchmark ===
+=== TinyQubit Compiler Benchmark ===
 
-Baseline loaded: noisy_baseline.json (11 benchmarks)
+Baseline loaded: compiler_baseline.json (14 benchmarks)
 
-Correctness:
-  depol_hea_4q             PASS  (mean=-0.2834±0.0628)
-  depol_hea_8q             PASS  (mean=-0.3546±0.0839)
-  depol_hea_12q            PASS  (mean=0.4766±0.2308)
-  depol_hea_16q            PASS  (mean=-0.8641±0.0000)
-  ampdamp_ghz_8q           PASS  (mean=0.0692±0.2836)
-  realistic_hea_8q         PASS  (mean=-0.3300±0.1346)
-  realistic_uccsd_8q       PASS  (mean=-0.8667±0.4989)
-  realistic_qaoa_10q       PASS  (mean=0.0004±0.0000)
-  zne_hea_8q               PASS  (mean=-0.2313±0.0701)
-  highnoise_hea_8q         PASS  (mean=-0.2833±0.2704)
-  noisy_exp_8q_200         PASS  (mean=-0.7063±0.1394)
+Correctness (compiled ops count must match):
+  pre_hea_4q             PASS  (33→43 ops)
+  pre_hea_8q             PASS  (69→91 ops)
+  pre_hea_12q            PASS  (70→93 ops)
+  pre_qft_8q             PASS  (36→99 ops)
+  pre_toffoli_8q         PASS  (14→86 ops)
+  pre_random_10q         PASS  (190→245 ops)
+  trans_hea_8q           PASS  (69→139 ops)
+  trans_qft_8q           PASS  (36→123 ops)
+  trans_ghz_12q          PASS  (12→12 ops)
+  trans_random_10q       PASS  (190→362 ops)
+  pre_hea_16q            PASS  (94→125 ops)
+  trans_hea_12q          PASS  (70→141 ops)
+  trans_hea_8q_def       PASS  (69→139 ops)
+  adapt_grow_8q          PASS  (34→45 ops)
 
 Performance:
-  Benchmark                Qubits  Evals   Time(ms)   Baseline     Change
-  ----------------------------------------------------------------------
-  depol_hea_4q                  4    100     31.633     26.944  +17% warn
-  depol_hea_8q                  8     50     36.627     40.327 -9% FASTER
-  depol_hea_12q                12     20     34.829     27.859  +25% warn
-  depol_hea_16q                16     10    220.105    218.118        +1%
-  ampdamp_ghz_8q                8     50     11.237     16.529 -32% FASTER
-  realistic_hea_8q              8     30     52.097     76.560 -32% FASTER
-  realistic_uccsd_8q            8     30     42.025     64.554 -35% FASTER
-  realistic_qaoa_10q           10     20     36.155     48.728 -26% FASTER
-  zne_hea_8q                    8     90    187.886    205.032 -8% FASTER
-  highnoise_hea_8q              8     50     38.187     40.909 -7% FASTER
-  noisy_exp_8q_200              8    200    170.614    182.077 -6% FASTER
+  Benchmark              Qubits     In    Out   Time(ms)   Baseline     Change
+  --------------------------------------------------------------------------
+  pre_hea_4q                  4     33     43      2.237      2.477 -10% FASTER
+  pre_hea_8q                  8     69     91      4.800      4.394        +9%
+  pre_hea_12q                12     70     93      4.712      4.075  +16% warn
+  pre_qft_8q                  8     36     99     14.986     13.746        +9%
+  pre_toffoli_8q              8     14     86      4.911      5.149        -5%
+  pre_random_10q             10    190    245     30.796     29.013        +6%
+  trans_hea_8q                8     69    139     11.853     12.291        -4%
+  trans_qft_8q                8     36    123     22.554     22.415        +1%
+  trans_ghz_12q              12     12     12      0.756      0.775        -2%
+  trans_random_10q           10    190    362     57.876     56.954        +2%
+  pre_hea_16q                16     94    125      5.506      5.341        +3%
+  trans_hea_12q              12     70    141     10.723     12.537 -14% FASTER
+  trans_hea_8q_def            8     69    139     12.839     11.154  +15% warn
+  adapt_grow_8q               8     34     45      2.745      1.816 +51% REGR!
 
-Summary: 11/11 correctness PASS, 8 faster, 0 regressions
+Summary: 14/14 correctness PASS, 2 faster, 1 regressions
