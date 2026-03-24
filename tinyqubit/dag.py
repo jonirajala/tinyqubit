@@ -101,23 +101,29 @@ class DAGCircuit:
     def add_op(self, op: Operation) -> int:
         """Add operation, auto-wiring dependency edges from qubit/cbit usage."""
         nid = self._next_id; self._next_id += 1
-        self._ops[nid] = op; self._pred[nid] = []; self._succ[nid] = []
-        deps: set[int] = set()
+        self._ops[nid] = op
+        preds = []
+        _ql = self._qubit_last
+        _qs = self._qubit_succ
+        _qp = self._qubit_pred
+        _qf = self._qubit_first
         for q in op.qubits:
-            if q in self._qubit_last:
-                prev = self._qubit_last[q]
-                deps.add(prev)
-                self._qubit_succ[q][prev] = nid
-                self._qubit_pred[q][nid] = prev
+            prev = _ql.get(q)
+            if prev is not None:
+                _qs[q][prev] = nid
+                _qp[q][nid] = prev
+                if prev not in preds: preds.append(prev)  # maintain sorted order (ids increase)
             else:
-                self._qubit_first[q] = nid
-            self._qubit_last[q] = nid
-        if op.condition is not None and op.condition[0] in self._cbit_last:
-            deps.add(self._cbit_last[op.condition[0]])
+                _qf[q] = nid
+            _ql[q] = nid
+        if op.condition is not None:
+            cb = self._cbit_last.get(op.condition[0])
+            if cb is not None and cb not in preds: preds.append(cb)
         if op.gate == Gate.MEASURE and op.classical_bit is not None:
             self._cbit_last[op.classical_bit] = nid
-        for d in sorted(deps):
-            self._succ[d].append(nid); self._pred[nid].append(d)
+        self._pred[nid] = preds
+        self._succ[nid] = []
+        for d in preds: self._succ[d].append(nid)
         return nid
 
     def remove_node(self, nid: int):
