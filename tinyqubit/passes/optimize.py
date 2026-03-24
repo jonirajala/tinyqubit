@@ -68,6 +68,8 @@ CONJUGATE_2Q: list[tuple[Gate, Gate, int, Gate, int]] = [
 ]
 
 _CONJUGATE_BOOKENDS = frozenset({b for b, _, _ in CONJUGATE_1Q} | {b for b, _, _, _, _ in CONJUGATE_2Q})
+_CONJUGATE_BOOKENDS_V = frozenset(g.value for g in _CONJUGATE_BOOKENDS)
+_PARTNER_GATES_V = frozenset(g.value for g in _PARTNER_INDEX)
 
 
 def _find_partner(dag: DAGCircuit, nid: int, predicate, max_steps: int = 50) -> int | None:
@@ -290,7 +292,9 @@ def _dag_pass(dag: DAGCircuit, basis: frozenset[Gate] | None = None) -> bool:
     for nid in order:
         op = _ops.get(nid)
         if op is None: continue
-        if _try_partner_rule(dag, nid) or _try_conjugate(dag, nid, basis):
+        gv = op.gate.value
+        if (gv in _PARTNER_GATES_V and _try_partner_rule(dag, nid)) or \
+           (gv in _CONJUGATE_BOOKENDS_V and _try_conjugate(dag, nid, basis)):
             changed = True
         elif op.gate == Gate.CX and _try_cx_conjugation(dag, nid):
             changed = True
