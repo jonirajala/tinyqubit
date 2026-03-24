@@ -88,6 +88,8 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
     result = 0.0
     probs = None  # lazy: only computed if Z-only terms exist
     z_idx = None
+    # Group mixed terms by non-Z Pauli signature to share state copies
+    mixed_groups = {}  # frozenset{(qubit, pauli)} → [(coeff, z_qubit_mask)]
     for coeff, paulis in observable.terms:
         if not paulis:
             result += coeff; continue
@@ -101,10 +103,28 @@ def expectation(circuit_or_state, observable: Observable, n_qubits: int | None =
             v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
             result += coeff * float(np.sum(probs * (1 - 2 * (v & 1))))
         else:
-            psi = state.copy()
-            for qubit, pauli in paulis.items():
-                psi = _apply_single_qubit(psi, _PAULI_MATRIX[pauli], qubit, n)
-            result += coeff * np.vdot(state, psi)
+            # Collect into groups: apply non-Z Paulis once per group
+            non_z = frozenset((q, p) for q, p in paulis.items() if p != 'Z')
+            z_mask = sum(1 << (n - 1 - q) for q, p in paulis.items() if p == 'Z')
+            mixed_groups.setdefault(non_z, []).append((coeff, z_mask))
+    # Apply each non-Z signature once, then handle Z sub-terms via popcount
+    for non_z_sig, terms in mixed_groups.items():
+        psi = state.copy()
+        for qubit, pauli in non_z_sig:
+            psi = _apply_single_qubit(psi, _PAULI_MATRIX[pauli], qubit, n)
+        if len(terms) == 1 and terms[0][1] == 0:
+            result += terms[0][0] * np.vdot(state, psi)
+        else:
+            # Multiple Z sub-terms sharing this non-Z base: batch via popcount
+            cross = np.conj(state) * psi  # element-wise ⟨state_i|psi_i⟩
+            if z_idx is None: z_idx = np.arange(len(state), dtype=np.int32)
+            for coeff, z_mask in terms:
+                if z_mask == 0:
+                    result += coeff * np.sum(cross)
+                else:
+                    v = z_idx & z_mask
+                    v ^= v >> 16; v ^= v >> 8; v ^= v >> 4; v ^= v >> 2; v ^= v >> 1
+                    result += coeff * np.sum(cross * (1 - 2 * (v & 1)))
     return result.real
 
 
