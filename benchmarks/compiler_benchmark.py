@@ -96,6 +96,11 @@ BENCHMARKS = [
     ("trans_qft_8q",     lambda: _run_transpile(_build_qft(8), 8)),
     ("trans_ghz_12q",    lambda: _run_transpile(_build_ghz(12), 12)),
     ("trans_random_10q", lambda: _run_transpile(_build_random(10, 10), 10)),
+    # Larger circuits (compiler cost scales with ops, not just qubits)
+    ("pre_hea_16q",      lambda: _run_precompile(_build_hea(16, 2))),
+    ("trans_hea_12q",    lambda: _run_transpile(_build_hea(12, 2), 12)),
+    # Default preset (more optimization iterations than fast)
+    ("trans_hea_8q_def", lambda: _run_transpile_default(_build_hea(8, 3), 8)),
     # ADAPT-VQE pattern: repeated precompile with growing circuit
     ("adapt_grow_8q",    lambda: _run_adapt_pattern(8)),
 ]
@@ -109,6 +114,12 @@ def _run_precompile(circuit):
 def _run_transpile(circuit, n):
     target = _line_target(n)
     compiled = transpile(circuit, target, preset='fast')
+    return compiled, n, len(circuit.ops), len(compiled.ops)
+
+
+def _run_transpile_default(circuit, n):
+    target = _line_target(n)
+    compiled = transpile(circuit, target, preset='default')
     return compiled, n, len(circuit.ops), len(compiled.ops)
 
 
@@ -130,10 +141,6 @@ def _run_adapt_pattern(n):
 def run_benchmark(name, runner):
     """Run a single benchmark: correctness check + timing."""
     compiled, n_qubits, n_ops_in, n_ops_out = runner()
-
-    # Correctness: verify compiled circuit produces same statevector
-    # Get the original circuit by re-running (runner is deterministic)
-    _, _, _, _ = runner()  # warmup
 
     n_runs = N_RUNS_FAST if n_qubits <= 8 else N_RUNS
     for _ in range(N_WARMUP): runner()
