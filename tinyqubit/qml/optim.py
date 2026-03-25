@@ -231,22 +231,26 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     scan -= 2
 
                 if fused_batch:
-                    # Extract ALL gradients from the same state (pairs commute on different qubits)
+                    # Extract ALL gradients: pre-compute cross products, then slice
                     st, la = state.reshape([2] * n), lam.reshape([2] * n)
                     for q_f, k_rz, k_ry, rz_info, ry_info, ry_gate, _ in fused_batch:
                         i0_f, i1_f = rz_info[4]
                         rz_name, rz_scale = param_map[k_rz]
                         ry_name, ry_scale = param_map[k_ry]
+                        # Compute 4 vdots that share subarray views
+                        v00 = np.vdot(la[i0_f], st[i0_f])
+                        v11 = np.vdot(la[i1_f], st[i1_f])
+                        v10 = np.vdot(la[i1_f], st[i0_f])
+                        v01 = np.vdot(la[i0_f], st[i1_f])
                         # RZ grad (phase-invariant)
-                        grad[rz_name] += rz_scale * (np.vdot(la[i0_f], st[i0_f]) - np.vdot(la[i1_f], st[i1_f])).imag
-                        # RY/RX grad with phase correction (cmath.exp is 2x faster than np.exp for scalars)
-                        theta_rz = -rz_info[1][0]
-                        e_ph = _cexp(1j * theta_rz)
+                        grad[rz_name] += rz_scale * (v00 - v11).imag
+                        # RY/RX grad with phase correction
+                        e_ph = _cexp(-1j * rz_info[1][0])
                         e_ph_c = e_ph.conjugate()
                         if ry_gate == Gate.RY:
-                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i1_f], st[i0_f]) - e_ph_c * np.vdot(la[i0_f], st[i1_f])).real
+                            grad[ry_name] += ry_scale * (e_ph * v10 - e_ph_c * v01).real
                         else:
-                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i0_f], st[i1_f]) + e_ph_c * np.vdot(la[i1_f], st[i0_f])).imag
+                            grad[ry_name] += ry_scale * (e_ph * v01 + e_ph_c * v10).imag
 
                     # Kron-group combined matrices by adjacent qubit runs
                     fused_batch.sort(key=lambda x: x[0])

@@ -1,2 +1,3 @@
 commit	total_ms	correctness	status	description
 f3f1337	1076.7	13/13	keep	baseline
+c5111b1	1069.7	13/13	keep	cmath.exp + direct matrix build (hea_12q -19%)
