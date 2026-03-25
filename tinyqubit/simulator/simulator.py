@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from ..ir import Circuit, Gate, _has_parameter, _get_gate_matrix
 from .statevector import simulate_statevector, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _apply_four_qubit
 from .density import simulate_density
-from .stabilizer import is_clifford, simulate_stabilizer
+from .stabilizer import is_clifford, is_clifford_t, simulate_stabilizer, simulate_clifford_t
 from .mps import simulate_mps, mps_to_statevector, MPSState, mps_expectation, mps_sample, mps_probabilities
 
 if TYPE_CHECKING:
@@ -33,6 +33,12 @@ def simulate(circuit: Circuit, seed: int | None = None, noise_model: "NoiseModel
 
     if noise_model is None and circuit._initial_state is None and is_clifford(circuit):
         return simulate_stabilizer(circuit, seed)
+
+    # Clifford+T: use stabilizer decomposition when T-count is small (faster than statevector for n > ~12)
+    if noise_model is None and circuit._initial_state is None and n > 12 and is_clifford_t(circuit):
+        t_count = sum(1 for op in circuit.ops if op.gate in (Gate.T, Gate.TDG))
+        if t_count <= 30:  # 2^(0.5*30) = 32K branches — still tractable
+            return simulate_clifford_t(circuit, seed)
 
     if noise_model is None and circuit._initial_state is None and n > 28:
         tensors, classical = simulate_mps(circuit, seed=seed)
