@@ -1,39 +1,37 @@
-=== TinyQubit Compiler Benchmark ===
+=== TinyQubit Adjoint Backward Benchmark ===
 
-Baseline loaded: compiler_baseline.json (14 benchmarks)
+Baseline loaded: backward_baseline.json (13 benchmarks)
 
-Correctness (compiled ops count must match):
-  pre_hea_4q             PASS  (33→43 ops)
-  pre_hea_8q             PASS  (69→91 ops)
-  pre_hea_12q            PASS  (70→93 ops)
-  pre_qft_8q             PASS  (36→99 ops)
-  pre_toffoli_8q         PASS  (14→86 ops)
-  pre_random_10q         PASS  (190→245 ops)
-  trans_hea_8q           PASS  (69→139 ops)
-  trans_qft_8q           PASS  (36→123 ops)
-  trans_ghz_12q          PASS  (12→12 ops)
-  trans_random_10q       PASS  (190→362 ops)
-  pre_hea_16q            PASS  (94→125 ops)
-  trans_hea_12q          PASS  (70→141 ops)
-  trans_hea_8q_def       PASS  (69→139 ops)
-  adapt_grow_8q          PASS  (34→45 ops)
+Correctness:
+  hea_4q_3l            PASS  (err=3.80e-09 |g|=1.2991)
+  hea_8q_3l            PASS  (err=3.70e-09 |g|=1.6538)
+  hea_12q_3l           PASS  (err=2.60e-09 |g|=1.5187)
+  hea_16q_3l           PASS  (err=1.70e-09 |g|=0.6375)
+  hea_20q_2l           PASS  (err=5.20e-09 |g|=1.2287)
+  hea_8q_heisen        PASS  (err=4.40e-09 |g|=2.7613)
+  qaoa_8q_p3           PASS  (err=1.20e-09 |g|=0.0000)
+  qaoa_14q_p3          PASS  (err=3.30e-09 |g|=0.0000)
+  uccsd_8q             PASS  (err=4.80e-09 |g|=3.6792)
+  random_10q_d5        PASS  (err=3.90e-09 |g|=1.4707)
+  random_14q_d5        PASS  (err=2.30e-09 |g|=0.8841)
+  swap_10q             PASS  (err=8.50e-09 |g|=3.1574)
+  hea_8q_bigH          PASS  (err=6.20e-09 |g|=2.8976)
 
 Performance:
-  Benchmark              Qubits     In    Out   Time(ms)   Baseline     Change
-  --------------------------------------------------------------------------
-  pre_hea_4q                  4     33     43      1.364      1.352        +1%
-  pre_hea_8q                  8     69     91      2.207      2.618 -16% FASTER
-  pre_hea_12q                12     70     93      1.168      1.161        +1%
-  pre_qft_8q                  8     36     99      8.124      7.867        +3%
-  pre_toffoli_8q              8     14     86      2.119      1.830  +16% warn
-  pre_random_10q             10    190    245     18.833     16.936       +11%
-  trans_hea_8q                8     69    139      6.501      5.523  +18% warn
-  trans_qft_8q                8     36    123     15.299     15.496        -1%
-  trans_ghz_12q              12     12     12      0.564      0.277 +104% REGR!
-  trans_random_10q           10    190    362     40.179     35.852       +12%
-  pre_hea_16q                16     94    125      3.533      3.340        +6%
-  trans_hea_12q              12     70    141      7.128      6.723        +6%
-  trans_hea_8q_def            8     69    139      7.257      6.910        +5%
-  adapt_grow_8q               8     34     45      1.516      1.498        +1%
+  Benchmark            Qubits Params    Ops   Time(ms)   Baseline     Change
+  ------------------------------------------------------------------------
+  hea_4q_3l                 4     24     33      0.619      0.642        -4%
+  hea_8q_3l                 8     48     69      1.742      1.593        +9%
+  hea_12q_3l               12     72    105      5.068      4.690        +8%
+  hea_16q_3l               16     96    141     52.985     55.295        -4%
+  hea_20q_2l               20     80    118    955.452    932.418        +2%
+  hea_8q_heisen             8     48     69      0.809      1.776 -54% FASTER
+  qaoa_8q_p3                8      6     53      2.122      2.112        +0%
+  qaoa_14q_p3              14      6     95     28.456     20.442 +39% REGR!
+  uccsd_8q                  8     16     52      2.102      2.089        +1%
+  random_10q_d5            10     50     95      2.648      2.133  +24% warn
+  random_14q_d5            14     70    135     18.436     17.987        +2%
+  swap_10q                 10     50    114      1.777      1.777        +0%
+  hea_8q_bigH               8     48     69      4.530      4.533        -0%
 
-Summary: 14/14 correctness PASS, 1 faster, 1 regressions
+Summary: 13/13 correctness PASS, 1 faster, 1 regressions

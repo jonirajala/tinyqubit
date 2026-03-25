@@ -1,6 +1,7 @@
 """Optimizers and gradient computation for variational circuits."""
 from __future__ import annotations
 import numpy as np
+from cmath import exp as _cexp
 from ..ir import Circuit, Gate, Parameter, ScaledParam, _is_param, _GATE_ADJOINT, _PARAM_GATES, _get_gate_matrix, _SQRT2_INV
 from ..measurement.observable import Observable, expectation, _PAULI_MATRIX
 from ..simulator import simulate, sample, _apply_single_qubit, _apply_two_qubit, _apply_three_qubit, _DIAG_PHASE, _get_perm
@@ -220,10 +221,12 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                             and prev_op.gate in (Gate.RY, Gate.RX)): break
                     if s_q in seen_qubits: break
                     seen_qubits.add(s_q)
-                    # Build combined adjoint matrix
+                    # Build combined adjoint matrix (RY†·RZ† = prev_mat @ diag(e0,e1))
                     e0, e1 = s_info[3]
-                    diag_mat = np.array([[e0, 0], [0, e1]], dtype=complex)
-                    combined = prev_info[3] @ diag_mat
+                    pm = prev_info[3]
+                    combined = np.empty((2, 2), dtype=complex)
+                    combined[0, 0] = pm[0, 0] * e0; combined[0, 1] = pm[0, 1] * e1
+                    combined[1, 0] = pm[1, 0] * e0; combined[1, 1] = pm[1, 1] * e1
                     fused_batch.append((s_q, scan, scan - 1, s_info, prev_info, prev_op.gate, combined))
                     scan -= 2
 
@@ -236,13 +239,14 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                         ry_name, ry_scale = param_map[k_ry]
                         # RZ grad (phase-invariant)
                         grad[rz_name] += rz_scale * (np.vdot(la[i0_f], st[i0_f]) - np.vdot(la[i1_f], st[i1_f])).imag
-                        # RY/RX grad with phase correction
+                        # RY/RX grad with phase correction (cmath.exp is 2x faster than np.exp for scalars)
                         theta_rz = -rz_info[1][0]
-                        e_ph = np.exp(1j * theta_rz)
+                        e_ph = _cexp(1j * theta_rz)
+                        e_ph_c = e_ph.conjugate()
                         if ry_gate == Gate.RY:
-                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i1_f], st[i0_f]) - np.conj(e_ph) * np.vdot(la[i0_f], st[i1_f])).real
+                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i1_f], st[i0_f]) - e_ph_c * np.vdot(la[i0_f], st[i1_f])).real
                         else:
-                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i0_f], st[i1_f]) + np.conj(e_ph) * np.vdot(la[i1_f], st[i0_f])).imag
+                            grad[ry_name] += ry_scale * (e_ph * np.vdot(la[i0_f], st[i1_f]) + e_ph_c * np.vdot(la[i1_f], st[i0_f])).imag
 
                     # Kron-group combined matrices by adjacent qubit runs
                     fused_batch.sort(key=lambda x: x[0])
