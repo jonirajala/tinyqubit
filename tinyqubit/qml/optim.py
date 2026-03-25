@@ -243,8 +243,7 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                     scan -= 2
 
                 if fused_batch:
-
-                    # Kron-group combined matrices by adjacent qubit runs
+                    # Kron-group combined matrices by adjacent qubit runs (cap at 4 qubits = 16x16)
                     fused_batch.sort(key=lambda x: x[0])
                     bi = 0
                     while bi < len(fused_batch):
