@@ -158,6 +158,19 @@ class StabilizerState:
                     x_acc ^= self.x[n + i]; z_acc ^= self.z[n + i]
             return int(r_acc) == outcome  # True if projection succeeds, False if annihilated
 
+    def measure_p0(self, q: int) -> float:
+        """Probability of measuring qubit q as 0, without modifying state."""
+        n = self.n
+        for i in range(n, 2 * n):
+            if self.x[i, q]: return 0.5
+        r_acc = False
+        x_acc, z_acc = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+        for i in range(n):
+            if self.x[i, q]:
+                r_acc = _rowmult_phase(x_acc, z_acc, self.x[n + i], self.z[n + i], r_acc, self.r[n + i], n)
+                x_acc ^= self.x[n + i]; z_acc ^= self.z[n + i]
+        return 0.0 if r_acc else 1.0
+
     def to_statevector(self) -> np.ndarray:
         """Reconstruct statevector from tableau via Gaussian elimination. n <= 25 only."""
         n = self.n
@@ -258,10 +271,17 @@ class StabilizerState:
 
 _CLIFFORD_T_GATES = _CLIFFORD_GATES | {Gate.T, Gate.TDG}
 _T_PHASE = np.exp(1j * np.pi / 4)
+_CLIFFORD_1Q_METHODS = {Gate.H: 'h', Gate.S: 's', Gate.SDG: 'sdg', Gate.X: 'x_gate',
+                        Gate.Y: 'y_gate', Gate.Z: 'z_gate', Gate.SX: 'sx'}
 
 
-def is_clifford_t(circuit: Circuit) -> bool:
-    return all(op.gate in _CLIFFORD_T_GATES for op in circuit.ops)
+def clifford_t_info(circuit: Circuit) -> int:
+    """Return T-gate count if circuit is Clifford+T, else -1."""
+    count = 0
+    for op in circuit.ops:
+        if op.gate in (Gate.T, Gate.TDG): count += 1
+        elif op.gate not in _CLIFFORD_GATES: return -1
+    return count
 
 
 def simulate_clifford_t(circuit: Circuit, seed: int | None = None) -> tuple[np.ndarray, dict[int, int]]:
@@ -269,7 +289,7 @@ def simulate_clifford_t(circuit: Circuit, seed: int | None = None) -> tuple[np.n
 
     Pure Clifford gates: O(n²) per gate on each tableau.
     T/TDG gates: split each stabilizer state into 2 branches (Z projection).
-    Total cost: O(poly(n) × 2^(0.5 × t_count)) where t_count is number of T/TDG gates.
+    Total cost: O(poly(n) × 2^t_count) where t_count is number of T/TDG gates.
     """
     n = circuit.n_qubits
     rng = np.random.default_rng(seed)
@@ -278,25 +298,29 @@ def simulate_clifford_t(circuit: Circuit, seed: int | None = None) -> tuple[np.n
     # Weighted sum of stabilizer states: |ψ⟩ = Σ coeff_i |stab_i⟩
     branches: list[tuple[complex, StabilizerState]] = [(1.0 + 0j, StabilizerState(n))]
 
-    _clifford_dispatch = {Gate.H: 'h', Gate.S: 's', Gate.SDG: 'sdg', Gate.X: 'x_gate',
-                          Gate.Y: 'y_gate', Gate.Z: 'z_gate', Gate.SX: 'sx'}
-
     for op in circuit.ops:
         if op.condition is not None and classical.get(op.condition[0]) != op.condition[1]:
             continue
         if op.gate == Gate.MEASURE:
-            # Measurement collapses the superposition — sample from branch weights
             q = op.qubits[0]
-            # Compute probability of outcome 0 vs 1 across all branches
-            # NOTE: for correctness with multiple branches, we'd need the full inner product.
-            # Simplification: measure on first branch, apply same outcome to all (valid for T-sparse circuits)
-            outcome = branches[0][1].measure(q, rng)
-            for i in range(1, len(branches)):
-                branches[i][1].project_z(q, outcome)
+            # Born probability across orthogonal branches (T-decomposition preserves orthogonality)
+            probs = [tab.measure_p0(q) for _, tab in branches]
+            weights = [abs(c) ** 2 for c, _ in branches]
+            total = sum(weights)
+            p0 = sum(w * p for w, p in zip(weights, probs)) / total
+            outcome = 0 if rng.random() < p0 else 1
+            new_branches = []
+            for (coeff, tab), p in zip(branches, probs):
+                p_out = p if outcome == 0 else 1.0 - p
+                if p_out < 1e-15: continue
+                t = tab.copy()
+                if t.project_z(q, outcome):
+                    new_branches.append((coeff * np.sqrt(p_out), t))
+            branches = new_branches
             if op.classical_bit is not None:
                 classical[op.classical_bit] = outcome
         elif op.gate == Gate.RESET:
-            for _, tab in branches: tab.reset(q, rng)
+            for _, tab in branches: tab.reset(op.qubits[0], rng)
         elif op.gate in (Gate.T, Gate.TDG):
             # T gate decomposes: T|ψ⟩ = P₀|ψ⟩ + e^{iπ/4} P₁|ψ⟩
             # where P₀ projects qubit q to |0⟩, P₁ to |1⟩
@@ -313,8 +337,8 @@ def simulate_clifford_t(circuit: Circuit, seed: int | None = None) -> tuple[np.n
                 if tab1.project_z(q, 1):
                     new_branches.append((coeff * phase, tab1))
             branches = new_branches
-        elif op.gate in _clifford_dispatch:
-            method = _clifford_dispatch[op.gate]
+        elif op.gate in _CLIFFORD_1Q_METHODS:
+            method = _CLIFFORD_1Q_METHODS[op.gate]
             for _, tab in branches: getattr(tab, method)(op.qubits[0])
         elif op.gate == Gate.CX:
             for _, tab in branches: tab.cx(op.qubits[0], op.qubits[1])

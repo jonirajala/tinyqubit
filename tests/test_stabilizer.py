@@ -4,7 +4,7 @@ from math import sqrt
 
 from tinyqubit.ir import Circuit, Gate, Operation
 from tinyqubit.simulator import simulate, states_equal
-from tinyqubit.simulator.stabilizer import is_clifford, simulate_stabilizer
+from tinyqubit.simulator.stabilizer import is_clifford, simulate_stabilizer, clifford_t_info, simulate_clifford_t
 
 
 def _force_statevector(circuit, seed=None):
@@ -187,3 +187,65 @@ def test_simulate_statevector_with_initial_state():
     c._initial_state = np.array([1, 0], dtype=complex)
     sv, _ = simulate(c, seed=42)
     assert sv.shape == (2,)
+
+
+# -- Clifford+T --
+
+def test_clifford_t_info_detection():
+    assert clifford_t_info(Circuit(1).h(0).t(0)) == 1
+    assert clifford_t_info(Circuit(1).h(0).t(0).tdg(0)) == 2
+    assert clifford_t_info(Circuit(1).rx(0, 0.5)) == -1
+    assert clifford_t_info(Circuit(1).h(0)) == 0
+
+def test_clifford_t_ht_agreement():
+    """H-T circuit matches statevector."""
+    c = Circuit(1).h(0).t(0)
+    sv_ct, _ = simulate_clifford_t(c)
+    sv_ref, _ = _force_statevector(c)
+    assert states_equal(sv_ct, sv_ref)
+
+def test_clifford_t_tdg_agreement():
+    c = Circuit(1).h(0).tdg(0)
+    sv_ct, _ = simulate_clifford_t(c)
+    sv_ref, _ = _force_statevector(c)
+    assert states_equal(sv_ct, sv_ref)
+
+def test_clifford_t_multi_t():
+    """Multiple T gates on different qubits."""
+    c = Circuit(3).h(0).h(1).h(2).t(0).cx(0, 1).t(1).cx(1, 2).t(2)
+    sv_ct, _ = simulate_clifford_t(c)
+    sv_ref, _ = _force_statevector(c)
+    assert states_equal(sv_ct, sv_ref)
+
+def test_clifford_t_t_then_cliffords():
+    """T followed by Clifford entangling gates."""
+    c = Circuit(2).h(0).t(0).cx(0, 1).h(1).s(1)
+    sv_ct, _ = simulate_clifford_t(c)
+    sv_ref, _ = _force_statevector(c)
+    assert states_equal(sv_ct, sv_ref)
+
+def test_clifford_t_deterministic_measure():
+    """T on |0> always measures 0 (T is diagonal, doesn't change Z eigenstates)."""
+    c = Circuit(1, 1).t(0).measure(0, 0)
+    for seed in range(20):
+        _, bits = simulate_clifford_t(c, seed=seed)
+        assert bits[0] == 0, f"T|0> measured 1 at seed={seed}"
+
+def test_clifford_t_bell_t_measurement_correlation():
+    """Entangled pair via T: measurements must correlate."""
+    c = Circuit(2, 2).h(0).t(0).cx(0, 1).measure(0, 0).measure(1, 1)
+    for seed in range(20):
+        _, bits = simulate_clifford_t(c, seed=seed)
+        assert bits[0] == bits[1], f"Bell+T pair disagreed at seed={seed}"
+
+def test_clifford_t_reset():
+    """Reset works correctly in Clifford+T circuit."""
+    c = Circuit(1, 1).h(0).t(0).reset(0).measure(0, 0)
+    for seed in range(20):
+        _, bits = simulate_clifford_t(c, seed=seed)
+        assert bits[0] == 0, f"Reset qubit measured {bits[0]} at seed={seed}"
+
+def test_clifford_t_seed_determinism():
+    c = Circuit(2, 2).h(0).t(0).cx(0, 1).measure(0, 0).measure(1, 1)
+    results = [simulate_clifford_t(c, seed=99)[1] for _ in range(5)]
+    assert all(r == results[0] for r in results)
