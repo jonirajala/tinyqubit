@@ -206,14 +206,14 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                         and adjoint_info[k - 1][2] == 1 and bound.ops[k - 1].qubits[0] == q_cur
                         and bound.ops[k - 1].gate in (Gate.RY, Gate.RX) and not diag_dirty)
             if can_fuse:
-                # Scan backward for consecutive fusable pairs on different qubits
-                fused_batch = []  # [(qubit, k_rz, k_ry, rz_info, ry_info, ry_gate, combined_mat)]
+                # Scan + extract gradients + build matrices in ONE pass
+                fused_batch = []  # [(qubit, combined_mat)]
                 seen_qubits = set()
                 scan = k
+                st, la = state.reshape([2] * n), lam.reshape([2] * n)
                 while scan > 0:
                     s_info = adjoint_info[scan]
-                    s_op = bound.ops[scan]
-                    s_q = s_op.qubits[0]
+                    s_q = bound.ops[scan].qubits[0]
                     if not (s_info[2] == 1 and s_info[0] == Gate.RZ and scan in param_map): break
                     prev_info = adjoint_info[scan - 1]
                     prev_op = bound.ops[scan - 1]
@@ -221,57 +221,48 @@ def _adjoint_backward(circuit: Circuit, bound: Circuit, state: np.ndarray, lam: 
                             and prev_op.gate in (Gate.RY, Gate.RX)): break
                     if s_q in seen_qubits: break
                     seen_qubits.add(s_q)
-                    # Build combined adjoint matrix (RY†·RZ† = prev_mat @ diag(e0,e1))
-                    e0, e1 = s_info[3]
-                    pm = prev_info[3]
+                    # Extract gradients immediately (same state for all — gates commute on diff qubits)
+                    i0_f, i1_f = s_info[4]
+                    rz_name, rz_scale = param_map[scan]
+                    ry_name, ry_scale = param_map[scan - 1]
+                    v00 = np.vdot(la[i0_f], st[i0_f]); v11 = np.vdot(la[i1_f], st[i1_f])
+                    v10 = np.vdot(la[i1_f], st[i0_f]); v01 = np.vdot(la[i0_f], st[i1_f])
+                    grad[rz_name] += rz_scale * (v00 - v11).imag
+                    e_ph = _cexp(-1j * s_info[1][0])
+                    e_ph_c = e_ph.conjugate()
+                    if prev_op.gate == Gate.RY:
+                        grad[ry_name] += ry_scale * (e_ph * v10 - e_ph_c * v01).real
+                    else:
+                        grad[ry_name] += ry_scale * (e_ph * v01 + e_ph_c * v10).imag
+                    # Build combined adjoint matrix
+                    e0, e1 = s_info[3]; pm = prev_info[3]
                     combined = np.empty((2, 2), dtype=complex)
                     combined[0, 0] = pm[0, 0] * e0; combined[0, 1] = pm[0, 1] * e1
                     combined[1, 0] = pm[1, 0] * e0; combined[1, 1] = pm[1, 1] * e1
-                    fused_batch.append((s_q, scan, scan - 1, s_info, prev_info, prev_op.gate, combined))
+                    fused_batch.append((s_q, combined))
                     scan -= 2
 
                 if fused_batch:
-                    # Extract ALL gradients: pre-compute cross products, then slice
-                    st, la = state.reshape([2] * n), lam.reshape([2] * n)
-                    for q_f, k_rz, k_ry, rz_info, ry_info, ry_gate, _ in fused_batch:
-                        i0_f, i1_f = rz_info[4]
-                        rz_name, rz_scale = param_map[k_rz]
-                        ry_name, ry_scale = param_map[k_ry]
-                        # Compute 4 vdots that share subarray views
-                        v00 = np.vdot(la[i0_f], st[i0_f])
-                        v11 = np.vdot(la[i1_f], st[i1_f])
-                        v10 = np.vdot(la[i1_f], st[i0_f])
-                        v01 = np.vdot(la[i0_f], st[i1_f])
-                        # RZ grad (phase-invariant)
-                        grad[rz_name] += rz_scale * (v00 - v11).imag
-                        # RY/RX grad with phase correction
-                        e_ph = _cexp(-1j * rz_info[1][0])
-                        e_ph_c = e_ph.conjugate()
-                        if ry_gate == Gate.RY:
-                            grad[ry_name] += ry_scale * (e_ph * v10 - e_ph_c * v01).real
-                        else:
-                            grad[ry_name] += ry_scale * (e_ph * v01 + e_ph_c * v10).imag
 
                     # Kron-group combined matrices by adjacent qubit runs
                     fused_batch.sort(key=lambda x: x[0])
                     bi = 0
                     while bi < len(fused_batch):
                         run = 1
-                        # Cap at 4 adjacent qubits (16x16 kron matrix) to limit memory
                         while run < 5 and bi + run < len(fused_batch) and fused_batch[bi + run][0] == fused_batch[bi][0] + run:
                             run += 1
                         if run >= 2:
                             q_first = fused_batch[bi][0]
                             q_last = fused_batch[bi + run - 1][0]
-                            kron_mat = fused_batch[bi][6]
+                            kron_mat = fused_batch[bi][1]
                             for j in range(1, run):
-                                b = fused_batch[bi + j][6]
+                                b = fused_batch[bi + j][1]
                                 kron_mat = (kron_mat[:, np.newaxis, :, np.newaxis] * b[np.newaxis, :, np.newaxis, :]).reshape(
                                     kron_mat.shape[0] * 2, kron_mat.shape[1] * 2)
                             sl, buf_sl = _apply_mat_sl(sl, buf_sl, kron_mat, q_first, q_last, n)
                             bi += run
                         else:
-                            sl, buf_sl = _apply_mat_sl(sl, buf_sl, fused_batch[bi][6], fused_batch[bi][0], fused_batch[bi][0], n)
+                            sl, buf_sl = _apply_mat_sl(sl, buf_sl, fused_batch[bi][1], fused_batch[bi][0], fused_batch[bi][0], n)
                             bi += 1
                     state, lam = sl[0], sl[1]
                     buf_s, buf_l = buf_sl[0], buf_sl[1]

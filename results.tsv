@@ -1,3 +1,4 @@
 commit	total_ms	correctness	status	description
 f3f1337	1076.7	13/13	keep	baseline
 c5111b1	1069.7	13/13	keep	cmath.exp + direct matrix build (hea_12q -19%)
+c55eb02	1075.7	13/13	keep	share vdot results across RZ+RY gradients
