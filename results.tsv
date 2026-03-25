@@ -1,16 +1,5 @@
 commit	total_ms	correctness	status	description
-db92437	187.3	14/14	keep	baseline
-aad8d47	188.3	14/14	keep	inline _is_pauli_like in CX conjugation
-29def81	196.5	14/14	keep	eliminate DAG rebuild in optimizer (replace_op)
-d371425	152.7	14/14	keep	replace np.allclose with scalar checks in _is_identity (-18%)
-4fb9b8c	166.3	14/14	keep	faster commutes() (avoid set creation)
-49a0e00	159.0	14/14	keep	heapq topological sort (11/14 faster)
-1fc3ff6	150.6	14/14	keep	inline DAG accessors in CX conjugation (13/14 faster)
-456d1cd	134.5	14/14	keep	avoid enum __hash__ in hot paths (-28% from baseline)
-5b5c2f0	134.1	14/14	keep	skip _try_cx_conjugation for non-CX gates
-23d553a	120.2	14/14	keep	inline _find_partner + cmath ZXZ (ALL 14 FASTER, -36%)
-e3bf241	139.7	14/14	keep	pre-filter optimizer dispatch (all 14 faster)
-e37e970	119.0	14/14	keep	value-keyed partner/conjugate lookups (-36%)
-5c442b4	114.0	14/14	keep	faster add_op: direct list, no set/sorted (-39%)
-3c98726	117.6	14/14	keep	hoist heapify import + local _preds ref
-2421043	114.6	14/14	keep	inline qubit disjoint check in commutes()
+f3f1337	1076.7	13/13	keep	baseline
+c5111b1	1069.7	13/13	keep	cmath.exp + direct matrix build (hea_12q -19%)
+c55eb02	1075.7	13/13	keep	share vdot results across RZ+RY gradients
+f13aab2	1071.6	13/13	keep	merge scan+extract into one pass
